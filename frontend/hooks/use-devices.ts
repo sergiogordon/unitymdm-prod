@@ -67,7 +67,8 @@ export function useDevices() {
         wsRef.current.close()
       }
     }
-  }, [loadDevices, handleDeviceUpdate])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
 
   // Refresh devices manually
   const refresh = useCallback(() => {
