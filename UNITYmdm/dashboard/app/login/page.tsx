@@ -9,12 +9,14 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth"
+import { ForgotPasswordModal } from "@/components/forgot-password-modal"
 
 export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isDark, setIsDark] = useState(false)
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
   const router = useRouter()
   const { login, isAuthenticated } = useAuth()
 
@@ -102,7 +104,16 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotPassword(true)}
+                    className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <Input
                   id="password"
                   type="password"
@@ -139,6 +150,11 @@ export default function LoginPage() {
           Don't have an account? Contact your administrator
         </p>
       </div>
+
+      <ForgotPasswordModal
+        open={showForgotPassword}
+        onOpenChange={setShowForgotPassword}
+      />
     </div>
   )
 }

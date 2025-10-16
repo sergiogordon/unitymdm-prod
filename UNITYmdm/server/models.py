@@ -12,6 +12,7 @@ class User(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String, unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -67,6 +68,23 @@ class DeviceEvent(Base):
     
     __table_args__ = (
         Index('idx_device_event_query', 'device_id', 'timestamp'),
+    )
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_password_reset_token_lookup', 'token', 'expires_at'),
+        Index('idx_password_reset_user', 'user_id', 'created_at'),
     )
 
 class ApkVersion(Base):

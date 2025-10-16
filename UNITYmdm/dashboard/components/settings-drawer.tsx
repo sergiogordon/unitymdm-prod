@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Copy, Check, QrCode, LogOut, User, RefreshCw } from "lucide-react"
+import { X, Copy, Check, QrCode, LogOut, User, RefreshCw, KeyRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { QRCodeSVG } from "qrcode.react"
 import { useAuth } from "@/lib/auth"
 import { toast } from "sonner"
+import { AdminResetTokenDialog } from "@/components/admin-reset-token-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +40,8 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [showAutoRelaunchDialog, setShowAutoRelaunchDialog] = useState(false)
   const [pendingAutoRelaunchValue, setPendingAutoRelaunchValue] = useState(false)
   const [justUpdated, setJustUpdated] = useState(false)
+  const [showResetTokenDialog, setShowResetTokenDialog] = useState(false)
+  const [adminKey, setAdminKey] = useState("")
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -265,6 +268,36 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                 </div>
                 <p className="text-xs text-amber-600">
                   Note: This will update the auto-relaunch setting for all devices currently under management.
+                </p>
+              </div>
+            </section>
+
+            {/* User Management */}
+            <section className="mb-8">
+              <h3 className="mb-4 text-sm font-semibold">User Management</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Admin Key (Required)</label>
+                  <input
+                    type="password"
+                    value={adminKey}
+                    onChange={(e) => setAdminKey(e.target.value)}
+                    placeholder="Enter admin key"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                </div>
+                <Button
+                  onClick={() => setShowResetTokenDialog(true)}
+                  className="w-full"
+                  disabled={!adminKey.trim()}
+                  variant="outline"
+                >
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Generate Password Reset Token
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Generate a password reset token for users who can't access their email.
+                  Tokens are valid for 2 hours.
                 </p>
               </div>
             </section>
@@ -522,6 +555,12 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AdminResetTokenDialog
+        open={showResetTokenDialog}
+        onOpenChange={setShowResetTokenDialog}
+        adminKey={adminKey}
+      />
     </>
   )
 }

@@ -14,7 +14,7 @@ import asyncio
 import os
 import time
 
-from server.models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, get_db, init_db, SessionLocal
+from server.models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, get_db, init_db, SessionLocal
 from server.schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -28,6 +28,7 @@ from server.auth import (
 from server.alerts import alert_scheduler, alert_manager
 from server.fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
 from server.apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
+from server.email_service import email_service
 
 # Helper function to ensure datetime is timezone-aware (assume UTC for naive datetimes)
 def ensure_utc(dt: Optional[datetime]) -> datetime:
@@ -618,6 +619,7 @@ async def register_user(
     
     user = User(
         username=request.username,
+        email=request.email,
         password_hash=password_hash,
         created_at=datetime.now(timezone.utc)
     )
@@ -692,6 +694,181 @@ async def logout_user(
     response.delete_cookie(key="session_token", samesite="lax")
     
     return {"ok": True, "message": "Logged out successfully"}
+
+# Rate limiter for password reset requests
+password_reset_limiter = RateLimiter(max_requests=3, window_seconds=3600)  # 3 requests per hour
+
+@app.post("/api/auth/forgot-password")
+async def request_password_reset(
+    request: Request,
+    username_or_email: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Request a password reset token be sent to the user's email"""
+    # Rate limiting by IP
+    client_ip = request.client.host if request.client else "unknown"
+    if not password_reset_limiter.is_allowed(client_ip):
+        raise HTTPException(status_code=429, detail="Too many password reset requests. Please try again later.")
+    
+    # Find user by username or email
+    user = db.query(User).filter(
+        (User.username == username_or_email) | (User.email == username_or_email)
+    ).first()
+    
+    # Always return success to prevent user enumeration
+    response_message = "If an account exists with that username or email, a password reset link has been sent."
+    
+    if user and user.email:
+        # Generate reset token
+        import secrets
+        reset_token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+        
+        # Store token in database
+        password_reset = PasswordResetToken(
+            user_id=user.id,
+            token=reset_token,
+            expires_at=expires_at,
+            ip_address=client_ip
+        )
+        db.add(password_reset)
+        db.commit()
+        
+        # Send reset email asynchronously
+        try:
+            base_url = os.getenv("BASE_URL", "http://localhost:3000")
+            await email_service.send_password_reset_email(
+                to_email=user.email,
+                reset_token=reset_token,
+                username=user.username,
+                base_url=base_url
+            )
+            print(f"[PASSWORD RESET] Email sent to {user.email[:3]}***")
+        except Exception as e:
+            print(f"[PASSWORD RESET] Failed to send email: {str(e)}")
+            # Don't reveal email sending failures to the user
+    
+    return {"ok": True, "message": response_message}
+
+@app.post("/api/auth/reset-password")
+async def reset_password(
+    token: str = Form(...),
+    new_password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Reset password using a valid token"""
+    # Find the token
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == token,
+        PasswordResetToken.used == False,
+        PasswordResetToken.expires_at > datetime.now(timezone.utc)
+    ).first()
+    
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    # Get the user
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+    
+    # Update password
+    user.password_hash = hash_password(new_password)
+    
+    # Mark token as used
+    reset_token.used = True
+    reset_token.used_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    
+    # Send confirmation email
+    if user.email:
+        try:
+            await email_service.send_password_reset_success_email(
+                to_email=user.email,
+                username=user.username
+            )
+        except Exception as e:
+            print(f"[PASSWORD RESET] Failed to send success email: {str(e)}")
+    
+    # Generate new JWT token for auto-login
+    from server.auth import create_jwt_token
+    access_token = create_jwt_token(user.id, user.username)
+    
+    return {
+        "ok": True,
+        "message": "Password reset successfully",
+        "access_token": access_token,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "created_at": user.created_at.isoformat() + "Z"
+        }
+    }
+
+@app.get("/api/auth/verify-reset-token")
+async def verify_reset_token(
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """Verify if a reset token is valid"""
+    reset_token = db.query(PasswordResetToken).filter(
+        PasswordResetToken.token == token,
+        PasswordResetToken.used == False,
+        PasswordResetToken.expires_at > datetime.now(timezone.utc)
+    ).first()
+    
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    # Get user info
+    user = db.query(User).filter(User.id == reset_token.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="User not found")
+    
+    return {
+        "ok": True,
+        "username": user.username,
+        "expires_at": reset_token.expires_at.isoformat() + "Z"
+    }
+
+# Admin endpoint to generate reset token manually
+@app.post("/api/auth/admin/generate-reset-token")
+async def admin_generate_reset_token(
+    username: str = Form(...),
+    x_admin: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to generate a password reset token for a user"""
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Generate reset token
+    import secrets
+    reset_token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=2)  # Admin tokens last 2 hours
+    
+    # Store token in database
+    password_reset = PasswordResetToken(
+        user_id=user.id,
+        token=reset_token,
+        expires_at=expires_at,
+        ip_address="admin"
+    )
+    db.add(password_reset)
+    db.commit()
+    
+    return {
+        "ok": True,
+        "token": reset_token,
+        "username": user.username,
+        "expires_at": expires_at.isoformat() + "Z",
+        "reset_url": f"{os.getenv('BASE_URL', 'http://localhost:3000')}/reset-password?token={reset_token}"
+    }
 
 @app.post("/v1/register", response_model=RegisterResponse)
 async def register_device(

@@ -84,6 +84,7 @@ class RegisterResponse(BaseModel):
 class UserRegisterRequest(BaseModel):
     username: str
     password: str
+    email: Optional[str] = None
 
 class UserLoginRequest(BaseModel):
     username: str
