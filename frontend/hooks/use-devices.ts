@@ -21,9 +21,12 @@ export function useDevices() {
       setError(null)
       const fetchedDevices = await fetchDevices()
       setDevices(fetchedDevices)
+      setError(null) // Clear any previous errors on success
     } catch (err) {
       console.error('Error loading devices:', err)
-      setError(err instanceof Error ? err.message : 'Failed to load devices')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load devices'
+      setError(errorMessage)
+      // Don't clear devices on error - keep showing last known state
     } finally {
       setLoading(false)
     }
