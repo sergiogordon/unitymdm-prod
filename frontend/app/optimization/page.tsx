@@ -1,18 +1,28 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { Gauge, Check, Plus, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { isAuthenticated } from "@/lib/api-client"
 
 export default function OptimizationPage() {
+  const router = useRouter()
   const [isDark, setIsDark] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [whitelistApps, setWhitelistApps] = useState([{ name: "Speedtest", package: "org.zwanoo.android.speedtest" }])
+
+  // Check authentication
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.push('/login')
+    }
+  }, [router])
 
   useEffect(() => {
     if (isDark) {
