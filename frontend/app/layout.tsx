@@ -1,15 +1,17 @@
-import type { Metadata } from 'next'
-import { GeistSans } from 'geist/font/sans'
-import { GeistMono } from 'geist/font/mono'
-import { Analytics } from '@vercel/analytics/next'
-import { Toaster } from 'sonner'
-import { Providers } from '@/components/providers'
-import './globals.css'
+import type React from "react"
+import type { Metadata } from "next"
+import { Geist, Geist_Mono } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
+import "./globals.css"
+import { Sidebar } from "@/components/sidebar"
+
+const _geist = Geist({ subsets: ["latin"] })
+const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: 'UNITYmdm',
-  description: 'Mobile Device Management Dashboard',
-  generator: 'UNITYmdm',
+  title: "Unity MDM",
+  description: "Micro-MDM Management Dashboard",
+  generator: "v0.app",
 }
 
 export default function RootLayout({
@@ -19,11 +21,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
-        <Providers>
-          {children}
-        </Providers>
-        <Toaster position="top-right" richColors />
+      <body className={`font-sans antialiased`}>
+        <Sidebar />
+        <div className="pl-64">{children}</div>
         <Analytics />
       </body>
     </html>

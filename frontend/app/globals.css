@@ -40,7 +40,7 @@
   --sidebar-ring: oklch(0.708 0 0);
 
   /* Added semantic status colors */
-  --status-online: oklch(0.6 0.18 142);
+  --status-online: oklch(0.65 0.2 145);
   --status-offline: oklch(0.6 0.22 25);
   --status-warning: oklch(0.7 0.18 75);
 }
@@ -81,7 +81,7 @@
   --sidebar-ring: oklch(0.439 0 0);
 
   /* Dark mode status colors */
-  --status-online: oklch(0.65 0.18 142);
+  --status-online: oklch(0.7 0.2 145);
   --status-offline: oklch(0.65 0.22 25);
   --status-warning: oklch(0.75 0.18 75);
 }
@@ -154,14 +154,4 @@
 
 .animate-pulse-once {
   animation: pulse-once 0.6s ease-in-out;
-}
-
-/* Hide scrollbar for horizontal navigation on mobile */
-.scrollbar-hide {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;  /* Chrome, Safari, and Opera */
 }

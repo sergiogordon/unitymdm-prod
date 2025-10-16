@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Moon, Sun, Settings, RefreshCw, Menu } from "lucide-react"
+import { Moon, Sun, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
+import { cn } from "@/lib/utils"
 
 interface HeaderProps {
   lastUpdated: number
@@ -12,10 +12,18 @@ interface HeaderProps {
   onToggleDark: () => void
   onOpenSettings: () => void
   onRefresh: () => void
-  onToggleSidebar: () => void
+  className?: string
 }
 
-export function Header({ lastUpdated, alertCount, isDark, onToggleDark, onOpenSettings, onRefresh, onToggleSidebar }: HeaderProps) {
+export function Header({
+  lastUpdated,
+  alertCount,
+  isDark,
+  onToggleDark,
+  onOpenSettings,
+  onRefresh,
+  className,
+}: HeaderProps) {
   const [timeAgo, setTimeAgo] = useState("0s ago")
   const [shouldPulse, setShouldPulse] = useState(false)
 
@@ -42,43 +50,23 @@ export function Header({ lastUpdated, alertCount, isDark, onToggleDark, onOpenSe
   }, [lastUpdated])
 
   return (
-    <header className="fixed top-0 z-40 w-full border-b border-border/40 bg-background/80 backdrop-blur-xl transition-all">
-      <div className="flex h-[60px] items-center justify-between px-4 md:px-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggleSidebar}
-            className="h-9 w-9 lg:hidden"
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-          
-          <Link href="/" className="lg:hidden">
-            <h1 className="text-lg font-semibold tracking-tight">UNITYmdm</h1>
-          </Link>
-        </div>
+    <header
+      className={cn("fixed top-0 z-50 w-full border-b border-border/40 bg-background/80 backdrop-blur-xl", className)}
+    >
+      <div className="mx-auto flex h-[60px] max-w-[1280px] items-center justify-between px-6 md:px-8">
+        <h1 className="text-lg font-semibold tracking-tight">Unity Micro-MDM</h1>
 
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-4">
           <button
             onClick={onRefresh}
-            className="hidden md:flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
             <span>Updated</span>
             <span className="text-foreground">•</span>
             <span className={shouldPulse ? "animate-pulse-once" : ""}>{timeAgo}</span>
           </button>
 
-          <button
-            onClick={onRefresh}
-            className="md:hidden flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span className={shouldPulse ? "animate-pulse-once" : ""}>{timeAgo}</span>
-          </button>
-
-          <div className="hidden md:flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm">
+          <div className="flex items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm">
             <span className="text-muted-foreground">Alerts</span>
             <span className="text-foreground">•</span>
             <span className={alertCount > 0 ? "font-medium text-status-offline" : ""}>{alertCount}</span>
