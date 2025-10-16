@@ -1,0 +1,70 @@
+Based on my research, I now have comprehensive information about the issue and potential workarounds. Let me compile this into a detailed response.
+
+Remote Battery Optimization Management for Device Owner on Android 13
+Great news! Since your device has Device Owner mode enabled with an MDM agent, you have several powerful remote methods available to manage battery optimization without requiring USB/ADB connections for each device. The key is leveraging your existing infrastructure.
+
+The Core Issue
+The setBatteryOptimizationMode() method your FCM service is trying to use was introduced in Android 14 (API level 34). Your Orbic Joy 2 runs Android 13 (API level 33), which explains the NoSuchMethodException. This API simply doesn't exist on your device.​
+
+Solution 1: Execute Shell Commands Programmatically via Runtime.exec() (Recommended)
+Since you have Device Owner privileges, your MDM agent can execute shell commands programmatically without requiring ADB over USB. The shell user has sufficient privileges to run dumpsys deviceidle commands.​
+
+Implementation in your FCM handler:
+
+kotlin
+private fun handleApplyBatteryWhitelistRequest(packages: List<String>) {
+    packages.forEach { packageName ->
+        try {
+            // Execute shell commands to whitelist the app
+            addToDeviceIdleWhitelist(packageName)
+            setRunAnyInBackground(packageName)
+            
+            Log.i(TAG, "Successfully whitelisted: $packageName")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to whitelist $packageName: ${e.message}")
+        }
+    }
+}
+
+private fun addToDeviceIdleWhitelist(packageName: String) {
+    try {
+        val command = arrayOf("sh", "-c", "dumpsys deviceidle whitelist +$packageName")
+        val process = Runtime.getRuntime().exec(command)
+        val exitCode = process.waitFor()
+        
+        if (exitCode == 0) {
+            Log.d(TAG, "Added $packageName to device idle whitelist")
+        } else {
+            Log.e(TAG, "Failed to add to whitelist, exit code: $exitCode")
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error executing whitelist command: ${e.message}")
+    }
+}
+
+private fun setRunAnyInBackground(packageName: String) {
+    try {
+        val command = arrayOf("sh", "-c", "cmd appops set $packageName RUN_ANY_IN_BACKGROUND allow")
+        val process = Runtime.getRuntime().exec(command)
+        val exitCode = process.waitFor()
+        
+        if (exitCode == 0) {
+            Log.d(TAG, "Set RUN_ANY_IN_BACKGROUND for $packageName")
+        } else {
+            Log.e(TAG, "Failed to set RUN_ANY_IN_BACKGROUND, exit code: $exitCode")
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Error executing appops command: ${e.message}")
+    }
+}
+Understanding Battery States on Android 13:
+
+On Android 13, the three battery optimization states map to these settings:​
+
+Unrestricted: dumpsys deviceidle whitelist = true AND RUN_ANY_IN_BACKGROUND = allow
+
+Optimized: dumpsys deviceidle whitelist = false AND RUN_ANY_IN_BACKGROUND = allow
+
+Restricted: dumpsys deviceidle whitelist = false AND RUN_ANY_IN_BACKGROUND = ignore
+
+To achieve "Unrestricted" status, you need both commands.

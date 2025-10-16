@@ -1,0 +1,20 @@
+C:\Users\gordo\AppData\Local\Temp\_MEI379962\platform-tools>adb shell dpm remove-active-admin com.nexmdm/.NexDeviceAdminReceiver
+adb uninstall com.nexmdm
+Exception occurred while executing 'remove-active-admin':
+java.lang.SecurityException: Attempt to remove non-test admin ComponentInfo{com.nexmdm/com.nexmdm.NexDeviceAdminReceiver} 0
+        at com.android.server.devicepolicy.DevicePolicyManagerService.lambda$forceRemoveActiveAdmin$10(DevicePolicyManagerService.java:3608)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.$r8$lambda$V62PEglyizMJLaLLs92rOAnX-hc(Unknown Source:0)
+        at com.android.server.devicepolicy.DevicePolicyManagerService$$ExternalSyntheticLambda80.runOrThrow(Unknown Source:6)
+        at android.os.Binder.withCleanCallingIdentity(Binder.java:425)
+        at com.android.server.devicepolicy.DevicePolicyManagerService$Injector.binderWithCleanCallingIdentity(DevicePolicyManagerService.java:1594)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.forceRemoveActiveAdmin(DevicePolicyManagerService.java:3604)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.runRemoveActiveAdmin(DevicePolicyManagerServiceShellCommand.java:280)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.onCommand(DevicePolicyManagerServiceShellCommand.java:93)
+        at com.android.modules.utils.BasicShellCommandHandler.exec(BasicShellCommandHandler.java:97)
+        at android.os.ShellCommand.exec(ShellCommand.java:38)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.onShellCommand(DevicePolicyManagerService.java:9926)
+        at android.os.Binder.shellCommand(Binder.java:1049)
+        at android.os.Binder.onTransact(Binder.java:877)
+        at android.app.admin.IDevicePolicyManager$Stub.onTransact(IDevicePolicyManager.java:6054)
+        at android.os.Binder.execTransactInternal(Binder.java:1285)
+        at android.os.Binder.execTransact(Binder.java:1244)

@@ -1,0 +1,55 @@
+10-15 18:18:05.375  5119  5119 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+10-15 18:18:09.298  1699  1699 D OmadmService: DATA ACTION_BATTERY_CHANGED
+10-15 18:18:09.299  1205  4165 D OmadmServiceAPI: OmadmListener::omadmScomoPluginDispachBatteryState listener for             OMADM_SCOMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:09.299  1205  4165 D OmadmServiceAPI: OmadmListener::omadmFumoPluginDispachBatteryState listener for             OMADM_FUMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:14.664  5025  5025 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.inappreach.service.START dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsApiService }
+10-15 18:18:19.537  1699  1699 D OmadmService: DATA ACTION_BATTERY_CHANGED
+10-15 18:18:19.539  1205  4165 D OmadmServiceAPI: OmadmListener::omadmScomoPluginDispachBatteryState listener for             OMADM_SCOMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:19.539  1205  4165 D OmadmServiceAPI: OmadmListener::omadmFumoPluginDispachBatteryState listener for             OMADM_FUMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:27.161 14268 14827 D FcmMessagingService: FCM message received: {action=apply_battery_whitelist, packages=["org.zwanoo.android.speedtest"]}
+10-15 18:18:27.161 14268 14827 I FcmMessagingService: Handling apply battery whitelist request
+10-15 18:18:27.166 14268 14827 I FcmMessagingService: Applying battery exemption to 1 packages: [org.zwanoo.android.speedtest]
+10-15 18:18:27.170 14268 14827 D FcmMessagingService: Executing: sh -c 'dumpsys deviceidle whitelist +org.zwanoo.android.speedtest'
+10-15 18:18:27.213 14268 14827 I FcmMessagingService: Γ£ô Added org.zwanoo.android.speedtest to device idle whitelist
+10-15 18:18:27.214 14268 14827 D FcmMessagingService: Command output: Permission Denial: can't dump DeviceIdleController from from pid=14829, uid=10199 due to missing android.permission.DUMP permission
+10-15 18:18:27.215 14268 14827 D FcmMessagingService: Executing: sh -c 'cmd appops set org.zwanoo.android.speedtest RUN_ANY_IN_BACKGROUND allow'
+10-15 18:18:27.289 14268 14827 E FcmMessagingService: Γ£ù Failed to set RUN_ANY_IN_BACKGROUND, exit code: 255
+10-15 18:18:27.289 14268 14827 E FcmMessagingService: Error: Exception occurred while executing 'set':
+10-15 18:18:27.289 14268 14827 E FcmMessagingService: java.lang.SecurityException: Permission Denial: getCurrentUser() from pid=14831, uid=10199 requires android.permission.INTERACT_ACROSS_USERS
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.am.UserController.checkGetCurrentUserPermissions(UserController.java:2529)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.am.UserController.getCurrentUserIdChecked(UserController.java:2550)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.am.ActivityManagerService.getCurrentUserId(ActivityManagerService.java:16457)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.app.ActivityManager.getCurrentUser(ActivityManager.java:4311)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.appop.AppOpsService$Shell.parseUserPackageOp(AppOpsService.java:5527)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.appop.AppOpsService.onShellCommand(AppOpsService.java:5632)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.appop.AppOpsService$Shell.onCommand(AppOpsService.java:5417)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.modules.utils.BasicShellCommandHandler.exec(BasicShellCommandHandler.java:97)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.os.ShellCommand.exec(ShellCommand.java:38)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.server.appop.AppOpsService.onShellCommand(AppOpsService.java:5589)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.os.Binder.shellCommand(Binder.java:1049)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.os.Binder.onTransact(Binder.java:877)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at com.android.internal.app.IAppOpsService$Stub.onTransact(IAppOpsService.java:1120)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.os.Binder.execTransactInternal(Binder.java:1285)
+10-15 18:18:27.289 14268 14827 E FcmMessagingService:   at android.os.Binder.execTransact(Binder.java:1244)
+10-15 18:18:27.290 14268 14827 E FcmMessagingService: Γ£ù Failed to set RUN_ANY_IN_BACKGROUND for org.zwanoo.android.speedtest
+10-15 18:18:27.290 14268 14827 I FcmMessagingService: Battery whitelist applied: 0/1 packages (0 newly added, 0 already exempt)
+10-15 18:18:27.298 14268 14268 D MonitorService: onStartCommand: action=null, trigger=fcm_battery_whitelist, requestId=null, immediate=true, appUpdated=false
+10-15 18:18:29.786  1699  1699 D OmadmService: DATA ACTION_BATTERY_CHANGED
+10-15 18:18:29.787  1205  4165 D OmadmServiceAPI: OmadmListener::omadmScomoPluginDispachBatteryState listener for             OMADM_SCOMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:29.787  1205  4160 D OmadmServiceAPI: OmadmListener::omadmFumoPluginDispachBatteryState listener for             OMADM_FUMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:37.162  5119  5119 D BoundBrokerSvc: onRebind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action:/... cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+10-15 18:18:40.003  1699  1699 D OmadmService: DATA ACTION_BATTERY_CHANGED
+10-15 18:18:40.004  1205  4160 D OmadmServiceAPI: OmadmListener::omadmScomoPluginDispachBatteryState listener for             OMADM_SCOMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:40.005  1205  4160 D OmadmServiceAPI: OmadmListener::omadmFumoPluginDispachBatteryState listener for             OMADM_FUMO_GET_BATTERY_STATE wasn't properly set
+10-15 18:18:45.361  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.361  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.361  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.ACCESS_FINE_LOCATION due to sender android (uid 1001)
+10-15 18:18:45.361  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.ACCESS_FINE_LOCATION due to sender android (uid 1001)
+10-15 18:18:45.361  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.362  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to ProcessRecord{4bdec05 2194:com.android.systemui/u0a169} (pid=2194, uid=10169) requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.367  2194  2194 D GlobalActionsDialogLite: Service changed before actions created
+10-15 18:18:45.367  2194  2194 D GlobalActionsDialogLite: Service changed before actions created
+10-15 18:18:45.373  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to com.android.cellbroadcastreceiver/.CellBroadcastReceiver requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.375  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to com.android.cellbroadcastreceiver/.CellBroadcastReceiver requires android.permission.ACCESS_FINE_LOCATION due to sender android (uid 1001)
+10-15 18:18:45.375  1699  1825 W BroadcastQueue: Permission Denial: receiving Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 (has extras) } to com.android.cellbroadcastreceiver/.CellBroadcastReceiver requires android.permission.READ_PHONE_STATE due to sender android (uid 1001)
+10-15 18:18:45.378  2826  2826 D CellBroadcastReceiver: onReceive Intent { act=android.intent.action.SERVICE_STATE flg=0x1000010 cmp=com.android.cellbroadcastreceiver/.CellBroadcastReceiver (has extras) }

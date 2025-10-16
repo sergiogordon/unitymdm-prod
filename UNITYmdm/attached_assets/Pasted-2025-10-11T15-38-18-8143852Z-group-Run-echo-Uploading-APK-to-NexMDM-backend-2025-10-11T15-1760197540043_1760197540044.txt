@@ -1,0 +1,41 @@
+2025-10-11T15:38:18.8143852Z ##[group]Run echo "🚀 Uploading APK to NexMDM backend..."
+2025-10-11T15:38:18.8144311Z [36;1mecho "🚀 Uploading APK to NexMDM backend..."[0m
+2025-10-11T15:38:18.8144621Z [36;1m[0m
+2025-10-11T15:38:18.8145299Z [36;1mRESPONSE=$(curl -s -w "\n%{http_code}" -X POST "***/v1/apk/upload" \[0m
+2025-10-11T15:38:18.8145815Z [36;1m  -H "X-API-Key: ***" \[0m
+2025-10-11T15:38:18.8146181Z [36;1m  -F "file=@android/app/build/outputs/apk/debug/app-debug.apk" \[0m
+2025-10-11T15:38:18.8146568Z [36;1m  -F "package_name=com.nexmdm" \[0m
+2025-10-11T15:38:18.8146854Z [36;1m  -F "version_name=1.0.100" \[0m
+2025-10-11T15:38:18.8147132Z [36;1m  -F "version_code=100" \[0m
+2025-10-11T15:38:18.8147556Z [36;1m  -F "notes=🤖 Automated build from commit 886796e44e789299944e89813c69cba1fd5b4e54")[0m
+2025-10-11T15:38:18.8147960Z [36;1m[0m
+2025-10-11T15:38:18.8148199Z [36;1mHTTP_CODE=$(echo "$RESPONSE" | tail -n1)[0m
+2025-10-11T15:38:18.8148513Z [36;1mBODY=$(echo "$RESPONSE" | sed '$d')[0m
+2025-10-11T15:38:18.8148785Z [36;1m[0m
+2025-10-11T15:38:18.8149026Z [36;1mif [ "$HTTP_CODE" -eq 200 ]; then[0m
+2025-10-11T15:38:18.8149324Z [36;1m  echo "✅ APK uploaded successfully!"[0m
+2025-10-11T15:38:18.8149634Z [36;1m  echo "$BODY" | jq '.' || echo "$BODY"[0m
+2025-10-11T15:38:18.8149909Z [36;1melse[0m
+2025-10-11T15:38:18.8150158Z [36;1m  echo "❌ Upload failed with status $HTTP_CODE"[0m
+2025-10-11T15:38:18.8150619Z [36;1m  echo "$BODY"[0m
+2025-10-11T15:38:18.8150844Z [36;1m  exit 1[0m
+2025-10-11T15:38:18.8151049Z [36;1mfi[0m
+2025-10-11T15:38:18.8182913Z shell: /usr/bin/bash -e {0}
+2025-10-11T15:38:18.8183184Z env:
+2025-10-11T15:38:18.8183503Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-11T15:38:18.8184018Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-11T15:38:18.8184433Z   ANDROID_HOME: /usr/local/lib/android/sdk
+2025-10-11T15:38:18.8184739Z   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+2025-10-11T15:38:18.8185067Z   GRADLE_ACTION_ID: gradle/actions/setup-gradle
+2025-10-11T15:38:18.8185384Z   GRADLE_USER_HOME: /home/runner/.gradle
+2025-10-11T15:38:18.8185684Z   GRADLE_BUILD_ACTION_SETUP_COMPLETED: true
+2025-10-11T15:38:18.8185982Z   GRADLE_BUILD_ACTION_CACHE_RESTORED: true
+2025-10-11T15:38:18.8186424Z   DEVELOCITY_INJECTION_INIT_SCRIPT_NAME: gradle-actions.inject-develocity.init.gradle
+2025-10-11T15:38:18.8186905Z   DEVELOCITY_INJECTION_CUSTOM_VALUE: gradle-actions
+2025-10-11T15:38:18.8187227Z   GITHUB_DEPENDENCY_GRAPH_ENABLED: false
+2025-10-11T15:38:18.8187496Z ##[endgroup]
+2025-10-11T15:38:18.8240056Z 🚀 Uploading APK to NexMDM backend...
+2025-10-11T15:38:20.5763765Z ✅ APK uploaded successfully!
+2025-10-11T15:38:20.5829065Z {
+2025-10-11T15:38:20.5831033Z   "detail": "Authentication required (API key or session)"
+2025-10-11T15:38:20.5832531Z }

@@ -1,0 +1,126 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'android/**'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+    
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: wrapper
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x android/gradlew
+    
+    - name: Setup release signing
+      run: |
+        echo "🔐 Setting up release keystore for signing..."
+        mkdir -p android/keystore
+        printf "%s" "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/keystore/nexmdm-release.jks
+        echo "✅ Keystore decoded successfully"
+        echo "📂 Keystore created at: android/keystore/nexmdm-release.jks"
+        ls -lah android/keystore/
+    
+    - name: Clean build cache
+      env:
+        KEYSTORE_FILE: ${{ github.workspace }}/android/keystore/nexmdm-release.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        echo "🧹 Cleaning build cache..."
+        echo "🔍 DEBUG: KEYSTORE_FILE=$KEYSTORE_FILE"
+        echo "🔍 DEBUG: File exists check:"
+        ls -lah "$KEYSTORE_FILE" || echo "❌ Keystore file NOT found at $KEYSTORE_FILE"
+        cd android && ./gradlew clean
+    
+    - name: Build Debug APK
+      env:
+        GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        GITHUB_SHA: ${{ github.sha }}
+        KEYSTORE_FILE: ${{ github.workspace }}/android/keystore/nexmdm-release.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        echo "🏗️ Building APK with version info:"
+        echo "  Run Number: ${{ github.run_number }}"
+        echo "  Expected Version Code: $((${{ github.run_number }} + 100))"
+        echo "  Git SHA: ${{ github.sha }}"
+        echo "  Keystore path: $KEYSTORE_FILE"
+        cd android && ./gradlew assembleDebug --stacktrace --no-build-cache
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: nexmdm-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+    
+    - name: Extract APK metadata
+      id: apk_info
+      run: |
+        # Find aapt in Android SDK build tools
+        AAPT=$(find $ANDROID_HOME/build-tools -name aapt | head -1)
+        APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+        
+        # Extract package info using aapt
+        PACKAGE=$(${AAPT} dump badging ${APK_PATH} | grep package | awk '{print $2}' | sed "s/name='//;s/'//")
+        VERSION_CODE=$(${AAPT} dump badging ${APK_PATH} | grep versionCode | awk '{print $3}' | sed "s/versionCode='//;s/'//")
+        VERSION_NAME=$(${AAPT} dump badging ${APK_PATH} | grep versionName | awk '{print $4}' | sed "s/versionName='//;s/'//")
+        
+        echo "package_name=${PACKAGE}" >> $GITHUB_OUTPUT
+        echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+        echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+        
+        echo "📦 Package: ${PACKAGE}"
+        echo "🔢 Version Code: ${VERSION_CODE}"
+        echo "📝 Version Name: ${VERSION_NAME}"
+    
+    - name: Upload APK to NexMDM Backend
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "🚀 Uploading APK to NexMDM backend..."
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.NEXMDM_API_URL }}/v1/apk/upload" \
+          -F "file=@android/app/build/outputs/apk/debug/app-debug.apk" \
+          -F "package_name=${{ steps.apk_info.outputs.package_name }}" \
+          -F "version_name=${{ steps.apk_info.outputs.version_name }}" \
+          -F "version_code=${{ steps.apk_info.outputs.version_code }}" \
+          -F "notes=🤖 Automated build from commit ${{ github.sha }}" \
+          -F "api_key=${{ secrets.ADMIN_KEY }}")
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+        
+        if [ "$HTTP_CODE" -eq 200 ]; then
+          echo "✅ APK uploaded successfully!"
+          echo "$BODY" | jq '.' || echo "$BODY"
+        else
+          echo "❌ Upload failed with status $HTTP_CODE"
+          echo "$BODY"
+          exit 1
+        fi
