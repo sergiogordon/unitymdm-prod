@@ -5,7 +5,7 @@ integrations = ["replitmail:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["gh"]
+packages = ["cargo", "gh", "libiconv", "libxcrypt", "postgresql", "rustc"]
 
 [workflows]
 runButton = "Project"
@@ -19,6 +19,10 @@ author = "agent"
 task = "workflow.run"
 args = "Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend"
+
 [[workflows.workflow]]
 name = "Server"
 author = "agent"
@@ -31,10 +35,25 @@ waitForPort = 5000
 [workflows.workflow.metadata]
 outputType = "webview"
 
+[[workflows.workflow]]
+name = "Backend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd server && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[ports]]
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 8000
+externalPort = 8000
+
 [deployment]
 deploymentTarget = "autoscale"
-run = ["python", "-m", "http.server", "5000"]
+run = ["python", "-m", "uvicorn", "server.main:app", "--host=0.0.0.0", "--port=5000"]
