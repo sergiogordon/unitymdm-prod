@@ -11,6 +11,13 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 - **Authentication**: JWT tokens with password reset via email
 
 ## Recent Changes (October 17, 2025)
+- ✅ **Android Agent CI/CD Pipeline** - Automated build, sign, verify, and deploy workflow
+- ✅ **GitHub Actions Integration** - Builds on every push to main and version tags
+- ✅ **Secure APK Signing** - Keystore managed via GitHub Secrets, never in repo
+- ✅ **Auto APK Upload** - Debug APKs automatically uploaded to backend /v1/apk/upload
+- ✅ **Signature Verification** - All APKs verified with apksigner before distribution
+- ✅ **Reproducible Builds** - Gradle caching, deterministic versioning, SHA256 checksums
+- ✅ **Build Artifacts** - Release APK/AAB stored as GitHub artifacts (90 day retention)
 - ✅ **V1 Production Control Loop** - Secure device enrollment, heartbeats, FCM commands
 - ✅ `/v1/register` - Device registration with bcrypt-hashed tokens
 - ✅ `/v1/heartbeat` - Bearer token auth, <150ms p95 latency (measured 46-70ms)
@@ -26,19 +33,27 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 ## Project Structure
 ```
 /
+├── .github/
+│   └── workflows/
+│       └── android-ci.yml  # Android Agent CI/CD pipeline
 ├── server/                 # FastAPI Backend
 │   ├── main.py            # Main application with async endpoints
 │   ├── database.py        # Async database configuration
 │   ├── models_async.py    # SQLAlchemy async models
 │   ├── auth.py            # Authentication utilities
 │   ├── email_service.py   # Email service (Replit Mail)
+│   ├── apk_manager.py     # APK storage and management
 │   └── websocket_manager.py # WebSocket connection handling
 ├── frontend/              # Next.js Frontend
 │   ├── app/              # App directory
 │   ├── components/       # React components
 │   └── lib/             # Utilities
-├── UNITYmdm/            # Original MDM codebase
-└── requirements.txt     # Python dependencies
+├── UNITYmdm/
+│   └── android/           # NexMDM Android Agent
+│       ├── app/          # Android app source code
+│       └── build.gradle  # Gradle build config with CI versioning
+├── ANDROID_CI_SETUP.md    # CI/CD setup documentation
+└── requirements.txt       # Python dependencies
 ```
 
 ## Key Features Implemented
@@ -73,7 +88,18 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
    - Background cleanup tasks
    - Sub-100ms heartbeat processing
 
-5. **Deployment**
+5. **Android Agent CI/CD**
+   - Automated builds on every commit and tag
+   - Secure keystore management via GitHub Secrets
+   - APK signature verification with apksigner
+   - Debug APKs auto-uploaded to backend
+   - Release APKs stored as GitHub artifacts
+   - Reproducible builds with Gradle caching
+   - Deterministic versioning (versionCode = run_number + 100)
+   - SHA256 checksums for integrity verification
+   - Build time: <5 minutes on standard runners
+
+6. **Deployment**
    - Auto-scaling on Replit
    - PostgreSQL with automatic backups
    - Environment variable management
