@@ -1,0 +1,55 @@
+Milestone Context & End Goal — Backend + FCM
+
+Purpose: Establish the production control loop for NexMDM: secure device enrollment, reliable heartbeats, push commands via Firebase Cloud Messaging, and clear, auditable results — all on an async FastAPI + PostgreSQL stack that scales to 100+ concurrent devices.
+
+What “done” means:
+
+Devices can register, authenticate (Bearer token), send heartbeats every 2 minutes, and report command results.
+
+Admins can issue FCM high-priority commands (e.g., ping, launch_app) to one or many devices; the system logs FCM responses and correlates results by request_id.
+
+Backend is asynchronous end-to-end (SQLAlchemy async, pooled connections) with precise errors and stable 200s on happy paths.
+
+Secrets (Firebase service account) are loaded from Replit Secrets, not the repo.
+
+Non-goals (for this milestone):
+
+No UI changes, no demo/mocks, no Android client work (handled in later milestones).
+
+No complex RBAC or multi-tenant — single admin key is fine for now.
+
+No advanced alerting (basic logging only).
+
+Performance & reliability targets:
+
+Sustain ≥100 devices posting every 120s; p95 heartbeat API latency <150 ms, p99 <300 ms.
+
+Command dispatch to FCM <200 ms server-side; durable logging of FCM response codes.
+
+DB writes idempotent (same heartbeat device_id within a short window doesn’t duplicate rows if designed that way).
+
+Security baseline:
+
+bcrypt hash stored for device tokens; never store plaintext.
+
+HMAC signature on admin command payload; reject on bad sig.
+
+Admin access via X-Admin header; rate-limit admin endpoints.
+
+Observability:
+
+Structured logs for: register, heartbeat upsert, command send (with FCM code), action-result ingest.
+
+Minimal metrics counters (requests by route/status) to confirm load behavior.
+
+Acceptance tests:
+
+POST /v1/register returns {device_id, device_token} and persists hashed token.
+
+POST /v1/heartbeat with valid Bearer updates last_seen and last_status.
+
+POST /admin/command with admin key + valid HMAC queues an FCM send; DB logs the FCM response code and returns 200 with request_id.
+
+POST /v1/action-result with same request_id marks command as completed and is visible in query/DB.
+
+Under a script simulating 100 devices (heartbeats every 120s), error rate stays <1%, latency meets targets.
