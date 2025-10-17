@@ -266,19 +266,21 @@ async def get_device_by_token(
 ) -> Device:
     """Validate device Bearer token and return device"""
     token = credentials.credentials
-    token_hash = bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode()
+    token_id = hashlib.sha256(token.encode()).hexdigest()[:16]
     
     result = await db.execute(
-        select(Device).where(Device.token_hash != "")
+        select(Device).where(Device.token_id == token_id)
     )
-    devices = result.scalars().all()
+    device = result.scalar_one_or_none()
     
-    for device in devices:
-        try:
-            if bcrypt.checkpw(token.encode(), device.token_hash.encode()):
-                return device
-        except Exception:
-            continue
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    try:
+        if bcrypt.checkpw(token.encode(), device.token_hash.encode()):
+            return device
+    except Exception:
+        pass
     
     raise HTTPException(status_code=401, detail="Invalid device token")
 
@@ -351,11 +353,13 @@ async def register_device(
     
     device_token = secrets.token_urlsafe(32)
     token_hash = bcrypt.hashpw(device_token.encode(), bcrypt.gensalt()).decode()
+    token_id = hashlib.sha256(device_token.encode()).hexdigest()[:16]
     
     device = Device(
         id=request.device_id,
         alias=request.alias,
         token_hash=token_hash,
+        token_id=token_id,
         last_seen=datetime.now(timezone.utc)
     )
     
@@ -706,8 +710,7 @@ async def reset_password(
 @app.post("/api/devices/heartbeat")
 async def device_heartbeat(
     request: HeartbeatRequest,
-    db: AsyncSession = Depends(get_async_db),
-    background_tasks: Optional[BackgroundTasks] = None
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Process device heartbeat - optimized for high concurrency"""
     device_id = request.device_id
@@ -1048,6 +1051,15 @@ async def websocket_endpoint(
         logger.info(f"Device {device_id} disconnected from WebSocket")
 
 # ============== System Status Endpoints ==============
+
+@app.get("/api/metrics")
+async def get_metrics():
+    """Get basic metrics counters"""
+    return {
+        "ok": True,
+        "metrics": metrics_counters,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
 
 @app.get("/api/system/status")
 async def system_status(
