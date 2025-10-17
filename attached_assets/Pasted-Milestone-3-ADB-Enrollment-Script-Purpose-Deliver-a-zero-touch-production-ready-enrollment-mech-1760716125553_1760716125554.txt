@@ -1,0 +1,52 @@
+Milestone 3 — ADB Enrollment Script
+
+Purpose:
+Deliver a zero-touch, production-ready enrollment mechanism that provisions physical Android devices via ADB—installing the NexMDM agent, configuring it securely, granting required permissions, applying system optimizations, and confirming backend registration—all with a single command.
+
+What “done” means:
+	•	A fully functional enrollment script (scripts/enroll.sh for macOS/Linux, scripts/enroll.cmd for Windows) that performs:
+	•	Automatic download of the latest NexMDM APK from the backend via Bearer enrollment token (no admin keys).
+	•	Installation or update of the agent on connected devices.
+	•	Optional Device-Owner assignment (safe no-op on non-factory-reset units).
+	•	Runtime permission grants and Doze / AppOps whitelisting for background reliability.
+	•	Application of safe system-level optimizations (reduced animations, disabled app standby/adaptive battery, etc.).
+	•	Launch of the agent and secure broadcast of its configuration parameters (server_url, token, alias, unity_pkg).
+	•	Verification that the agent’s foreground service is running and that the device is registered in /v1/devices.
+	•	Scripts are idempotent — re-runs do not duplicate devices or break prior enrollments.
+	•	Support both USB ADB and ADB-over-TCP connectivity.
+	•	Tested across ≥20 devices with consistent success and <60 s time-to-registration per device.
+
+Non-goals (for this milestone):
+	•	No UI changes or new frontend behavior.
+	•	No multi-tenant or bulk-token orchestration (handled later).
+	•	No server-side analytics or dashboard extensions.
+	•	No cloud-based parallel enrollment (manual script execution only).
+
+Performance & reliability targets:
+	•	≥20 devices enrolled consecutively without manual input.
+	•	≤60 s average provisioning time per device.
+	•	≥99 % enrollment success rate across mixed device states.
+	•	Resilient to transient ADB disconnections (1–3 automatic retries).
+
+Security baseline:
+	•	Enrollment token required and single-use per device.
+	•	All sensitive data masked in terminal output.
+	•	HTTPS enforced for BASE_URL; script aborts on insecure endpoints.
+	•	Only minimal permissions granted; all system tweaks are reversible.
+
+Observability:
+	•	Structured, color-coded terminal output with step progress (1/7 → 7/7).
+	•	Local enroll-logs/ directory created with per-device CSV/JSON report (alias, serial, timestamp, result).
+	•	Script exit code 0 = all enrolled successfully; non-zero = one or more failures (logged).
+
+Acceptance tests:
+	•	Executing scripts/enroll.sh or scripts/enroll.cmd with environment variables set (BASE_URL, ENROLL_TOKEN, ALIAS, etc.) completes full enrollment without manual interaction.
+	•	Devices appear in /v1/devices within 60 s post-execution.
+	•	Re-running the same script:
+	•	Does not duplicate records.
+	•	Updates configuration if parameters change.
+	•	Leaves healthy devices untouched.
+	•	Logs clearly show [Step 1/7] → [Step 7/7] flow, final ✅ ENROLLMENT COMPLETE message, and per-device success.
+
+When complete:
+You’ll have a reliable, repeatable enrollment mechanism capable of provisioning 20 + devices at once—each automatically downloading, installing, configuring, whitelisting, and registering with NexMDM—forming the operational bridge between your backend (Milestone 1) and agent runtime (Milestone 4).
