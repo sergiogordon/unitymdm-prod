@@ -1,14 +1,43 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
-
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal } from "lucide-react"
+import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
 import { SettingsDrawer } from "@/components/settings-drawer"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+
+interface EnrollmentToken {
+  token_id: string
+  alias: string
+  token_last4: string
+  status: string
+  expires_at: string
+  uses_allowed: number
+  uses_consumed: number
+  note: string | null
+  issued_at: string
+  issued_by: string | null
+  full_token?: string
+}
 
 export default function ADBSetupPage() {
   return (
@@ -19,10 +48,12 @@ export default function ADBSetupPage() {
 }
 
 function ADBSetupContent() {
-  const [alias, setAlias] = useState("")
-  const [script, setScript] = useState("")
-  const [copied, setCopied] = useState(false)
+  const [aliases, setAliases] = useState("")
+  const [expiryMinutes, setExpiryMinutes] = useState("30")
+  const [note, setNote] = useState("")
   const [loading, setLoading] = useState(false)
+  const [tokens, setTokens] = useState<EnrollmentToken[]>([])
+  const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set())
   const [isDark, setIsDark] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -47,42 +78,149 @@ function ADBSetupContent() {
     }
   }, [])
 
-  const generateScript = async () => {
-    if (!alias.trim()) {
-      alert("Please enter a device alias")
+  useEffect(() => {
+    fetchTokens()
+  }, [])
+
+  const fetchTokens = async () => {
+    try {
+      const token = localStorage.getItem('access_token')
+      const response = await fetch("/v1/enroll-tokens?limit=50", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setTokens(data.tokens || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch tokens:", error)
+    }
+  }
+
+  const generateTokens = async () => {
+    if (!aliases.trim()) {
+      alert("Please enter at least one alias")
       return
     }
 
     setLoading(true)
     try {
+      const aliasArray = aliases.split(/[,\s]+/).filter(a => a.trim())
       const token = localStorage.getItem('access_token')
-      const response = await fetch("/v1/adb-script", {
+      
+      const response = await fetch("/v1/enroll-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ alias: alias.trim() }),
+        body: JSON.stringify({
+          aliases: aliasArray,
+          expires_in_sec: parseInt(expiryMinutes) * 60,
+          uses_allowed: 1,
+          note: note.trim() || null
+        }),
       })
       
       if (!response.ok) {
-        throw new Error("Failed to generate script")
+        throw new Error("Failed to generate tokens")
       }
       
       const data = await response.json()
-      setScript(data.script)
+      
+      const newTokens = data.tokens.map((t: any) => ({
+        token_id: t.token_id,
+        alias: t.alias,
+        token_last4: t.token.slice(-4),
+        status: 'active',
+        expires_at: t.expires_at,
+        uses_allowed: 1,
+        uses_consumed: 0,
+        note: note.trim() || null,
+        issued_at: new Date().toISOString(),
+        issued_by: null,
+        full_token: t.token
+      }))
+      
+      setTokens([...newTokens, ...tokens])
+      setAliases("")
+      setNote("")
     } catch (error) {
-      alert("Failed to generate script. Please try again.")
+      alert("Failed to generate tokens. Please try again.")
       console.error(error)
     } finally {
       setLoading(false)
     }
   }
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(script)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  const toggleTokenReveal = (tokenId: string) => {
+    const newRevealed = new Set(revealedTokens)
+    if (newRevealed.has(tokenId)) {
+      newRevealed.delete(tokenId)
+    } else {
+      newRevealed.add(tokenId)
+    }
+    setRevealedTokens(newRevealed)
+  }
+
+  const copyToken = async (token: EnrollmentToken) => {
+    if (token.full_token) {
+      await navigator.clipboard.writeText(token.full_token)
+      alert("Token copied to clipboard!")
+    } else {
+      alert("Token value not available. Only newly generated tokens can be copied.")
+    }
+  }
+
+  const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
+    const authToken = localStorage.getItem('access_token')
+    const endpoint = platform === 'windows' ? '/v1/scripts/enroll.cmd' : '/v1/scripts/enroll.sh'
+    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${authToken}`
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error("Failed to download script")
+      }
+      
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = `enroll-${token.alias}.${platform === 'windows' ? 'cmd' : 'sh'}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(downloadUrl)
+      document.body.removeChild(a)
+    } catch (error) {
+      alert(`Failed to download ${platform} script`)
+      console.error(error)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, { variant: any, label: string }> = {
+      'active': { variant: 'default', label: 'Active' },
+      'exhausted': { variant: 'secondary', label: 'Exhausted' },
+      'expired': { variant: 'destructive', label: 'Expired' },
+      'revoked': { variant: 'outline', label: 'Revoked' }
+    }
+    
+    const config = variants[status] || variants['active']
+    return <Badge variant={config.variant}>{config.label}</Badge>
+  }
+
+  const formatDateTime = (dateStr: string) => {
+    const date = new Date(dateStr)
+    return date.toLocaleString()
   }
 
   const handleToggleDark = () => {
@@ -111,87 +249,172 @@ function ADBSetupContent() {
         onToggleSidebar={handleToggleSidebar}
       />
       
-      <div className={`transition-all duration-300 mx-auto max-w-[1280px] space-y-6 px-6 py-8 pt-20 md:px-8 ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-16'}`}>
+      <div className={`transition-all duration-300 mx-auto max-w-[1400px] space-y-6 px-6 py-8 pt-20 md:px-8 ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-16'}`}>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Terminal className="h-6 w-6" />
-            <h1 className="text-3xl font-bold tracking-tight">ADB Deployment</h1>
+            <h1 className="text-3xl font-bold tracking-tight">ADB Setup</h1>
           </div>
           <p className="text-muted-foreground">
-            Generate a complete ADB script to install, configure, and enroll Android devices automatically.
+            Generate per-device tokens and one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
           </p>
         </div>
 
         <div className="rounded-lg border bg-card p-6 shadow-sm">
+          <h2 className="text-lg font-semibold mb-4">Token Generator</h2>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="alias">Device Alias</Label>
-              <Input
-                id="alias"
-                placeholder="e.g., Warehouse-Phone-01"
-                value={alias}
-                onChange={(e) => setAlias(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && generateScript()}
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter a unique name to identify this device in the dashboard
-              </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="aliases">Device Aliases</Label>
+                <Input
+                  id="aliases"
+                  placeholder="e.g., D01, D02, D03 or Device-01 Device-02"
+                  value={aliases}
+                  onChange={(e) => setAliases(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Comma or space separated. Supports batch generation.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="expiry">Token Expiry</Label>
+                <Select value={expiryMinutes} onValueChange={setExpiryMinutes}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 minutes</SelectItem>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="60">60 minutes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <Button onClick={generateScript} disabled={loading || !alias.trim()}>
-              {loading ? "Generating..." : "Generate Script"}
+            <div className="space-y-2">
+              <Label htmlFor="note">Note (Optional)</Label>
+              <Input
+                id="note"
+                placeholder="e.g., Oct-ops batch A"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+            </div>
+
+            <Button onClick={generateTokens} disabled={loading || !aliases.trim()}>
+              {loading ? "Generating..." : "Generate Tokens"}
             </Button>
           </div>
         </div>
 
-        {script && (
+        {tokens.length > 0 && (
           <div className="rounded-lg border bg-card p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Deployment Script</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">Enrollment Tokens</h2>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={copyToClipboard}
+                onClick={fetchTokens}
                 className="gap-2"
               >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4" />
-                    Copy Script
-                  </>
-                )}
+                <RefreshCw className="h-4 w-4" />
+                Refresh
               </Button>
             </div>
             
-            <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
-              <code>{script}</code>
-            </pre>
-
-            <div className="mt-4 space-y-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
-              <h3 className="font-semibold text-amber-700 dark:text-amber-300">Usage Instructions</h3>
-              <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-                <li>Make sure <code className="rounded bg-muted px-1">nexmdm.apk</code> is at <code className="rounded bg-muted px-1">C:\Users\gordo\OneDrive\Desktop\nexmdm.apk</code></li>
-                <li>Connect your <strong>factory-reset</strong> Android device via USB (no accounts added yet!)</li>
-                <li>Open Command Prompt (CMD) and copy-paste the <strong>entire one-liner command</strong> above</li>
-                <li>Press Enter and watch the output - it will:
-                  <ul className="list-disc pl-5 mt-1">
-                    <li>Install APK automatically</li>
-                    <li>Set Device Owner (check for "Success" message)</li>
-                    <li>Configure all permissions and optimizations</li>
-                    <li>Enroll device automatically</li>
-                    <li>Verify Device Owner status (shows package name if successful)</li>
-                  </ul>
-                </li>
-                <li>Complete the 2 manual steps shown at the end (Full Screen Intents + Usage Access)</li>
-              </ol>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Alias</TableHead>
+                    <TableHead>Token</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Expires</TableHead>
+                    <TableHead>Uses</TableHead>
+                    <TableHead>Note</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tokens.map((token) => (
+                    <TableRow key={token.token_id}>
+                      <TableCell className="font-medium">{token.alias}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs">
+                            {revealedTokens.has(token.token_id) && token.full_token
+                              ? token.full_token
+                              : `****${token.token_last4}`}
+                          </code>
+                          {token.full_token && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleTokenReveal(token.token_id)}
+                            >
+                              {revealedTokens.has(token.token_id) ? (
+                                <EyeOff className="h-3 w-3" />
+                              ) : (
+                                <Eye className="h-3 w-3" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(token.status)}</TableCell>
+                      <TableCell className="text-xs">{formatDateTime(token.expires_at)}</TableCell>
+                      <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
+                      <TableCell className="text-xs">{token.note || '-'}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          {token.full_token && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => copyToken(token)}
+                              title="Copy Token"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => downloadScript(token, 'windows')}
+                            title="Download Windows Script"
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            .cmd
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => downloadScript(token, 'bash')}
+                            title="Download Bash Script"
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            .sh
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           </div>
         )}
+
+        <div className="rounded-md border border-blue-500/50 bg-blue-500/10 p-4">
+          <h3 className="font-semibold text-blue-700 dark:text-blue-300 mb-2">Enrollment Checklist</h3>
+          <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+            <li>Enable USB debugging on device</li>
+            <li>Trust host computer when prompted</li>
+            <li>Factory reset only if using Device Owner mode (optional but recommended)</li>
+            <li>Device Owner set only succeeds on factory-reset devices—safe to leave enabled</li>
+          </ul>
+        </div>
       </div>
 
       <SettingsDrawer
