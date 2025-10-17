@@ -12,6 +12,29 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 
 ## Recent Changes (October 17, 2025)
 
+### Dashboard Enrollment Flow Integration ✅
+- ✅ **Enhanced Enrollment Token System** - Web-based batch token generation with full management UI
+  - POST `/v1/enroll-tokens` - Generate batch enrollment tokens (supports up to 100 at once)
+  - GET `/v1/enroll-tokens` - List and filter enrollment tokens with status tracking
+  - GET `/v1/scripts/enroll.cmd` - Generate prefilled Windows ADB enrollment script per token
+  - GET `/v1/scripts/enroll.sh` - Generate prefilled Bash/Linux enrollment script per token
+- ✅ **ADB Setup Dashboard Page** - Complete token management and script generation UI
+  - Batch token generation (comma/space separated aliases)
+  - Token expiry configuration (15/30/60 minutes)
+  - Token reveal/hide with copy functionality
+  - Per-token script downloads (Windows .cmd and Bash .sh)
+  - Status tracking (active/exhausted/expired/revoked)
+  - Uses tracking (consumed/allowed)
+- ✅ **Enhanced Database Models** - Comprehensive tracking and event logging
+  - `EnrollmentToken` - Tracks token_id, alias, status, uses, expiry, notes
+  - `EnrollmentEvent` - Audit log for token creation, script generation, APK downloads
+  - Proper indexing for performance (token_id, status, expires_at)
+- ✅ **Zero-Touch Script Generation** - Server-side templated scripts with environment values
+  - All environment variables (BASE_URL, ENROLL_TOKEN, ALIAS) prefilled
+  - No manual editing required for operators
+  - 7-step enrollment process automated
+  - Cross-platform support (Windows CMD and Bash)
+
 ### Milestone 3: Zero-Touch ADB Enrollment System ✅
 - ✅ **Enrollment Token System** - Single-use tokens for secure device provisioning
   - POST `/v1/enrollment-token` - Generate enrollment tokens (admin only)
