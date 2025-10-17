@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Device } from '@/lib/mock-data'
 import { fetchDevices, createDeviceWebSocket } from '@/lib/api-client'
 
-export function useDevices() {
+export function useDevices(shouldFetch: boolean = true) {
   const [devices, setDevices] = useState<Device[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,8 +48,13 @@ export function useDevices() {
     })
   }, [])
 
-  // Set up WebSocket connection
+  // Set up WebSocket connection - only if shouldFetch is true
   useEffect(() => {
+    if (!shouldFetch) {
+      setLoading(false)
+      return
+    }
+
     // Initial load
     loadDevices()
 
@@ -68,7 +73,7 @@ export function useDevices() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Only run once on mount
+  }, [shouldFetch]) // Re-run when shouldFetch changes
 
   // Refresh devices manually
   const refresh = useCallback(() => {

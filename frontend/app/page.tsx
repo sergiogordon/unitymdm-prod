@@ -19,16 +19,20 @@ export default function Page() {
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  
-  // Fetch real device data from backend
-  const { devices, loading, error, refresh, wsConnected } = useDevices()
+  const [authChecked, setAuthChecked] = useState(false)
 
-  // Check authentication
+  // Check authentication first
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push('/login')
+    } else {
+      setAuthChecked(true)
     }
   }, [router])
+  
+  // Only fetch devices after auth is confirmed
+  const shouldFetch = authChecked
+  const { devices, loading, error, refresh, wsConnected } = useDevices(shouldFetch)
 
   // Toggle dark mode
   useEffect(() => {
