@@ -1,0 +1,82 @@
+Milestone Context & End Goal — Android Agent CI (GitHub Actions)
+
+Purpose:
+Automate repeatable, signed Android build pipelines for the NexMDM agent using GitHub Actions. This milestone ensures every commit and tagged release produces a verified, reproducible artifact (APK/AAB) that’s securely signed, versioned, and uploaded to the backend for distribution — without manual steps or local dependencies.
+
+What “done” means:
+
+GitHub Actions automatically builds the NexMDM agent on every push to main and on tagged releases (v*).
+
+The workflow compiles both debug and release builds:
+
+The release APK/AAB is signed using encrypted keystore credentials from repository secrets and uploaded as a build artifact.
+
+The debug APK is automatically uploaded to the “APK Management” page/database through a backend API endpoint for internal testing and device enrollment.
+
+Versioning is deterministic and automated:
+
+versionCode increases with each commit.
+
+versionName derives from tags (vX.Y.Z) or a prefix-based scheme when not tagged.
+
+Artifact integrity is verified via apksigner verify before upload.
+
+All signing materials (keystore, alias, passwords) are securely injected at runtime from GitHub Secrets — never stored in the repo.
+
+Builds complete in under 5 minutes and produce consistent, reproducible outputs across environments.
+
+Non-goals (for this milestone):
+
+No UI changes, dashboard modifications, or frontend adjustments.
+
+No new app features or code logic within the Android agent itself.
+
+No automatic version bumping logic in Gradle beyond CI-driven values.
+
+No Play Store or public release integration (artifact creation and internal upload only).
+
+Performance & reliability targets:
+
+CI workflow completes in ≤5 minutes on standard GitHub runners.
+
+100% build success rate for main and tagged commits with valid secrets.
+
+Debug APK successfully reaches the “APK Management” backend within 10 seconds of build completion.
+
+Artifacts are reproducible when rebuilt from the same commit and environment.
+
+Security baseline:
+
+Signing keystore stored only in GitHub Secrets as a base64 string (ANDROID_KEYSTORE_BASE64), decoded securely at runtime.
+
+Keystore password, alias, and key password stored in encrypted GitHub Secrets (ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_ALIAS_PASSWORD).
+
+CI workflow never prints secrets or sensitive values in logs.
+
+Post-build signature verification ensures release artifacts are valid and tamper-free.
+
+Observability:
+
+CI logs include structured metadata for traceability: commit hash, version name/code, build timestamp, and artifact paths.
+
+Job summary includes checksum (SHA256) and verification output.
+
+Gradle caching enabled to improve performance and ensure reproducible builds.
+
+Backend receives and records metadata (versionCode, versionName, build type, timestamp) for each debug APK uploaded.
+
+Acceptance tests:
+
+Workflow triggers successfully on every push to main and every tag beginning with v.
+
+Release .apk and .aab artifacts are built, signed, verified, and uploaded as build artifacts.
+
+Debug .apk successfully posts to the APK Management backend endpoint and appears in the database/UI.
+
+versionCode increments correctly with commit count; versionName matches tag or prefix scheme.
+
+apksigner verify passes with correct certificate chain.
+
+CI completes under 5 minutes with stable, reproducible artifact hashes when rerun on the same commit.
+
+When this milestone is complete, NexMDM will have a fully automated, secure, and traceable CI/CD pipeline capable of generating both debug and release Android builds — ensuring internal testers and device operators always have access to the latest verified agent APK through the integrated APK Management system.

@@ -5,7 +5,7 @@ integrations = ["replitmail:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["cargo", "gh", "libiconv", "libxcrypt", "postgresql", "rustc"]
+packages = ["cargo", "gh", "libiconv", "libxcrypt", "postgresql", "rustc", "zulu23"]
 
 [workflows]
 runButton = "Project"
