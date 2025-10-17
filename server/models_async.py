@@ -340,3 +340,36 @@ class SessionToken(Base):
         Index('idx_session_token_lookup', 'token_jti', 'revoked'),
         Index('idx_session_token_cleanup', 'expires_at'),
     )
+
+class EnrollmentToken(Base):
+    __tablename__ = "enrollment_tokens"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    
+    alias: Mapped[str] = mapped_column(String(255), nullable=False)
+    unity_package: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+    
+    used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    created_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    
+    __table_args__ = (
+        Index('idx_enrollment_token_lookup', 'token', 'expires_at', 'used'),
+        Index('idx_enrollment_token_cleanup', 'expires_at'),
+    )

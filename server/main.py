@@ -27,7 +27,7 @@ from sqlalchemy.orm import selectinload
 from database import get_async_db, init_db, cleanup_old_events, get_pool_status
 from models_async import (
     User, Device, DeviceEvent, PasswordResetToken,
-    ApkVersion, ApkInstallation, BatteryWhitelist, Command
+    ApkVersion, ApkInstallation, BatteryWhitelist, Command, EnrollmentToken
 )
 from auth import verify_password, hash_password
 from email_service import send_password_reset_email, send_password_reset_confirmation
@@ -336,6 +336,89 @@ async def monitor_devices():
 
 # ============== V1 Device Endpoints (Production Control Loop) ==============
 
+@app.post("/v1/enrollment-token")
+async def create_enrollment_token(
+    alias: str = Query(..., description="Device alias"),
+    unity_package: Optional[str] = Query(None, description="Unity package to monitor"),
+    admin_key: str = Depends(verify_admin_key),
+    db: AsyncSession = Depends(get_async_db),
+    req: Request = None
+):
+    """Generate a single-use enrollment token for zero-touch provisioning"""
+    enrollment_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(enrollment_token.encode()).hexdigest()
+    
+    enroll_token = EnrollmentToken(
+        token=enrollment_token,
+        token_hash=token_hash,
+        alias=alias,
+        unity_package=unity_package,
+        created_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+        created_by="admin",
+        ip_address=req.client.host if req and req.client else None
+    )
+    
+    db.add(enroll_token)
+    await db.commit()
+    
+    logger.info(f"Enrollment token created for alias: {alias}")
+    
+    return {
+        "enrollment_token": enrollment_token,
+        "alias": alias,
+        "unity_package": unity_package,
+        "expires_at": enroll_token.expires_at.isoformat()
+    }
+
+@app.get("/v1/apk/download/latest")
+async def download_latest_apk(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Download latest NexMDM APK using enrollment token"""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    
+    enrollment_token = auth_header.replace("Bearer ", "")
+    token_hash = hashlib.sha256(enrollment_token.encode()).hexdigest()
+    
+    result = await db.execute(
+        select(EnrollmentToken).where(
+            EnrollmentToken.token == enrollment_token,
+            EnrollmentToken.used == False,
+            EnrollmentToken.expires_at > datetime.now(timezone.utc)
+        )
+    )
+    enroll_token = result.scalar_one_or_none()
+    
+    if not enroll_token:
+        raise HTTPException(status_code=401, detail="Invalid or expired enrollment token")
+    
+    apk_result = await db.execute(
+        select(ApkVersion).where(ApkVersion.is_active == True).order_by(desc(ApkVersion.version_code)).limit(1)
+    )
+    latest_apk = apk_result.scalar_one_or_none()
+    
+    if not latest_apk:
+        raise HTTPException(status_code=404, detail="No APK available")
+    
+    if not os.path.exists(latest_apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
+    
+    logger.info(f"APK download requested with enrollment token for: {enroll_token.alias}")
+    
+    return FileResponse(
+        path=latest_apk.file_path,
+        media_type="application/vnd.android.package-archive",
+        filename=f"nexmdm-{latest_apk.version_name}.apk",
+        headers={
+            "X-APK-Version": latest_apk.version_name,
+            "X-APK-Version-Code": str(latest_apk.version_code)
+        }
+    )
+
 @app.post("/v1/register", response_model=DeviceRegisterResponse)
 async def register_device(
     request: DeviceRegisterRequest,
@@ -373,6 +456,77 @@ async def register_device(
         device_id=request.device_id,
         device_token=device_token
     )
+
+@app.post("/v1/enroll")
+async def enroll_device_with_token(
+    device_id: str = Query(...),
+    request: Request = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Enroll device using enrollment token (idempotent)"""
+    auth_header = request.headers.get("Authorization") if request else None
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Bearer enrollment token required")
+    
+    enrollment_token = auth_header.replace("Bearer ", "")
+    
+    result = await db.execute(
+        select(EnrollmentToken).where(
+            EnrollmentToken.token == enrollment_token,
+            EnrollmentToken.expires_at > datetime.now(timezone.utc)
+        )
+    )
+    enroll_token = result.scalar_one_or_none()
+    
+    if not enroll_token:
+        raise HTTPException(status_code=401, detail="Invalid or expired enrollment token")
+    
+    if enroll_token.used and enroll_token.device_id != device_id:
+        raise HTTPException(status_code=400, detail="Enrollment token already used for different device")
+    
+    device_result = await db.execute(
+        select(Device).where(Device.id == device_id)
+    )
+    existing_device = device_result.scalar_one_or_none()
+    
+    if existing_device:
+        logger.info(f"Device {device_id} already enrolled, returning existing token (idempotent)")
+        return {
+            "device_id": existing_device.id,
+            "device_token": "*** Token already issued, check device configuration ***",
+            "alias": existing_device.alias,
+            "message": "Device already enrolled"
+        }
+    
+    device_token = secrets.token_urlsafe(32)
+    token_hash = bcrypt.hashpw(device_token.encode(), bcrypt.gensalt()).decode()
+    token_id = hashlib.sha256(device_token.encode()).hexdigest()[:16]
+    
+    device = Device(
+        id=device_id,
+        alias=enroll_token.alias,
+        token_hash=token_hash,
+        token_id=token_id,
+        last_seen=datetime.now(timezone.utc),
+        monitored_package=enroll_token.unity_package or "org.zwanoo.android.speedtest"
+    )
+    
+    db.add(device)
+    
+    enroll_token.used = True
+    enroll_token.used_at = datetime.now(timezone.utc)
+    enroll_token.device_id = device_id
+    
+    await db.commit()
+    
+    logger.info(f"Device enrolled via token: {device_id}, alias: {enroll_token.alias}")
+    
+    return {
+        "device_id": device.id,
+        "device_token": device_token,
+        "alias": device.alias,
+        "unity_package": enroll_token.unity_package
+    }
 
 @app.post("/v1/heartbeat")
 async def v1_heartbeat(
