@@ -312,7 +312,7 @@ async def forgot_password(
 ):
     """Request password reset"""
     # Rate limiting
-    client_ip = req.client.host
+    client_ip = req.client.host if req.client else "unknown"
     if not check_rate_limit(client_ip, "forgot_password", max_requests=3, window_minutes=60):
         raise HTTPException(status_code=429, detail="Too many requests")
     
@@ -397,7 +397,7 @@ async def reset_password(
 async def device_heartbeat(
     request: HeartbeatRequest,
     db: AsyncSession = Depends(get_async_db),
-    background_tasks: BackgroundTasks = None
+    background_tasks: Optional[BackgroundTasks] = None
 ):
     """Process device heartbeat - optimized for high concurrency"""
     device_id = request.device_id
@@ -564,7 +564,7 @@ async def list_devices(
         "devices": devices_data,
         "total": total,
         "page": page,
-        "pages": (total + limit - 1) // limit
+        "pages": ((total or 0) + limit - 1) // limit
     }
 
 @app.get("/api/devices/{device_id}")
