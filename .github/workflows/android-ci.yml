@@ -72,9 +72,9 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_SHA: ${{ github.sha }}
           KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
         run: |
           echo "Building debug APK with release signing..."
           ./gradlew assembleDebug --no-daemon --stacktrace
@@ -97,9 +97,9 @@ jobs:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
           GITHUB_SHA: ${{ github.sha }}
           KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
         run: |
           echo "Building release APK and AAB..."
           ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
@@ -182,7 +182,7 @@ jobs:
       - name: Upload debug APK to backend
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://your-backend-url.replit.dev' }}
-          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_KEY }}
         run: |
           echo "Uploading debug APK to backend APK Management system..."
           
