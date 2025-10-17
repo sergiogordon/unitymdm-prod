@@ -338,11 +338,11 @@ async def monitor_devices():
 
 @app.post("/v1/enrollment-token")
 async def create_enrollment_token(
+    req: Request,
     alias: str = Query(..., description="Device alias"),
     unity_package: Optional[str] = Query(None, description="Unity package to monitor"),
     admin_key: str = Depends(verify_admin_key),
-    db: AsyncSession = Depends(get_async_db),
-    req: Optional[Request] = None
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Generate a single-use enrollment token for zero-touch provisioning"""
     enrollment_token = secrets.token_urlsafe(32)
@@ -356,7 +356,7 @@ async def create_enrollment_token(
         created_at=datetime.now(timezone.utc),
         expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
         created_by="admin",
-        ip_address=req.client.host if req and req.client else None
+        ip_address=req.client.host if req.client else None
     )
     
     db.add(enroll_token)
@@ -459,12 +459,12 @@ async def register_device(
 
 @app.post("/v1/enroll")
 async def enroll_device_with_token(
+    request: Request,
     device_id: str = Query(...),
-    request: Optional[Request] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     """Enroll device using enrollment token (idempotent)"""
-    auth_header = request.headers.get("Authorization") if request else None
+    auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Bearer enrollment token required")
     
