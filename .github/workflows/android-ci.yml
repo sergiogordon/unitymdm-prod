@@ -127,6 +127,7 @@ jobs:
           fi
 
       - name: Verify APK signatures
+        working-directory: UNITYmdm/android
         run: |
           echo "Verifying APK signatures with apksigner..."
           
@@ -162,6 +163,7 @@ jobs:
 
       - name: Calculate checksums
         id: checksums
+        working-directory: UNITYmdm/android
         run: |
           # Calculate SHA256 checksums
           DEBUG_SHA256=$(sha256sum "$DEBUG_APK_PATH" | awk '{print $1}')
@@ -180,6 +182,7 @@ jobs:
           fi
 
       - name: Upload debug APK to backend
+        working-directory: UNITYmdm/android
         env:
           BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://your-backend-url.replit.dev' }}
           ADMIN_API_KEY: ${{ secrets.ADMIN_KEY }}
@@ -219,7 +222,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nexmdm-release-apk-${{ steps.version.outputs.version_code }}
-          path: ${{ env.RELEASE_APK_PATH }}
+          path: UNITYmdm/android/${{ env.RELEASE_APK_PATH }}
           retention-days: 90
 
       - name: Upload Release AAB as artifact
@@ -227,14 +230,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nexmdm-release-aab-${{ steps.version.outputs.version_code }}
-          path: ${{ env.RELEASE_AAB_PATH }}
+          path: UNITYmdm/android/${{ env.RELEASE_AAB_PATH }}
           retention-days: 90
 
       - name: Upload Debug APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: nexmdm-debug-apk-${{ steps.version.outputs.version_code }}
-          path: ${{ env.DEBUG_APK_PATH }}
+          path: UNITYmdm/android/${{ env.DEBUG_APK_PATH }}
           retention-days: 30
 
       - name: Generate build summary
