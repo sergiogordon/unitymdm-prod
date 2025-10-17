@@ -139,6 +139,76 @@ class BatteryWhitelist(Base):
         Index('idx_whitelist_enabled', 'enabled'),
     )
 
+class EnrollmentToken(Base):
+    __tablename__ = "enrollment_tokens"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    alias: Mapped[str] = mapped_column(String, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False)
+    
+    issued_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    
+    uses_allowed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    uses_consumed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String, default='active', nullable=False, index=True)
+    
+    device_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_enrollment_token_status', 'status', 'expires_at'),
+        Index('idx_enrollment_token_lookup', 'token_id'),
+    )
+
+class EnrollmentEvent(Base):
+    __tablename__ = "enrollment_events"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    
+    token_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    alias: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    device_serial: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    device_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    request_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    build_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_enrollment_event_type', 'event_type', 'timestamp'),
+        Index('idx_enrollment_event_token', 'token_id', 'timestamp'),
+    )
+
+class Command(Base):
+    __tablename__ = "commands"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    command_type: Mapped[str] = mapped_column(String, nullable=False)
+    parameters: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_command_status', 'device_id', 'status'),
+        Index('idx_command_created', 'created_at'),
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
 
 # Configure connection pool for better concurrency (handles 100+ devices)
