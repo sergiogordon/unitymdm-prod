@@ -30,7 +30,7 @@ base64 -w 0 release.keystore > release.keystore.b64
 
 ---
 
-### 2. ANDROID_KEYSTORE_PASSWORD
+### 2. KEYSTORE_PASSWORD
 **What:** Password for the keystore file  
 **Secret value:** The `-storepass` value from keystore creation (e.g., `mySecureStorePass123`)
 
@@ -42,7 +42,7 @@ base64 -w 0 release.keystore > release.keystore.b64
 
 ---
 
-### 4. ANDROID_KEY_PASSWORD
+### 4. ANDROID_KEY_ALIAS_PASSWORD
 **What:** Password for the signing key  
 **Secret value:** The `-keypass` value from keystore creation (e.g., `mySecureKeyPass456`)
 
@@ -54,7 +54,7 @@ base64 -w 0 release.keystore > release.keystore.b64
 
 ---
 
-### 6. ADMIN_API_KEY
+### 6. ADMIN_KEY
 **What:** Admin API key for uploading APKs to backend  
 **Secret value:** Your backend admin key (check backend environment variables)
 
@@ -65,11 +65,11 @@ base64 -w 0 release.keystore > release.keystore.b64
 - [ ] Generate or locate your release keystore
 - [ ] Encode keystore to base64 (no line breaks!)
 - [ ] Add `ANDROID_KEYSTORE_BASE64` secret
-- [ ] Add `ANDROID_KEYSTORE_PASSWORD` secret
+- [ ] Add `KEYSTORE_PASSWORD` secret
 - [ ] Add `ANDROID_KEY_ALIAS` secret
-- [ ] Add `ANDROID_KEY_PASSWORD` secret
+- [ ] Add `ANDROID_KEY_ALIAS_PASSWORD` secret
 - [ ] Add `BACKEND_URL` secret
-- [ ] Add `ADMIN_API_KEY` secret
+- [ ] Add `ADMIN_KEY` secret
 - [ ] Test by pushing to main branch
 - [ ] Verify workflow runs successfully
 
@@ -101,7 +101,7 @@ base64 -w 0 release.keystore > release.keystore.b64
 → Verify keystore password, alias, and key password are correct
 
 ### ⚠️ Backend upload fails
-→ Check `BACKEND_URL` and `ADMIN_API_KEY` values
+→ Check `BACKEND_URL` and `ADMIN_KEY` values
 
 ## Security Notes
 

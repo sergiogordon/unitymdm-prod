@@ -51,11 +51,11 @@ Configure these secrets in `Settings > Secrets and variables > Actions`:
 | Secret | Description | Example |
 |--------|-------------|---------|
 | `ANDROID_KEYSTORE_BASE64` | Base64-encoded release keystore | `MIIKe...` (long string) |
-| `ANDROID_KEYSTORE_PASSWORD` | Keystore password | `your_store_pass` |
+| `KEYSTORE_PASSWORD` | Keystore password | `your_store_pass` |
 | `ANDROID_KEY_ALIAS` | Key alias name | `nexmdm` |
-| `ANDROID_KEY_PASSWORD` | Key password | `your_key_pass` |
+| `ANDROID_KEY_ALIAS_PASSWORD` | Key password | `your_key_pass` |
 | `BACKEND_URL` | Backend API URL | `https://your-backend.replit.dev` |
-| `ADMIN_API_KEY` | Backend admin API key | `your_admin_key` |
+| `ADMIN_KEY` | Backend admin API key | `your_admin_key` |
 
 ### Quick Setup
 
@@ -203,7 +203,7 @@ cd UNITYmdm/android
 - Test credentials locally first
 
 **Backend upload fails**
-- Verify `BACKEND_URL` and `ADMIN_API_KEY`
+- Verify `BACKEND_URL` and `ADMIN_KEY`
 - Check backend is accessible from GitHub runners
 
 ### Debug APK Not in Backend

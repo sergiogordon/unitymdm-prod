@@ -46,7 +46,7 @@ base64 -w 0 release.keystore > release.keystore.b64
 
 Copy the contents of `release.keystore.b64` and add it as the `ANDROID_KEYSTORE_BASE64` secret.
 
-### 2. `ANDROID_KEYSTORE_PASSWORD`
+### 2. `KEYSTORE_PASSWORD`
 
 The password for your keystore file (same as `-storepass` above).
 
@@ -54,7 +54,7 @@ The password for your keystore file (same as `-storepass` above).
 
 The alias of your signing key (e.g., `nexmdm` from the example above).
 
-### 4. `ANDROID_KEY_PASSWORD`
+### 4. `ANDROID_KEY_ALIAS_PASSWORD`
 
 The password for your signing key (same as `-keypass` above).
 
@@ -64,7 +64,7 @@ The URL of your NexMDM backend API where debug APKs will be uploaded.
 
 **Example:** `https://your-backend.replit.dev`
 
-### 6. `ADMIN_API_KEY`
+### 6. `ADMIN_KEY`
 
 The admin API key for authenticating APK uploads to your backend.
 
@@ -198,7 +198,7 @@ Access the summary at: `Actions > [workflow run] > Summary`
 
 ### Backend Upload Fails
 
-**Cause:** `BACKEND_URL` or `ADMIN_API_KEY` is incorrect.
+**Cause:** `BACKEND_URL` or `ADMIN_KEY` is incorrect.
 
 **Solution:**
 1. Verify the backend URL is accessible
