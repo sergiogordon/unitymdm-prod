@@ -27,11 +27,14 @@ from sqlalchemy.orm import selectinload
 from database import get_async_db, init_db, cleanup_old_events, get_pool_status
 from models_async import (
     User, Device, DeviceEvent, PasswordResetToken,
-    ApkVersion, ApkInstallation, BatteryWhitelist
+    ApkVersion, ApkInstallation, BatteryWhitelist, Command
 )
 from auth import verify_password, hash_password
 from email_service import send_password_reset_email, send_password_reset_confirmation
 from websocket_manager import WebSocketManager
+import bcrypt
+import hmac
+import httpx
 import logging
 
 # Setup logging
@@ -46,11 +49,23 @@ SECRET_KEY = os.getenv("JWT_SECRET", secrets.token_hex(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
+# Admin Configuration for FCM commands
+ADMIN_KEY = os.getenv("ADMIN_KEY", "default-admin-key-change-in-production")
+HMAC_SECRET = os.getenv("HMAC_SECRET", secrets.token_hex(32))
+
 # Security
 security = HTTPBearer()
 
 # Rate limiting tracking
 rate_limit_cache: Dict[str, List[datetime]] = {}
+
+# Metrics counters
+metrics_counters: Dict[str, int] = {
+    "register": 0,
+    "heartbeat": 0,
+    "command_send": 0,
+    "action_result": 0
+}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -148,6 +163,35 @@ class PasswordResetComplete(BaseModel):
     token: str
     new_password: str = Field(..., min_length=6)
 
+class DeviceRegisterRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=100)
+    alias: str = Field(..., min_length=1, max_length=255)
+
+class DeviceRegisterResponse(BaseModel):
+    device_id: str
+    device_token: str
+
+class V1HeartbeatRequest(BaseModel):
+    battery: Dict[str, Any]
+    system: Dict[str, Any]
+    memory: Dict[str, Any]
+    network: Dict[str, Any]
+    fcm_token: Optional[str] = None
+    alias: Optional[str] = None
+    app_version: Optional[str] = None
+
+class AdminCommandRequest(BaseModel):
+    device_ids: List[str]
+    command_type: str
+    parameters: Optional[Dict[str, Any]] = None
+    signature: str
+
+class ActionResultRequest(BaseModel):
+    request_id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+
 # ============== Helper Functions ==============
 
 def create_access_token(data: dict) -> str:
@@ -200,6 +244,44 @@ def check_rate_limit(ip: str, endpoint: str, max_requests: int = 10, window_minu
     rate_limit_cache[key].append(now)
     return True
 
+async def verify_admin_key(request: Request) -> str:
+    """Verify admin key from X-Admin header"""
+    admin_key = request.headers.get("X-Admin")
+    if not admin_key or admin_key != ADMIN_KEY:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    return admin_key
+
+def verify_hmac_signature(payload: str, signature: str) -> bool:
+    """Verify HMAC signature"""
+    expected = hmac.new(
+        HMAC_SECRET.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+async def get_device_by_token(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_async_db)
+) -> Device:
+    """Validate device Bearer token and return device"""
+    token = credentials.credentials
+    token_hash = bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode()
+    
+    result = await db.execute(
+        select(Device).where(Device.token_hash != "")
+    )
+    devices = result.scalars().all()
+    
+    for device in devices:
+        try:
+            if bcrypt.checkpw(token.encode(), device.token_hash.encode()):
+                return device
+        except Exception:
+            continue
+    
+    raise HTTPException(status_code=401, detail="Invalid device token")
+
 # ============== Background Tasks ==============
 
 async def cleanup_task():
@@ -248,6 +330,234 @@ async def monitor_devices():
                 
         except Exception as e:
             logger.error(f"Device monitor error: {e}")
+
+# ============== V1 Device Endpoints (Production Control Loop) ==============
+
+@app.post("/v1/register", response_model=DeviceRegisterResponse)
+async def register_device(
+    request: DeviceRegisterRequest,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Register a new device with secure bcrypt token"""
+    metrics_counters["register"] += 1
+    
+    result = await db.execute(
+        select(Device).where(Device.id == request.device_id)
+    )
+    existing_device = result.scalar_one_or_none()
+    
+    if existing_device:
+        raise HTTPException(status_code=400, detail="Device already registered")
+    
+    device_token = secrets.token_urlsafe(32)
+    token_hash = bcrypt.hashpw(device_token.encode(), bcrypt.gensalt()).decode()
+    
+    device = Device(
+        id=request.device_id,
+        alias=request.alias,
+        token_hash=token_hash,
+        last_seen=datetime.now(timezone.utc)
+    )
+    
+    db.add(device)
+    await db.commit()
+    
+    logger.info(f"Device registered: {request.device_id}, alias: {request.alias}")
+    
+    return DeviceRegisterResponse(
+        device_id=request.device_id,
+        device_token=device_token
+    )
+
+@app.post("/v1/heartbeat")
+async def v1_heartbeat(
+    request: V1HeartbeatRequest,
+    device: Device = Depends(get_device_by_token),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Process device heartbeat with Bearer token auth - optimized for <150ms p95"""
+    start_time = datetime.now(timezone.utc)
+    metrics_counters["heartbeat"] += 1
+    
+    device.last_seen = datetime.now(timezone.utc)
+    device.fcm_token = request.fcm_token or device.fcm_token
+    
+    if request.alias:
+        device.alias = request.alias
+    if request.app_version:
+        device.app_version = request.app_version
+    
+    device.battery_level = request.battery.get("pct")
+    device.battery_charging = request.battery.get("charging")
+    device.android_version = request.system.get("android_version")
+    device.sdk_int = request.system.get("sdk_int")
+    device.model = request.system.get("model")
+    device.manufacturer = request.system.get("manufacturer")
+    device.memory_available_mb = request.memory.get("avail_ram_mb")
+    device.memory_total_mb = request.memory.get("total_ram_mb")
+    device.network_type = request.network.get("transport")
+    
+    device.last_status = {
+        "battery": request.battery,
+        "system": request.system,
+        "memory": request.memory,
+        "network": request.network
+    }
+    
+    await db.commit()
+    
+    elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+    logger.debug(f"Heartbeat processed for {device.id} in {elapsed_ms:.2f}ms")
+    
+    return {
+        "ok": True,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "latency_ms": elapsed_ms
+    }
+
+@app.post("/v1/action-result")
+async def action_result(
+    request: ActionResultRequest,
+    device: Device = Depends(get_device_by_token),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Receive action result from device"""
+    metrics_counters["action_result"] += 1
+    
+    result_obj = await db.execute(
+        select(Command).where(Command.request_id == request.request_id)
+    )
+    command = result_obj.scalar_one_or_none()
+    
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found")
+    
+    command.status = request.status
+    command.result = request.result
+    command.error_message = request.error_message
+    command.completed_at = datetime.now(timezone.utc)
+    
+    await db.commit()
+    
+    logger.info(f"Action result received: request_id={request.request_id}, status={request.status}")
+    
+    return {"ok": True}
+
+# ============== Admin Endpoints ==============
+
+@app.post("/admin/command")
+async def admin_send_command(
+    request: AdminCommandRequest,
+    req: Request,
+    admin_key: str = Depends(verify_admin_key),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Send FCM command to devices with HMAC validation"""
+    metrics_counters["command_send"] += 1
+    
+    client_ip = req.client.host if req.client else "unknown"
+    if not check_rate_limit(client_ip, "admin_command", max_requests=100, window_minutes=1):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    
+    payload = f"{','.join(request.device_ids)}:{request.command_type}:{request.parameters or ''}"
+    if not verify_hmac_signature(payload, request.signature):
+        raise HTTPException(status_code=401, detail="Invalid HMAC signature")
+    
+    from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
+    
+    request_id = secrets.token_hex(16)
+    results = []
+    
+    try:
+        fcm_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        logger.error(f"FCM setup error: {e}")
+        raise HTTPException(status_code=500, detail=f"FCM configuration error: {str(e)}")
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for device_id in request.device_ids:
+            result_obj = await db.execute(
+                select(Device).where(Device.id == device_id)
+            )
+            device = result_obj.scalar_one_or_none()
+            
+            if not device or not device.fcm_token:
+                results.append({"device_id": device_id, "status": "error", "message": "No FCM token"})
+                continue
+            
+            command = Command(
+                request_id=f"{request_id}_{device_id}",
+                device_id=device_id,
+                command_type=request.command_type,
+                parameters=request.parameters,
+                initiated_by="admin"
+            )
+            db.add(command)
+            
+            fcm_message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "command": request.command_type,
+                        "request_id": command.request_id,
+                        "parameters": str(request.parameters or {})
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            try:
+                fcm_response = await client.post(
+                    fcm_url,
+                    headers={
+                        "Authorization": f"Bearer {fcm_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json=fcm_message
+                )
+                
+                command.fcm_sent_at = datetime.now(timezone.utc)
+                command.fcm_response_code = fcm_response.status_code
+                command.fcm_response_body = fcm_response.json() if fcm_response.text else {}
+                
+                if fcm_response.status_code == 200:
+                    command.status = "sent"
+                    results.append({
+                        "device_id": device_id,
+                        "status": "sent",
+                        "request_id": command.request_id
+                    })
+                    logger.info(f"FCM sent to {device_id}, request_id={command.request_id}")
+                else:
+                    command.status = "failed"
+                    results.append({
+                        "device_id": device_id,
+                        "status": "error",
+                        "message": f"FCM error: {fcm_response.status_code}"
+                    })
+                    logger.error(f"FCM failed for {device_id}: {fcm_response.status_code}")
+                    
+            except Exception as e:
+                command.status = "failed"
+                command.error_message = str(e)
+                results.append({
+                    "device_id": device_id,
+                    "status": "error",
+                    "message": str(e)
+                })
+                logger.error(f"FCM send error for {device_id}: {e}")
+    
+    await db.commit()
+    
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "results": results
+    }
 
 # ============== Authentication Endpoints ==============
 
