@@ -1,0 +1,144 @@
+Perfect—since the ADB Setup page already exists, we’ll wire your new enrollment flow into it without changing layout. Here’s a precise plan you can hand to your backend + frontend devs.
+
+⸻
+
+ADB Setup Page — Integration Plan (use existing UI)
+
+1) Objectives (unchanged UI, new wiring)
+	•	Let an admin generate per-device (or batch) enrollment tokens.
+	•	Let the page produce prefilled ADB scripts (Windows .cmd and Bash .sh) with the correct env values.
+	•	Let operators download the latest debug APK or let scripts fetch it automatically.
+	•	Show a simple token table (alias, token last4, status, expiry) and copy actions.
+
+No layout redesign. We only add API calls + small copy blocks to existing slots/components.
+
+⸻
+
+2) Backend APIs to implement (minimal set)
+
+a) Create enrollment tokens
+
+POST /v1/enroll-tokens
+
+{
+  "aliases": ["D01","D02","D03"],
+  "expires_in_sec": 1800,
+  "uses_allowed": 1,
+  "note": "Oct-ops batch A"
+}
+
+200 →
+
+{
+  "tokens": [
+    { "token_id": "tok_01", "alias": "D01", "token": "eyJhbGc...", "expires_at": "2025-10-17T18:14:00Z" },
+    { "token_id": "tok_02", "alias": "D02", "token": "eyJhbGc...", "expires_at": "2025-10-17T18:14:00Z" }
+  ]
+}
+
+	•	Scope tokens to:
+	•	GET /v1/apk/download-latest (debug APK)
+	•	First-time POST /v1/register
+	•	On consume: increment uses_consumed; when uses_consumed >= uses_allowed → status=exhausted.
+
+b) Download latest APK (debug for enrollment)
+
+GET /v1/apk/download-latest
+	•	Auth: Authorization: Bearer <enroll_token>
+	•	Side-effect: Log build_id & upload event to your APK Management records.
+
+c) Generate prefilled scripts (text responses)
+
+GET /v1/scripts/enroll.cmd?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest
+GET /v1/scripts/enroll.sh?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest
+	•	Returns templated content with env vars prefilled: BASE_URL, APK_ENDPOINT, ENROLL_TOKEN, ALIAS, AGENT_PKG, UNITY_PKG.
+	•	Only allow if admin is authenticated. Token value is fetched server-side by token_id (never exposed in URL).
+
+d) (Optional, tiny) List enrollment tokens
+
+GET /v1/enroll-tokens?status=active&limit=100
+	•	Powers the table on the page.
+
+⸻
+
+3) Data model additions (backend)
+
+enroll_tokens
+	•	token_id (pk), alias, token_hash, issued_by, issued_at, expires_at
+	•	uses_allowed (int), uses_consumed (int, default 0)
+	•	note (text), status (enum: active|exhausted|expired|revoked)
+
+Events (logs)
+	•	token.create, script.render, apk.fetch, enroll.success, enroll.fail
+	•	fields: token_id, alias, ip, device_serial, request_id, build_id, ts
+
+Store hash of token, not plaintext.
+
+⸻
+
+4) Security & policy (page + APIs)
+	•	Tokens are short-lived (e.g., default 30–60 min) and single-use by default.
+	•	Token scopes: download-latest + first register. No access to admin endpoints.
+	•	UI shows token as hidden by default; reveal requires click → copy → then hide.
+	•	All scripts enforce HTTPS and no admin keys.
+	•	Rate-limit POST /v1/enroll-tokens by admin user.
+
+⸻
+
+5) Page wiring (using existing components)
+
+A. Token Generator panel (existing form slots)
+	•	Fields: Alias (single) or Range/Batch (comma/space separated), Expiry (dropdown: 15/30/60 min), Note (optional).
+	•	Action: POST /v1/enroll-tokens
+	•	Result table (existing table component):
+	•	Columns: Alias, Token (last4), Expires, Status, Actions
+	•	Actions per row:
+	•	Copy Token (reveal & copy)
+	•	Download Windows .cmd → GET /v1/scripts/enroll.cmd?...
+	•	Download Bash .sh → GET /v1/scripts/enroll.sh?...
+
+B. Script content (server-templated)
+	•	Windows script name: enroll-<alias>.cmd
+	•	Bash script name: enroll-<alias>.sh (with executable bit hint in copy text)
+
+C. Download Latest APK (debug)
+	•	Small link/button: “Download Latest Debug APK” → (admin-auth) GET /v1/apk/download-latest
+	•	Copy note: “Scripts auto-download this; manual download is optional.”
+
+D. Helper text (inline, short)
+	•	Checklist: Enable USB debugging; trust host; factory reset only if using Device Owner.
+	•	Caveat: “Device Owner set only succeeds on factory-reset devices—safe to leave enabled.”
+
+⸻
+
+6) Copy blocks (drop-in)
+
+Header blurb
+“Generate per-device tokens and one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.”
+
+Token reveal tooltip
+“Token is single-use and expires soon. Treat like a password.”
+
+Script buttons
+	•	“Windows (.cmd)” — “Bash (.sh) (macOS/Linux)”
+
+Footnote
+“Device Owner mode is optional and only succeeds on factory-reset devices.”
+
+⸻
+
+7) Acceptance (page-level)
+	•	Admin generates tokens for ≥20 aliases; table populates with expiry and actions.
+	•	Clicking Windows/Bash produces a prefilled script per alias.
+	•	Running a downloaded script enrolls the device; it appears in /v1/devices within ≤60 s.
+	•	APK Management shows a download event tied to those enrollments.
+	•	No plaintext tokens stored; logs show the proper event trail.
+
+⸻
+
+8) Definition of Done (for this integration)
+	•	All four endpoints live and secured.
+	•	ADB Setup page can: create tokens, list tokens, download scripts, and (optionally) download the APK.
+	•	End-to-end: Using only the page + scripts, an operator can enroll a tray of devices with no manual edits.
+
+If you want, I can also provide the exact script templates your endpoints should render (with ${PLACEHOLDERS} swapped server-side) so the FE simply links to them—no FE logic beyond wiring buttons.
