@@ -279,7 +279,48 @@ class BatteryWhitelist(Base):
         Index('idx_battery_whitelist_package', 'package_name'),
     )
 
-# Session management table for JWT tokens (optional, for token blacklisting)
+class Command(Base):
+    __tablename__ = "commands"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(
+        String(100),
+        ForeignKey("devices.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    command_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    parameters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True
+    )
+    
+    fcm_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    fcm_response_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fcm_response_body: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="pending"
+    )
+    result: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    initiated_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    __table_args__ = (
+        Index('idx_command_request_lookup', 'request_id'),
+        Index('idx_command_device_status', 'device_id', 'status', 'created_at'),
+        Index('idx_command_pending', 'status', 'created_at'),
+    )
+
 class SessionToken(Base):
     __tablename__ = "session_tokens"
     
