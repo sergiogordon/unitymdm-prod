@@ -468,10 +468,7 @@ async def admin_send_command(
     import json
     params_str = json.dumps(request.parameters, sort_keys=True) if request.parameters else ""
     payload = f"{','.join(request.device_ids)}:{request.command_type}:{params_str}"
-    logger.info(f"HMAC validation: payload='{payload}', signature={request.signature}")
     if not verify_hmac_signature(payload, request.signature):
-        expected_sig = hmac.new(HMAC_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
-        logger.error(f"HMAC mismatch: expected={expected_sig}, received={request.signature}")
         raise HTTPException(status_code=401, detail="Invalid HMAC signature")
     
     from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
