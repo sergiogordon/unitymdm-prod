@@ -98,8 +98,12 @@ def test_admin_command(device_id):
     parameters = {"timeout": 5}
     
     # Create HMAC signature (must match server format)
-    device_ids_str = device_id  # Single device for this test
-    payload_str = f"{device_ids_str}:{command_type}:{parameters}"
+    # Server format: "{','.join(device_ids)}:{command_type}:{json.dumps(parameters, sort_keys=True) or ''}"
+    device_ids_list = [device_id]
+    device_ids_str = ",".join(device_ids_list)
+    # Use JSON serialization with sorted keys for consistency
+    params_str = json.dumps(parameters, sort_keys=True) if parameters else ""
+    payload_str = f"{device_ids_str}:{command_type}:{params_str}"
     print(f"HMAC Payload: {payload_str}")
     signature = hmac.new(
         HMAC_SECRET.encode(),
@@ -126,10 +130,13 @@ def test_admin_command(device_id):
     if response.status_code == 200:
         data = response.json()
         print(f"\n✅ Admin command endpoint working")
-        if data.get("results"):
-            for result in data["results"]:
-                if result.get("request_id"):
-                    return result["request_id"]
+        # Get request_id from results array (includes failed commands)
+        if data.get("results") and len(data["results"]) > 0:
+            request_id = data["results"][0].get("request_id")
+            if request_id:
+                print(f"Request ID: {request_id}")
+                return request_id
+        # Fallback to top-level request_id
         return data.get("request_id")
     else:
         print(f"❌ Admin command failed (expected if Firebase not configured)")

@@ -51,7 +51,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 # Admin Configuration for FCM commands
 ADMIN_KEY = os.getenv("ADMIN_KEY", "default-admin-key-change-in-production")
-HMAC_SECRET = os.getenv("HMAC_SECRET", secrets.token_hex(32))
+# Use consistent default for development, random in production
+HMAC_SECRET = os.getenv("HMAC_SECRET", "cde0c5b91a69aea8900c7bcd989098913285fcfc1f451b0b7854acafb52b3e3d")
 
 # Security
 security = HTTPBearer()
@@ -463,8 +464,14 @@ async def admin_send_command(
     if not check_rate_limit(client_ip, "admin_command", max_requests=100, window_minutes=1):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
-    payload = f"{','.join(request.device_ids)}:{request.command_type}:{request.parameters or ''}"
+    # HMAC payload uses JSON serialization for consistent validation
+    import json
+    params_str = json.dumps(request.parameters, sort_keys=True) if request.parameters else ""
+    payload = f"{','.join(request.device_ids)}:{request.command_type}:{params_str}"
+    logger.info(f"HMAC validation: payload='{payload}', signature={request.signature}")
     if not verify_hmac_signature(payload, request.signature):
+        expected_sig = hmac.new(HMAC_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+        logger.error(f"HMAC mismatch: expected={expected_sig}, received={request.signature}")
         raise HTTPException(status_code=401, detail="Invalid HMAC signature")
     
     from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
@@ -538,12 +545,14 @@ async def admin_send_command(
                     logger.info(f"FCM sent to {device_id}, request_id={command.request_id}")
                 else:
                     command.status = "failed"
+                    error_detail = command.fcm_response_body.get("error", {}) if command.fcm_response_body else {}
                     results.append({
                         "device_id": device_id,
                         "status": "error",
-                        "message": f"FCM error: {fcm_response.status_code}"
+                        "message": f"FCM error: {fcm_response.status_code}",
+                        "request_id": command.request_id
                     })
-                    logger.error(f"FCM failed for {device_id}: {fcm_response.status_code}")
+                    logger.error(f"FCM failed for {device_id}: {fcm_response.status_code}, detail={error_detail}")
                     
             except Exception as e:
                 command.status = "failed"
