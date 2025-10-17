@@ -18,7 +18,8 @@ from server.models import Device, User, Session as SessionModel, DeviceEvent, Ap
 from server.schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
-    UpdateDeviceSettingsRequest
+    UpdateDeviceSettingsRequest, CreateEnrollmentTokensRequest, CreateEnrollmentTokensResponse,
+    EnrollmentTokenResponse, ListEnrollmentTokensResponse, EnrollmentTokenListItem
 )
 from server.auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
@@ -2230,6 +2231,390 @@ async def get_enrollment_qr_payload(alias: str):
         "admin_key": admin_key,
         "alias": alias.strip()
     }
+
+@app.post("/v1/enroll-tokens", response_model=CreateEnrollmentTokensResponse)
+async def create_enrollment_tokens(
+    request: CreateEnrollmentTokensRequest,
+    req: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate enrollment tokens for batch device provisioning"""
+    from server.models import EnrollmentToken, EnrollmentEvent
+    import secrets
+    import hashlib
+    from datetime import timedelta
+    
+    if not request.aliases or len(request.aliases) == 0:
+        raise HTTPException(status_code=400, detail="At least one alias is required")
+    
+    if len(request.aliases) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 tokens per request")
+    
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=request.expires_in_sec)
+    tokens_response = []
+    
+    for alias in request.aliases:
+        alias = alias.strip()
+        if not alias:
+            continue
+        
+        raw_token = secrets.token_urlsafe(32)
+        token_id = f"tok_{secrets.token_urlsafe(8)}"
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        enrollment_token = EnrollmentToken(
+            token_id=token_id,
+            alias=alias,
+            token_hash=token_hash,
+            issued_by=current_user.username,
+            expires_at=expires_at,
+            uses_allowed=request.uses_allowed,
+            uses_consumed=0,
+            note=request.note,
+            status='active'
+        )
+        
+        db.add(enrollment_token)
+        
+        event = EnrollmentEvent(
+            event_type='token.create',
+            token_id=token_id,
+            alias=alias,
+            ip_address=req.client.host if req.client else None,
+            details=json.dumps({
+                "issued_by": current_user.username,
+                "expires_in_sec": request.expires_in_sec,
+                "uses_allowed": request.uses_allowed,
+                "note": request.note
+            })
+        )
+        db.add(event)
+        
+        tokens_response.append(EnrollmentTokenResponse(
+            token_id=token_id,
+            alias=alias,
+            token=raw_token,
+            expires_at=expires_at
+        ))
+    
+    db.commit()
+    
+    print(f"[ENROLL-TOKENS] Generated {len(tokens_response)} tokens for user {current_user.username}")
+    
+    return CreateEnrollmentTokensResponse(tokens=tokens_response)
+
+@app.get("/v1/enroll-tokens", response_model=ListEnrollmentTokensResponse)
+async def list_enrollment_tokens(
+    status: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List enrollment tokens with optional filtering"""
+    from server.models import EnrollmentToken
+    
+    query = db.query(EnrollmentToken)
+    
+    if status:
+        query = query.filter(EnrollmentToken.status == status)
+    
+    now = datetime.now(timezone.utc)
+    
+    tokens = query.order_by(EnrollmentToken.issued_at.desc()).limit(limit).all()
+    
+    token_items = []
+    for token in tokens:
+        current_status = token.status
+        if token.status == 'active':
+            if token.expires_at < now:
+                token.status = 'expired'
+                current_status = 'expired'
+            elif token.uses_consumed >= token.uses_allowed:
+                token.status = 'exhausted'
+                current_status = 'exhausted'
+        
+        token_items.append(EnrollmentTokenListItem(
+            token_id=token.token_id,
+            alias=token.alias,
+            token_last4=token.token_hash[-4:],
+            status=current_status,
+            expires_at=token.expires_at,
+            uses_allowed=token.uses_allowed,
+            uses_consumed=token.uses_consumed,
+            note=token.note,
+            issued_at=token.issued_at,
+            issued_by=token.issued_by
+        ))
+    
+    db.commit()
+    
+    return ListEnrollmentTokensResponse(
+        tokens=token_items,
+        total=len(token_items)
+    )
+
+@app.get("/v1/scripts/enroll.cmd")
+async def get_windows_enroll_script(
+    alias: str = Query(...),
+    token_id: str = Query(...),
+    agent_pkg: str = Query("com.nexmdm"),
+    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate prefilled Windows ADB enrollment script"""
+    from server.models import EnrollmentToken, EnrollmentEvent
+    import hashlib
+    
+    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
+    if server_url:
+        server_url = f"https://{server_url}"
+    else:
+        server_url = "http://localhost:8000"
+    
+    token_value = "REPLACE_WITH_ACTUAL_TOKEN"
+    
+    event = EnrollmentEvent(
+        event_type='script.render',
+        token_id=token_id,
+        alias=alias,
+        details=json.dumps({"platform": "windows", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+    )
+    db.add(event)
+    db.commit()
+    
+    script_content = f'''@echo off
+REM NexMDM Windows ADB Enrollment Script
+REM Generated for: {alias}
+REM Token: {token_id}
+
+setlocal enabledelayedexpansion
+
+set BASE_URL={server_url}
+set APK_ENDPOINT=/v1/apk/download/latest
+set ENROLL_TOKEN={token_value}
+set ALIAS={alias}
+set AGENT_PKG={agent_pkg}
+set UNITY_PKG={unity_pkg}
+set APK_FILE=nexmdm-latest.apk
+
+echo ========================================
+echo NexMDM Device Enrollment
+echo ========================================
+echo Alias: %ALIAS%
+echo Server: %BASE_URL%
+echo ========================================
+echo.
+
+REM Check ADB
+where adb >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] ADB not found. Install Android SDK Platform Tools.
+    exit /b 1
+)
+
+REM Check device connection
+adb devices | findstr "device$" >nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] No ADB device connected
+    echo Connect device via USB and enable USB debugging
+    exit /b 1
+)
+
+echo [1/7] Downloading latest APK...
+curl -f -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%"
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] APK download failed
+    exit /b 1
+)
+echo [OK] APK downloaded
+
+echo [2/7] Installing APK...
+adb install -r %APK_FILE%
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] APK installation failed
+    exit /b 1
+)
+echo [OK] APK installed
+
+echo [3/7] Granting runtime permissions...
+adb shell pm grant %AGENT_PKG% android.permission.POST_NOTIFICATIONS
+adb shell pm grant %AGENT_PKG% android.permission.READ_EXTERNAL_STORAGE
+adb shell pm grant %AGENT_PKG% android.permission.WRITE_EXTERNAL_STORAGE
+echo [OK] Permissions granted
+
+echo [4/7] Setting Device Owner (requires factory reset)...
+for /f "tokens=*" %%i in ('adb shell settings get secure android_id') do set DEVICE_ID=%%i
+adb shell dpm set-device-owner %AGENT_PKG%/.receiver.AdminReceiver
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] Device Owner set successfully
+) else (
+    echo [WARN] Device Owner failed - continue anyway ^(requires factory reset^)
+)
+
+echo [5/7] Applying optimizations...
+adb shell settings put global stay_on_while_plugged_in 7
+adb shell settings put system screen_off_timeout 600000
+echo [OK] Optimizations applied
+
+echo [6/7] Enrolling device with server...
+curl -f -X POST "%BASE_URL%/v1/enroll?device_id=%DEVICE_ID%" -H "Authorization: Bearer %ENROLL_TOKEN%"
+if %ERRORLEVEL% NEQ 0 (
+    echo [ERROR] Enrollment failed
+    exit /b 1
+)
+echo [OK] Device enrolled
+
+echo [7/7] Launching app...
+adb shell am start -n %AGENT_PKG%/.MainActivity
+echo [OK] App launched
+
+echo.
+echo ========================================
+echo ENROLLMENT COMPLETE
+echo Device should appear in dashboard within 60 seconds
+echo Alias: %ALIAS%
+echo ========================================
+'''
+    
+    return Response(
+        content=script_content,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="enroll-{alias}.cmd"'
+        }
+    )
+
+@app.get("/v1/scripts/enroll.sh")
+async def get_bash_enroll_script(
+    alias: str = Query(...),
+    token_id: str = Query(...),
+    agent_pkg: str = Query("com.nexmdm"),
+    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate prefilled Bash ADB enrollment script"""
+    from server.models import EnrollmentToken, EnrollmentEvent
+    
+    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
+    if server_url:
+        server_url = f"https://{server_url}"
+    else:
+        server_url = "http://localhost:8000"
+    
+    token_value = "REPLACE_WITH_ACTUAL_TOKEN"
+    
+    event = EnrollmentEvent(
+        event_type='script.render',
+        token_id=token_id,
+        alias=alias,
+        details=json.dumps({"platform": "bash", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+    )
+    db.add(event)
+    db.commit()
+    
+    script_content = f'''#!/bin/bash
+# NexMDM Bash ADB Enrollment Script
+# Generated for: {alias}
+# Token: {token_id}
+
+set -e
+
+BASE_URL="{server_url}"
+APK_ENDPOINT="/v1/apk/download/latest"
+ENROLL_TOKEN="{token_value}"
+ALIAS="{alias}"
+AGENT_PKG="{agent_pkg}"
+UNITY_PKG="{unity_pkg}"
+APK_FILE="nexmdm-latest.apk"
+
+echo "========================================"
+echo "NexMDM Device Enrollment"
+echo "========================================"
+echo "Alias: $ALIAS"
+echo "Server: $BASE_URL"
+echo "========================================"
+echo ""
+
+# Check ADB
+if ! command -v adb &> /dev/null; then
+    echo "[ERROR] ADB not found. Install Android SDK Platform Tools."
+    exit 1
+fi
+
+# Check device connection
+if ! adb devices | grep -q "device$"; then
+    echo "[ERROR] No ADB device connected"
+    echo "Connect device via USB and enable USB debugging"
+    exit 1
+fi
+
+SERIAL=$(adb devices | grep "device$" | head -1 | awk '{{print $1}}')
+echo "[OK] Device connected (Serial: $SERIAL)"
+
+# Get device ID
+DEVICE_ID=$(adb shell settings get secure android_id | tr -d '\\r')
+echo "Device ID: $DEVICE_ID"
+
+echo "[1/7] Downloading latest APK..."
+curl -f -L -H "Authorization: Bearer $ENROLL_TOKEN" -o "$APK_FILE" "$BASE_URL$APK_ENDPOINT"
+echo "[OK] APK downloaded"
+
+echo "[2/7] Installing APK..."
+adb install -r "$APK_FILE"
+echo "[OK] APK installed"
+
+echo "[3/7] Granting runtime permissions..."
+adb shell pm grant $AGENT_PKG android.permission.POST_NOTIFICATIONS || true
+adb shell pm grant $AGENT_PKG android.permission.READ_EXTERNAL_STORAGE || true
+adb shell pm grant $AGENT_PKG android.permission.WRITE_EXTERNAL_STORAGE || true
+echo "[OK] Permissions granted"
+
+echo "[4/7] Setting Device Owner (requires factory reset)..."
+if adb shell dpm set-device-owner $AGENT_PKG/.receiver.AdminReceiver 2>/dev/null; then
+    echo "[OK] Device Owner set successfully"
+else
+    echo "[WARN] Device Owner failed - continue anyway (requires factory reset)"
+fi
+
+echo "[5/7] Applying optimizations..."
+adb shell settings put global stay_on_while_plugged_in 7
+adb shell settings put system screen_off_timeout 600000
+echo "[OK] Optimizations applied"
+
+echo "[6/7] Enrolling device with server..."
+curl -f -X POST "$BASE_URL/v1/enroll?device_id=$DEVICE_ID" -H "Authorization: Bearer $ENROLL_TOKEN"
+echo "[OK] Device enrolled"
+
+echo "[7/7] Launching app..."
+adb shell am start -n $AGENT_PKG/.MainActivity
+echo "[OK] App launched"
+
+echo ""
+echo "========================================"
+echo "ENROLLMENT COMPLETE"
+echo "Device should appear in dashboard within 60 seconds"
+echo "Alias: $ALIAS"
+echo "========================================"
+'''
+    
+    return Response(
+        content=script_content,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="enroll-{alias}.sh"'
+        }
+    )
 
 @app.post("/v1/apk/upload")
 async def upload_apk(
