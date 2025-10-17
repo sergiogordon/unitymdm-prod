@@ -1,0 +1,20 @@
+## Error Type
+Console Error
+
+## Error Message
+📡 Error stack: "TypeError: Failed to fetch\n    at Object.apply (https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev/__replco/static/devtools/injected.js:204:39)\n    at fetchDevices (webpack-internal:///(app-pages-browser)/./lib/api-client.ts:128:32)\n    at useDevices.useCallback[loadDevices] (webpack-internal:///(app-pages-browser)/./hooks/use-devices.ts:26:107)\n    at useDevices.useCallback[refresh] (webpack-internal:///(app-pages-browser)/./hooks/use-devices.ts:97:13)\n    at handleRefresh (webpack-internal:///(app-pages-browser)/./app/page.tsx:81:9)\n    at executeDispatch (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:16971:9)\n    at runWithFiberInDEV (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:872:30)\n    at processDispatchQueue (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:17021:19)\n    at eval (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:17622:9)\n    at batchedUpdates$1 (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:3312:40)\n    at dispatchEventForPluginEventSystem (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:17175:7)\n    at dispatchEvent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:21358:11)\n    at dispatchDiscreteEvent (webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:21326:11)"
+
+
+    at fetchDevices (lib/api-client.ts:201:15)
+    at async useDevices.useCallback[loadDevices] (hooks/use-devices.ts:22:30)
+
+## Code Frame
+  199 |     if (error instanceof Error) {
+  200 |       console.error('📡 Error message:', error.message)
+> 201 |       console.error('📡 Error stack:', error.stack)
+      |               ^
+  202 |     }
+  203 |     throw error // Propagate error instead of returning empty array
+  204 |   }
+
+Next.js version: 15.5.4 (Webpack)
