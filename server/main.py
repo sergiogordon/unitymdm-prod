@@ -81,13 +81,32 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS Configuration for Vercel Frontend
+# CORS Configuration for Frontend
+# Get Replit domain from environment or allow common origins
+replit_domain = os.getenv("REPLIT_DEV_DOMAIN", "")
+allowed_origins = [
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+]
+
+# Add Replit domain with both http and https
+if replit_domain:
+    allowed_origins.extend([
+        f"https://{replit_domain}",
+        f"http://{replit_domain}",
+    ])
+
+# For development without credentials, we could use "*" but since we use credentials,
+# we need specific origins. Add any additional dev origins here.
+logger.info(f"🔒 CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure with your Vercel domain in production
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ============== Pydantic Models ==============

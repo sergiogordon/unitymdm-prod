@@ -1,8 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { X, Copy, Check } from "lucide-react"
+import { X, Copy, Check, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useRouter } from "next/navigation"
+import { logout } from "@/lib/api-client"
 
 interface SettingsDrawerProps {
   isOpen: boolean
@@ -10,6 +12,7 @@ interface SettingsDrawerProps {
 }
 
 export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
+  const router = useRouter()
   const [lastTestAlert, setLastTestAlert] = useState<string | null>(null)
   const [copiedItem, setCopiedItem] = useState<string | null>(null)
 
@@ -35,6 +38,12 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     navigator.clipboard.writeText(text)
     setCopiedItem(item)
     setTimeout(() => setCopiedItem(null), 2000)
+  }
+
+  const handleSignOut = () => {
+    logout()
+    onClose()
+    router.push('/login')
   }
 
   if (!isOpen) return null
@@ -88,7 +97,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
             <section className="mb-8">
               <h3 className="mb-4 text-sm font-semibold">Enrollment</h3>
               <p className="mb-4 text-sm text-muted-foreground">
-                Use these commands to enroll devices in Unity Micro-MDM.
+                Use these commands to enroll devices.
               </p>
 
               <div className="mb-4 space-y-3">
@@ -122,7 +131,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
             </section>
 
             {/* Android Permissions */}
-            <section>
+            <section className="mb-8">
               <h3 className="mb-4 text-sm font-semibold">Android Permissions</h3>
               <ol className="space-y-2 text-sm text-muted-foreground">
                 <li>1. Open Settings → Apps → Unity MDM</li>
@@ -131,6 +140,18 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                 <li>4. Grant location permissions</li>
                 <li>5. Enable battery optimization exemption</li>
               </ol>
+            </section>
+
+            {/* Sign Out */}
+            <section>
+              <Button 
+                variant="destructive" 
+                className="w-full justify-center gap-2"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
             </section>
           </div>
         </div>
