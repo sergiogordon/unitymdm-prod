@@ -1,0 +1,590 @@
+2025-10-17T03:51:42.5382283Z Current runner version: '2.328.0'
+2025-10-17T03:51:42.5409894Z ##[group]Runner Image Provisioner
+2025-10-17T03:51:42.5410875Z Hosted Compute Agent
+2025-10-17T03:51:42.5411518Z Version: 20250912.392
+2025-10-17T03:51:42.5412148Z Commit: d921fda672a98b64f4f82364647e2f10b2267d0b
+2025-10-17T03:51:42.5412844Z Build Date: 2025-09-12T15:23:14Z
+2025-10-17T03:51:42.5413497Z ##[endgroup]
+2025-10-17T03:51:42.5414079Z ##[group]Operating System
+2025-10-17T03:51:42.5414647Z Ubuntu
+2025-10-17T03:51:42.5415210Z 24.04.3
+2025-10-17T03:51:42.5415760Z LTS
+2025-10-17T03:51:42.5416287Z ##[endgroup]
+2025-10-17T03:51:42.5417232Z ##[group]Runner Image
+2025-10-17T03:51:42.5417866Z Image: ubuntu-24.04
+2025-10-17T03:51:42.5418467Z Version: 20250929.60.1
+2025-10-17T03:51:42.5419529Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250929.60/images/ubuntu/Ubuntu2404-Readme.md
+2025-10-17T03:51:42.5421123Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250929.60
+2025-10-17T03:51:42.5422274Z ##[endgroup]
+2025-10-17T03:51:42.5423438Z ##[group]GITHUB_TOKEN Permissions
+2025-10-17T03:51:42.5425549Z Contents: read
+2025-10-17T03:51:42.5426121Z Metadata: read
+2025-10-17T03:51:42.5426980Z Packages: read
+2025-10-17T03:51:42.5427531Z ##[endgroup]
+2025-10-17T03:51:42.5429844Z Secret source: Actions
+2025-10-17T03:51:42.5430731Z Prepare workflow directory
+2025-10-17T03:51:42.5820033Z Prepare all required actions
+2025-10-17T03:51:42.5858598Z Getting action download info
+2025-10-17T03:51:43.0313889Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-10-17T03:51:43.2112817Z Download action repository 'actions/setup-java@v4' (SHA:c5195efecf7bdfc987ee8bae7a71cb8b11521c00)
+2025-10-17T03:51:44.2075677Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-10-17T03:51:44.4358562Z Complete job name: Build & Sign Android Agent
+2025-10-17T03:51:44.5266606Z ##[group]Run actions/checkout@v4
+2025-10-17T03:51:44.5268088Z with:
+2025-10-17T03:51:44.5268928Z   fetch-depth: 0
+2025-10-17T03:51:44.5270003Z   repository: sergio***/unitymdm-prod
+2025-10-17T03:51:44.5271359Z   token: ***
+2025-10-17T03:51:44.5272217Z   ssh-strict: true
+2025-10-17T03:51:44.5273113Z   ssh-user: git
+2025-10-17T03:51:44.5274023Z   persist-credentials: true
+2025-10-17T03:51:44.5275037Z   clean: true
+2025-10-17T03:51:44.5275938Z   sparse-checkout-cone-mode: true
+2025-10-17T03:51:44.5277291Z   fetch-tags: false
+2025-10-17T03:51:44.5278214Z   show-progress: true
+2025-10-17T03:51:44.5279127Z   lfs: false
+2025-10-17T03:51:44.5279970Z   submodules: false
+2025-10-17T03:51:44.5280891Z   set-safe-directory: true
+2025-10-17T03:51:44.5282155Z env:
+2025-10-17T03:51:44.5282974Z   JAVA_VERSION: 17
+2025-10-17T03:51:44.5283896Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:44.5284865Z ##[endgroup]
+2025-10-17T03:51:44.6401467Z Syncing repository: sergio***/unitymdm-prod
+2025-10-17T03:51:44.6404422Z ##[group]Getting Git version info
+2025-10-17T03:51:44.6406349Z Working directory is '/home/runner/work/unitymdm-prod/unitymdm-prod'
+2025-10-17T03:51:44.6408824Z [command]/usr/bin/git version
+2025-10-17T03:51:44.6479018Z git version 2.51.0
+2025-10-17T03:51:44.6506179Z ##[endgroup]
+2025-10-17T03:51:44.6523582Z Temporarily overriding HOME='/home/runner/work/_temp/153eb6d9-830c-4314-bc83-49e503262081' before making global git config changes
+2025-10-17T03:51:44.6528609Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-17T03:51:44.6538439Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-17T03:51:44.6578356Z Deleting the contents of '/home/runner/work/unitymdm-prod/unitymdm-prod'
+2025-10-17T03:51:44.6582496Z ##[group]Initializing the repository
+2025-10-17T03:51:44.6587782Z [command]/usr/bin/git init /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-17T03:51:44.6721731Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-10-17T03:51:44.6724054Z hint: is subject to change. To configure the initial branch name to use in all
+2025-10-17T03:51:44.6725860Z hint: of your new repositories, which will suppress this warning, call:
+2025-10-17T03:51:44.6727473Z hint:
+2025-10-17T03:51:44.6728460Z hint: 	git config --global init.defaultBranch <name>
+2025-10-17T03:51:44.6730321Z hint:
+2025-10-17T03:51:44.6731993Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-10-17T03:51:44.6735377Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-10-17T03:51:44.6738223Z hint:
+2025-10-17T03:51:44.6739621Z hint: 	git branch -m <name>
+2025-10-17T03:51:44.6741258Z hint:
+2025-10-17T03:51:44.6743550Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-10-17T03:51:44.6747549Z Initialized empty Git repository in /home/runner/work/unitymdm-prod/unitymdm-prod/.git/
+2025-10-17T03:51:44.6752252Z [command]/usr/bin/git remote add origin https://github.com/sergio***/unitymdm-prod
+2025-10-17T03:51:44.6786320Z ##[endgroup]
+2025-10-17T03:51:44.6789370Z ##[group]Disabling automatic garbage collection
+2025-10-17T03:51:44.6791730Z [command]/usr/bin/git config --local gc.auto 0
+2025-10-17T03:51:44.6821527Z ##[endgroup]
+2025-10-17T03:51:44.6823972Z ##[group]Setting up auth
+2025-10-17T03:51:44.6829243Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-17T03:51:44.6864611Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-17T03:51:44.7255347Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-17T03:51:44.7288961Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-17T03:51:44.7511029Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-10-17T03:51:44.7546788Z ##[endgroup]
+2025-10-17T03:51:44.7549384Z ##[group]Fetching the repository
+2025-10-17T03:51:44.7567132Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2025-10-17T03:51:46.4914606Z From https://github.com/sergio***/unitymdm-prod
+2025-10-17T03:51:46.4915112Z  * [new branch]      main       -> origin/main
+2025-10-17T03:51:46.4952003Z [command]/usr/bin/git branch --list --remote origin/main
+2025-10-17T03:51:46.4975132Z   origin/main
+2025-10-17T03:51:46.4985116Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2025-10-17T03:51:46.5005301Z 01133710872fce578c7460f4287c762bdff07092
+2025-10-17T03:51:46.5011203Z ##[endgroup]
+2025-10-17T03:51:46.5011614Z ##[group]Determining the checkout info
+2025-10-17T03:51:46.5012322Z ##[endgroup]
+2025-10-17T03:51:46.5016382Z [command]/usr/bin/git sparse-checkout disable
+2025-10-17T03:51:46.5057800Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-10-17T03:51:46.5082934Z ##[group]Checking out the ref
+2025-10-17T03:51:46.5086724Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2025-10-17T03:51:46.6501460Z Switched to a new branch 'main'
+2025-10-17T03:51:46.6502559Z branch 'main' set up to track 'origin/main'.
+2025-10-17T03:51:46.6530136Z ##[endgroup]
+2025-10-17T03:51:46.6568814Z [command]/usr/bin/git log -1 --format=%H
+2025-10-17T03:51:46.6590709Z 01133710872fce578c7460f4287c762bdff07092
+2025-10-17T03:51:46.6897627Z ##[group]Run actions/setup-java@v4
+2025-10-17T03:51:46.6897951Z with:
+2025-10-17T03:51:46.6898176Z   java-version: 17
+2025-10-17T03:51:46.6898414Z   distribution: temurin
+2025-10-17T03:51:46.6898655Z   cache: gradle
+2025-10-17T03:51:46.6898878Z   java-package: jdk
+2025-10-17T03:51:46.6899105Z   check-latest: false
+2025-10-17T03:51:46.6899342Z   server-id: github
+2025-10-17T03:51:46.6899776Z   server-username: GITHUB_ACTOR
+2025-10-17T03:51:46.6900052Z   server-password: GITHUB_TOKEN
+2025-10-17T03:51:46.6900326Z   overwrite-settings: true
+2025-10-17T03:51:46.6900603Z   job-status: success
+2025-10-17T03:51:46.6900989Z   token: ***
+2025-10-17T03:51:46.6901206Z env:
+2025-10-17T03:51:46.6901406Z   JAVA_VERSION: 17
+2025-10-17T03:51:46.6901636Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:46.6901883Z ##[endgroup]
+2025-10-17T03:51:46.8851292Z ##[group]Installed distributions
+2025-10-17T03:51:46.9311852Z Resolved Java 17.0.16+8 from tool-cache
+2025-10-17T03:51:46.9312615Z Setting Java 17.0.16+8 as the default
+2025-10-17T03:51:46.9326938Z Creating toolchains.xml for JDK version 17 from temurin
+2025-10-17T03:51:46.9403546Z Writing to /home/runner/.m2/toolchains.xml
+2025-10-17T03:51:46.9404020Z 
+2025-10-17T03:51:46.9404219Z Java configuration:
+2025-10-17T03:51:46.9405074Z   Distribution: temurin
+2025-10-17T03:51:46.9405791Z   Version: 17.0.16+8
+2025-10-17T03:51:46.9407139Z   Path: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:46.9407763Z 
+2025-10-17T03:51:46.9408376Z ##[endgroup]
+2025-10-17T03:51:46.9424667Z Creating settings.xml with server-id: github
+2025-10-17T03:51:46.9430522Z Writing to /home/runner/.m2/settings.xml
+2025-10-17T03:51:47.3449912Z gradle cache is not found
+2025-10-17T03:51:47.3569733Z ##[group]Run chmod +x UNITYmdm/android/gradlew
+2025-10-17T03:51:47.3570134Z [36;1mchmod +x UNITYmdm/android/gradlew[0m
+2025-10-17T03:51:47.3607774Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:51:47.3608038Z env:
+2025-10-17T03:51:47.3608223Z   JAVA_VERSION: 17
+2025-10-17T03:51:47.3608431Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:47.3608775Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3609233Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3609586Z ##[endgroup]
+2025-10-17T03:51:47.3738399Z ##[group]Run echo "Decoding keystore from GitHub Secrets..."
+2025-10-17T03:51:47.3738837Z [36;1mecho "Decoding keystore from GitHub Secrets..."[0m
+2025-10-17T03:51:47.3739432Z [36;1mecho "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore[0m
+2025-10-17T03:51:47.3740075Z [36;1mls -lh /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore[0m
+2025-10-17T03:51:47.3740476Z [36;1mecho "Keystore prepared successfully"[0m
+2025-10-17T03:51:47.3770624Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:51:47.3770858Z env:
+2025-10-17T03:51:47.3771035Z   JAVA_VERSION: 17
+2025-10-17T03:51:47.3771239Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:47.3771572Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3772048Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3791340Z   ANDROID_KEYSTORE_BASE64: ***
+2025-10-17T03:51:47.3791631Z ##[endgroup]
+2025-10-17T03:51:47.3840668Z Decoding keystore from GitHub Secrets...
+2025-10-17T03:51:47.3874352Z -rw-r--r-- 1 runner runner 2.7K Oct 17 03:51 /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore
+2025-10-17T03:51:47.3875807Z Keystore prepared successfully
+2025-10-17T03:51:47.3901054Z ##[group]Run # Calculate version code from GitHub run number
+2025-10-17T03:51:47.3901480Z [36;1m# Calculate version code from GitHub run number[0m
+2025-10-17T03:51:47.3901816Z [36;1mVERSION_CODE=$((GITHUB_RUN_NUMBER + 100))[0m
+2025-10-17T03:51:47.3902089Z [36;1m[0m
+2025-10-17T03:51:47.3902315Z [36;1m# Determine version name based on tag or commit[0m
+2025-10-17T03:51:47.3902634Z [36;1mif [[ "$GITHUB_REF" == refs/tags/v* ]]; then[0m
+2025-10-17T03:51:47.3902932Z [36;1m  VERSION_NAME="${GITHUB_REF#refs/tags/}"[0m
+2025-10-17T03:51:47.3903186Z [36;1melse[0m
+2025-10-17T03:51:47.3903397Z [36;1m  COMMIT_SHORT="${GITHUB_SHA:0:7}"[0m
+2025-10-17T03:51:47.3903716Z [36;1m  VERSION_NAME="1.0.${VERSION_CODE}-${COMMIT_SHORT}"[0m
+2025-10-17T03:51:47.3904024Z [36;1mfi[0m
+2025-10-17T03:51:47.3904199Z [36;1m[0m
+2025-10-17T03:51:47.3904613Z [36;1mecho "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT[0m
+2025-10-17T03:51:47.3905010Z [36;1mecho "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT[0m
+2025-10-17T03:51:47.3905380Z [36;1mecho "commit_short=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT[0m
+2025-10-17T03:51:47.3905788Z [36;1mecho "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT[0m
+2025-10-17T03:51:47.3906125Z [36;1m[0m
+2025-10-17T03:51:47.3906335Z [36;1mecho "📦 Version Code: ${VERSION_CODE}"[0m
+2025-10-17T03:51:47.3906969Z [36;1mecho "📦 Version Name: ${VERSION_NAME}"[0m
+2025-10-17T03:51:47.3907260Z [36;1mecho "📦 Commit: ${GITHUB_SHA:0:7}"[0m
+2025-10-17T03:51:47.3937024Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:51:47.3937264Z env:
+2025-10-17T03:51:47.3937440Z   JAVA_VERSION: 17
+2025-10-17T03:51:47.3937646Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:47.3937981Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3938453Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.3938836Z ##[endgroup]
+2025-10-17T03:51:47.4000891Z 📦 Version Code: 104
+2025-10-17T03:51:47.4001299Z 📦 Version Name: 1.0.104-0113371
+2025-10-17T03:51:47.4001592Z 📦 Commit: 0113371
+2025-10-17T03:51:47.4044897Z ##[group]Run echo "Building debug APK with release signing..."
+2025-10-17T03:51:47.4045339Z [36;1mecho "Building debug APK with release signing..."[0m
+2025-10-17T03:51:47.4045705Z [36;1m./gradlew assembleDebug --no-daemon --stacktrace[0m
+2025-10-17T03:51:47.4046005Z [36;1m[0m
+2025-10-17T03:51:47.4046191Z [36;1m# Find the built APK[0m
+2025-10-17T03:51:47.4046745Z [36;1mDEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)[0m
+2025-10-17T03:51:47.4047166Z [36;1mecho "DEBUG_APK_PATH=${DEBUG_APK}" >> $GITHUB_ENV[0m
+2025-10-17T03:51:47.4047469Z [36;1m[0m
+2025-10-17T03:51:47.4047667Z [36;1mif [ -f "$DEBUG_APK" ]; then[0m
+2025-10-17T03:51:47.4047957Z [36;1m  ls -lh "$DEBUG_APK"[0m
+2025-10-17T03:51:47.4048294Z [36;1m  echo "✅ Debug APK built successfully: $DEBUG_APK"[0m
+2025-10-17T03:51:47.4048608Z [36;1melse[0m
+2025-10-17T03:51:47.4048820Z [36;1m  echo "❌ Debug APK not found!"[0m
+2025-10-17T03:51:47.4049071Z [36;1m  exit 1[0m
+2025-10-17T03:51:47.4049292Z [36;1mfi[0m
+2025-10-17T03:51:47.4078129Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:51:47.4078375Z env:
+2025-10-17T03:51:47.4078555Z   JAVA_VERSION: 17
+2025-10-17T03:51:47.4078761Z   GRADLE_VERSION: wrapper
+2025-10-17T03:51:47.4079100Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.4079565Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:51:47.4079926Z   GITHUB_RUN_NUMBER: 4
+2025-10-17T03:51:47.4080166Z   GITHUB_SHA: 01133710872fce578c7460f4287c762bdff07092
+2025-10-17T03:51:47.4080584Z   KEYSTORE_FILE: /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore
+2025-10-17T03:51:47.4081056Z   KEYSTORE_PASSWORD: ***
+2025-10-17T03:51:47.4081281Z   KEY_ALIAS: ***
+2025-10-17T03:51:47.4081492Z   KEY_PASSWORD: ***
+2025-10-17T03:51:47.4081687Z ##[endgroup]
+2025-10-17T03:51:47.4130181Z Building debug APK with release signing...
+2025-10-17T03:51:49.2934106Z Downloading https://services.gradle.org/distributions/gradle-8.4-bin.zip
+2025-10-17T03:51:53.4588482Z ............10%............20%.............30%............40%.............50%............60%.............70%............80%.............90%............100%
+2025-10-17T03:51:54.8618432Z 
+2025-10-17T03:51:54.8618870Z Welcome to Gradle 8.4!
+2025-10-17T03:51:54.8619210Z 
+2025-10-17T03:51:54.8619416Z Here are the highlights of this release:
+2025-10-17T03:51:54.8620168Z  - Compiling and testing with Java 21
+2025-10-17T03:51:54.8620657Z  - Faster Java compilation on Windows
+2025-10-17T03:51:54.8621183Z  - Role focused dependency configurations creation
+2025-10-17T03:51:54.8621559Z 
+2025-10-17T03:51:54.8621889Z For more details see https://docs.gradle.org/8.4/release-notes.html
+2025-10-17T03:51:54.8622355Z 
+2025-10-17T03:51:55.1551220Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.4/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+2025-10-17T03:51:56.7547428Z Daemon will be stopped at the end of the build 
+2025-10-17T03:52:32.1575210Z 
+2025-10-17T03:52:32.1598637Z > Configure project :app
+2025-10-17T03:52:32.1599536Z 🔍 APK Versioning: Starting version code calculation...
+2025-10-17T03:52:32.1603721Z 🔍 GITHUB_RUN_NUMBER env var: '4'
+2025-10-17T03:52:32.1606008Z ✅ SUCCESS: Using GitHub run number: 104
+2025-10-17T03:52:32.2581422Z ✅ Release signing configured with keystore: /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore
+2025-10-17T03:52:32.3551785Z ✅ Debug build configured with release signing
+2025-10-17T03:52:36.7562032Z Checking the license for package Android SDK Build-Tools 33.0.1 in /usr/local/lib/android/sdk/licenses
+2025-10-17T03:52:36.7562987Z License for package Android SDK Build-Tools 33.0.1 accepted.
+2025-10-17T03:52:36.7563684Z Preparing "Install Android SDK Build-Tools 33.0.1 v.33.0.1".
+2025-10-17T03:52:38.4545963Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" ready.
+2025-10-17T03:52:38.4547565Z Installing Android SDK Build-Tools 33.0.1 in /usr/local/lib/android/sdk/build-tools/33.0.1
+2025-10-17T03:52:38.4549281Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" complete.
+2025-10-17T03:52:39.0546704Z "Install Android SDK Build-Tools 33.0.1 v.33.0.1" finished.
+2025-10-17T03:52:39.5545502Z 
+2025-10-17T03:52:39.5551771Z > Task :app:preBuild UP-TO-DATE
+2025-10-17T03:52:39.5557324Z > Task :app:preDebugBuild UP-TO-DATE
+2025-10-17T03:52:39.5567122Z > Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+2025-10-17T03:52:51.8553605Z > Task :app:dataBindingMergeDependencyArtifactsDebug
+2025-10-17T03:52:51.8598972Z > Task :app:generateDebugResValues
+2025-10-17T03:52:51.8599505Z > Task :app:generateDebugResources
+2025-10-17T03:52:51.8599993Z > Task :app:processDebugGoogleServices
+2025-10-17T03:52:54.7545887Z > Task :app:packageDebugResources
+2025-10-17T03:52:55.3546322Z > Task :app:mergeDebugResources
+2025-10-17T03:52:56.4574847Z > Task :app:generateDebugBuildConfig
+2025-10-17T03:52:56.5546095Z > Task :app:parseDebugLocalResources
+2025-10-17T03:52:56.8547856Z > Task :app:checkDebugAarMetadata
+2025-10-17T03:52:57.0546702Z > Task :app:dataBindingGenBaseClassesDebug
+2025-10-17T03:52:57.1555388Z > Task :app:mapDebugSourceSetPaths
+2025-10-17T03:52:57.1568592Z > Task :app:createDebugCompatibleScreenManifests
+2025-10-17T03:52:57.1573091Z > Task :app:extractDeepLinksDebug
+2025-10-17T03:52:57.5567341Z 
+2025-10-17T03:52:57.5568490Z > Task :app:processDebugMainManifest
+2025-10-17T03:52:57.5571750Z package="com.***" found in source AndroidManifest.xml: /home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/AndroidManifest.xml.
+2025-10-17T03:52:57.5578929Z Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+2025-10-17T03:52:57.5580986Z Recommendation: remove package="com.***" from the source AndroidManifest.xml: /home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/AndroidManifest.xml.
+2025-10-17T03:52:57.5582158Z 
+2025-10-17T03:52:57.5582368Z > Task :app:processDebugManifest
+2025-10-17T03:52:57.6552395Z > Task :app:javaPreCompileDebug
+2025-10-17T03:52:57.6556965Z > Task :app:mergeDebugShaders
+2025-10-17T03:52:57.6567668Z > Task :app:compileDebugShaders NO-SOURCE
+2025-10-17T03:52:57.6568179Z > Task :app:generateDebugAssets UP-TO-DATE
+2025-10-17T03:52:57.7572401Z > Task :app:mergeDebugAssets FROM-CACHE
+2025-10-17T03:52:57.7597082Z > Task :app:compressDebugAssets
+2025-10-17T03:52:57.7602225Z > Task :app:desugarDebugFileDependencies
+2025-10-17T03:53:00.2550178Z > Task :app:processDebugManifestForPackage
+2025-10-17T03:53:00.2550857Z > Task :app:checkDebugDuplicateClasses
+2025-10-17T03:53:02.3546685Z > Task :app:processDebugResources
+2025-10-17T03:53:31.2567963Z > Task :app:mergeExtDexDebug
+2025-10-17T03:53:36.1570506Z > Task :app:mergeDebugJniLibFolders FROM-CACHE
+2025-10-17T03:53:36.1571162Z > Task :app:mergeLibDexDebug
+2025-10-17T03:53:36.3546011Z > Task :app:mergeDebugNativeLibs NO-SOURCE
+2025-10-17T03:53:36.3551201Z > Task :app:stripDebugDebugSymbols NO-SOURCE
+2025-10-17T03:53:36.3554651Z > Task :app:validateSigningDebug
+2025-10-17T03:53:36.3556955Z > Task :app:writeDebugAppMetadata
+2025-10-17T03:53:36.3559508Z > Task :app:writeDebugSigningConfigVersions
+2025-10-17T03:53:53.7548105Z 
+2025-10-17T03:53:53.7556075Z > Task :app:compileDebugKotlin
+2025-10-17T03:53:53.7558345Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ApkDownloadManager.kt:34:9 Parameter 'installationId' is never used
+2025-10-17T03:53:53.7582453Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ApkInstallReceiver.kt:59:52 'getParcelableExtra(String!): T?' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7617847Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ConfigReceiver.kt:67:48 Type mismatch: inferred type is Nothing? but String was expected
+2025-10-17T03:53:53.7620775Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:18:45 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7623157Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:96:9 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7625549Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:97:38 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7658234Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:107:22 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7660810Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:107:39 'parseActivityResult(Int, Int, Intent!): IntentResult!' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7663287Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:200:42 Parameter 'data' is never used
+2025-10-17T03:53:53.7665514Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:463:23 Variable 'granted' initializer is redundant
+2025-10-17T03:53:53.7667974Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:464:23 Variable 'message' initializer is redundant
+2025-10-17T03:53:53.7670801Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:666:17 Variable 'devicePolicyManager' is never used
+2025-10-17T03:53:53.7673270Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:667:17 Variable 'adminComponent' is never used
+2025-10-17T03:53:53.7675596Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/MainActivity.kt:98:27 'checkOpNoThrow(String, Int, String): Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7678199Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:22:15 'onPasswordChanged(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7680703Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:27:15 'onPasswordFailed(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7683480Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:32:15 'onPasswordSucceeded(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7686408Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RemoteControlAccessibilityService.kt:103:17 Variable 'downEvent' is never used
+2025-10-17T03:53:53.7688975Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RemoteControlAccessibilityService.kt:104:17 Variable 'upEvent' is never used
+2025-10-17T03:53:53.7691309Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:71:40 'FLAG_DISMISS_KEYGUARD: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7693612Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:72:40 'FLAG_SHOW_WHEN_LOCKED: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7695837Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:73:40 'FLAG_TURN_SCREEN_ON: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7787252Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:81:26 'setter for systemUiVisibility: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7789819Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:82:18 'SYSTEM_UI_FLAG_FULLSCREEN: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7792112Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:83:18 'SYSTEM_UI_FLAG_HIDE_NAVIGATION: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7794466Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:84:18 'SYSTEM_UI_FLAG_IMMERSIVE_STICKY: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7797112Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ScreenCaptureService.kt:210:41 'getter for defaultDisplay: Display!' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7799828Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ScreenCaptureService.kt:211:21 'getRealMetrics(DisplayMetrics!): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7802293Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/TelemetryCollector.kt:98:40 'getter for connectionInfo: WifiInfo!' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7804598Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:46:44 'FLAG_SHOW_WHEN_LOCKED: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7807065Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:47:44 'FLAG_TURN_SCREEN_ON: Int' is deprecated. Deprecated in Java
+2025-10-17T03:53:53.7809322Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:89:56 'FLAG_DISMISS_KEYGUARD: Int' is deprecated. Deprecated in Java
+2025-10-17T03:54:00.5567165Z 
+2025-10-17T03:54:00.5568074Z > Task :app:compileDebugJavaWithJavac
+2025-10-17T03:54:01.5545830Z > Task :app:dexBuilderDebug
+2025-10-17T03:54:01.6577904Z > Task :app:mergeDebugGlobalSynthetics
+2025-10-17T03:54:01.7545837Z > Task :app:processDebugJavaRes
+2025-10-17T03:54:02.4546882Z > Task :app:mergeProjectDexDebug
+2025-10-17T03:54:02.7570011Z > Task :app:mergeDebugJavaResource
+2025-10-17T03:54:03.1550203Z > Task :app:packageDebug
+2025-10-17T03:54:03.1556210Z > Task :app:createDebugApkListingFileRedirect
+2025-10-17T03:54:03.1558940Z > Task :app:assembleDebug
+2025-10-17T03:54:03.2336641Z 
+2025-10-17T03:54:03.2341579Z BUILD SUCCESSFUL in 2m 14s
+2025-10-17T03:54:03.2343718Z 37 actionable tasks: 35 executed, 2 from cache
+2025-10-17T03:54:03.5598780Z -rw-r--r-- 1 runner runner 17M Oct 17 03:54 app/build/outputs/apk/debug/app-debug.apk
+2025-10-17T03:54:03.5600107Z ✅ Debug APK built successfully: app/build/outputs/apk/debug/app-debug.apk
+2025-10-17T03:54:03.5642872Z ##[group]Run echo "Building release APK and AAB..."
+2025-10-17T03:54:03.5643264Z [36;1mecho "Building release APK and AAB..."[0m
+2025-10-17T03:54:03.5643656Z [36;1m./gradlew assembleRelease bundleRelease --no-daemon --stacktrace[0m
+2025-10-17T03:54:03.5644011Z [36;1m[0m
+2025-10-17T03:54:03.5644199Z [36;1m# Find the built artifacts[0m
+2025-10-17T03:54:03.5644574Z [36;1mRELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)[0m
+2025-10-17T03:54:03.5645087Z [36;1mRELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" | head -1)[0m
+2025-10-17T03:54:03.5645456Z [36;1m[0m
+2025-10-17T03:54:03.5645697Z [36;1mecho "RELEASE_APK_PATH=${RELEASE_APK}" >> $GITHUB_ENV[0m
+2025-10-17T03:54:03.5646054Z [36;1mecho "RELEASE_AAB_PATH=${RELEASE_AAB}" >> $GITHUB_ENV[0m
+2025-10-17T03:54:03.5646354Z [36;1m[0m
+2025-10-17T03:54:03.5646757Z [36;1mif [ -f "$RELEASE_APK" ]; then[0m
+2025-10-17T03:54:03.5647023Z [36;1m  ls -lh "$RELEASE_APK"[0m
+2025-10-17T03:54:03.5647360Z [36;1m  echo "✅ Release APK built successfully: $RELEASE_APK"[0m
+2025-10-17T03:54:03.5647670Z [36;1melse[0m
+2025-10-17T03:54:03.5647879Z [36;1m  echo "❌ Release APK not found!"[0m
+2025-10-17T03:54:03.5648134Z [36;1m  exit 1[0m
+2025-10-17T03:54:03.5648316Z [36;1mfi[0m
+2025-10-17T03:54:03.5648487Z [36;1m[0m
+2025-10-17T03:54:03.5648673Z [36;1mif [ -f "$RELEASE_AAB" ]; then[0m
+2025-10-17T03:54:03.5648926Z [36;1m  ls -lh "$RELEASE_AAB"[0m
+2025-10-17T03:54:03.5649212Z [36;1m  echo "✅ Release AAB built successfully: $RELEASE_AAB"[0m
+2025-10-17T03:54:03.5649501Z [36;1melse[0m
+2025-10-17T03:54:03.5649725Z [36;1m  echo "⚠️ Release AAB not found (optional)"[0m
+2025-10-17T03:54:03.5649990Z [36;1mfi[0m
+2025-10-17T03:54:03.5682463Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:54:03.5682729Z env:
+2025-10-17T03:54:03.5682903Z   JAVA_VERSION: 17
+2025-10-17T03:54:03.5683109Z   GRADLE_VERSION: wrapper
+2025-10-17T03:54:03.5683451Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:54:03.5683919Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:54:03.5684343Z   DEBUG_APK_PATH: app/build/outputs/apk/debug/app-debug.apk
+2025-10-17T03:54:03.5684650Z   GITHUB_RUN_NUMBER: 4
+2025-10-17T03:54:03.5684889Z   GITHUB_SHA: 01133710872fce578c7460f4287c762bdff07092
+2025-10-17T03:54:03.5685293Z   KEYSTORE_FILE: /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore
+2025-10-17T03:54:03.5685720Z   KEYSTORE_PASSWORD: ***
+2025-10-17T03:54:03.5685938Z   KEY_ALIAS: ***
+2025-10-17T03:54:03.5686132Z   KEY_PASSWORD: ***
+2025-10-17T03:54:03.5686317Z ##[endgroup]
+2025-10-17T03:54:03.5745194Z Building release APK and AAB...
+2025-10-17T03:54:04.1859187Z To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.4/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+2025-10-17T03:54:05.1835200Z Daemon will be stopped at the end of the build 
+2025-10-17T03:54:09.9838515Z 
+2025-10-17T03:54:09.9867325Z > Configure project :app
+2025-10-17T03:54:09.9871712Z 🔍 APK Versioning: Starting version code calculation...
+2025-10-17T03:54:09.9877436Z 🔍 GITHUB_RUN_NUMBER env var: '4'
+2025-10-17T03:54:09.9878624Z ✅ SUCCESS: Using GitHub run number: 104
+2025-10-17T03:54:10.0853315Z ✅ Release signing configured with keystore: /home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore
+2025-10-17T03:54:10.1840939Z ✅ Debug build configured with release signing
+2025-10-17T03:54:12.5867366Z 
+2025-10-17T03:54:12.5867865Z > Task :app:buildKotlinToolingMetadata
+2025-10-17T03:54:12.5868458Z > Task :app:preBuild UP-TO-DATE
+2025-10-17T03:54:12.5868940Z > Task :app:preReleaseBuild UP-TO-DATE
+2025-10-17T03:54:13.2838838Z > Task :app:dataBindingMergeDependencyArtifactsRelease
+2025-10-17T03:54:13.2848471Z > Task :app:generateReleaseResValues FROM-CACHE
+2025-10-17T03:54:13.2854922Z > Task :app:generateReleaseResources UP-TO-DATE
+2025-10-17T03:54:13.3862953Z > Task :app:processReleaseGoogleServices
+2025-10-17T03:54:15.2834514Z > Task :app:packageReleaseResources
+2025-10-17T03:54:15.3836830Z > Task :app:parseReleaseLocalResources FROM-CACHE
+2025-10-17T03:54:15.3927255Z > Task :app:generateReleaseBuildConfig
+2025-10-17T03:54:15.9851211Z > Task :app:checkReleaseAarMetadata
+2025-10-17T03:54:15.9858784Z > Task :app:mapReleaseSourceSetPaths
+2025-10-17T03:54:15.9863589Z > Task :app:createReleaseCompatibleScreenManifests
+2025-10-17T03:54:15.9876944Z > Task :app:extractDeepLinksRelease FROM-CACHE
+2025-10-17T03:54:16.3866339Z 
+2025-10-17T03:54:16.3870662Z > Task :app:processReleaseMainManifest
+2025-10-17T03:54:16.3872456Z package="com.***" found in source AndroidManifest.xml: /home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/AndroidManifest.xml.
+2025-10-17T03:54:16.3874427Z Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+2025-10-17T03:54:16.3876705Z Recommendation: remove package="com.***" from the source AndroidManifest.xml: /home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/AndroidManifest.xml.
+2025-10-17T03:54:16.5840259Z 
+2025-10-17T03:54:16.5845892Z > Task :app:processReleaseManifest
+2025-10-17T03:54:16.5862709Z > Task :app:javaPreCompileRelease FROM-CACHE
+2025-10-17T03:54:16.6882659Z > Task :app:extractProguardFiles
+2025-10-17T03:54:16.6886404Z > Task :app:mergeReleaseJniLibFolders FROM-CACHE
+2025-10-17T03:54:16.6887558Z > Task :app:processReleaseManifestForPackage
+2025-10-17T03:54:16.7848139Z > Task :app:mergeReleaseNativeLibs NO-SOURCE
+2025-10-17T03:54:16.7856273Z > Task :app:stripReleaseDebugSymbols NO-SOURCE
+2025-10-17T03:54:16.7857607Z > Task :app:extractReleaseNativeSymbolTables NO-SOURCE
+2025-10-17T03:54:16.7869447Z > Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+2025-10-17T03:54:16.9862489Z > Task :app:desugarReleaseFileDependencies
+2025-10-17T03:54:16.9863536Z > Task :app:mergeReleaseResources
+2025-10-17T03:54:17.1849142Z > Task :app:checkReleaseDuplicateClasses
+2025-10-17T03:54:17.1851970Z > Task :app:mergeReleaseArtProfile
+2025-10-17T03:54:17.2835051Z > Task :app:dataBindingGenBaseClassesRelease FROM-CACHE
+2025-10-17T03:54:43.3834177Z > Task :app:processReleaseResources
+2025-10-17T03:54:47.1863162Z > Task :app:mergeReleaseShaders FROM-CACHE
+2025-10-17T03:54:47.1927767Z > Task :app:compileReleaseShaders NO-SOURCE
+2025-10-17T03:54:47.1928747Z > Task :app:generateReleaseAssets UP-TO-DATE
+2025-10-17T03:54:47.1929329Z > Task :app:mergeReleaseAssets FROM-CACHE
+2025-10-17T03:54:47.2834575Z > Task :app:compressReleaseAssets
+2025-10-17T03:54:47.3834778Z > Task :app:collectReleaseDependencies
+2025-10-17T03:54:47.3835764Z > Task :app:mergeExtDexRelease
+2025-10-17T03:54:47.7833651Z > Task :app:sdkReleaseDependencyData
+2025-10-17T03:54:47.7849327Z > Task :app:validateSigningRelease
+2025-10-17T03:54:47.7853462Z > Task :app:writeReleaseAppMetadata
+2025-10-17T03:54:47.7857754Z > Task :app:writeReleaseSigningConfigVersions
+2025-10-17T03:54:47.7871292Z > Task :app:processApplicationManifestReleaseForBundle
+2025-10-17T03:54:48.1847935Z > Task :app:optimizeReleaseResources
+2025-10-17T03:54:48.2849752Z > Task :app:configureReleaseDependencies
+2025-10-17T03:54:49.0835087Z > Task :app:parseReleaseIntegrityConfig
+2025-10-17T03:54:49.1834711Z > Task :app:bundleReleaseResources
+2025-10-17T03:55:06.6849540Z 
+2025-10-17T03:55:06.6850027Z > Task :app:compileReleaseKotlin
+2025-10-17T03:55:06.6851494Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ApkDownloadManager.kt:34:9 Parameter 'installationId' is never used
+2025-10-17T03:55:06.6853844Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ApkInstallReceiver.kt:59:52 'getParcelableExtra(String!): T?' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6870061Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ConfigReceiver.kt:67:48 Type mismatch: inferred type is Nothing? but String was expected
+2025-10-17T03:55:06.6872938Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:18:45 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6903886Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:96:9 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6907148Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:97:38 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6909819Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:107:22 'IntentIntegrator' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6912576Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/EnrollmentActivity.kt:107:39 'parseActivityResult(Int, Int, Intent!): IntentResult!' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6915156Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:200:42 Parameter 'data' is never used
+2025-10-17T03:55:06.6917581Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:463:23 Variable 'granted' initializer is redundant
+2025-10-17T03:55:06.6920123Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:464:23 Variable 'message' initializer is redundant
+2025-10-17T03:55:06.6927312Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:666:17 Variable 'devicePolicyManager' is never used
+2025-10-17T03:55:06.6929658Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/FcmMessagingService.kt:667:17 Variable 'adminComponent' is never used
+2025-10-17T03:55:06.6932128Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/MainActivity.kt:98:27 'checkOpNoThrow(String, Int, String): Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6934727Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:22:15 'onPasswordChanged(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6937582Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:27:15 'onPasswordFailed(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6940227Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/NexDeviceAdminReceiver.kt:32:15 'onPasswordSucceeded(Context, Intent): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6942856Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RemoteControlAccessibilityService.kt:103:17 Variable 'downEvent' is never used
+2025-10-17T03:55:06.6945241Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RemoteControlAccessibilityService.kt:104:17 Variable 'upEvent' is never used
+2025-10-17T03:55:06.6947796Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:71:40 'FLAG_DISMISS_KEYGUARD: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6950178Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:72:40 'FLAG_SHOW_WHEN_LOCKED: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6953178Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:73:40 'FLAG_TURN_SCREEN_ON: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6955597Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:81:26 'setter for systemUiVisibility: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6958343Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:82:18 'SYSTEM_UI_FLAG_FULLSCREEN: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6960792Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:83:18 'SYSTEM_UI_FLAG_HIDE_NAVIGATION: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6963214Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/RingActivity.kt:84:18 'SYSTEM_UI_FLAG_IMMERSIVE_STICKY: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6965758Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ScreenCaptureService.kt:210:41 'getter for defaultDisplay: Display!' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6968610Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/ScreenCaptureService.kt:211:21 'getRealMetrics(DisplayMetrics!): Unit' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6971185Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/TelemetryCollector.kt:98:40 'getter for connectionInfo: WifiInfo!' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6973548Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:46:44 'FLAG_SHOW_WHEN_LOCKED: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6975901Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:47:44 'FLAG_TURN_SCREEN_ON: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:06.6978509Z w: file:///home/runner/work/unitymdm-prod/unitymdm-prod/UNITYmdm/android/app/src/main/java/com/***/WakeActivity.kt:89:56 'FLAG_DISMISS_KEYGUARD: Int' is deprecated. Deprecated in Java
+2025-10-17T03:55:07.7833194Z 
+2025-10-17T03:55:07.7838310Z > Task :app:compileReleaseJavaWithJavac
+2025-10-17T03:55:14.3833840Z > Task :app:dexBuilderRelease
+2025-10-17T03:55:14.5867652Z > Task :app:mergeReleaseGlobalSynthetics
+2025-10-17T03:55:14.6837587Z > Task :app:processReleaseJavaRes
+2025-10-17T03:55:15.9839128Z > Task :app:mergeReleaseJavaResource
+2025-10-17T03:55:18.3858011Z > Task :app:mergeDexRelease
+2025-10-17T03:55:18.5833683Z > Task :app:buildReleasePreBundle
+2025-10-17T03:55:18.9835876Z > Task :app:compileReleaseArtProfile
+2025-10-17T03:55:19.4834638Z > Task :app:packageRelease
+2025-10-17T03:55:19.4835310Z > Task :app:createReleaseApkListingFileRedirect
+2025-10-17T03:55:19.7833728Z > Task :app:packageReleaseBundle
+2025-10-17T03:55:20.7834916Z > Task :app:signReleaseBundle
+2025-10-17T03:55:20.7836128Z > Task :app:produceReleaseBundleIdeListingFile
+2025-10-17T03:55:20.7837217Z > Task :app:createReleaseBundleListingFileRedirect
+2025-10-17T03:55:20.7838134Z > Task :app:bundleRelease
+2025-10-17T03:55:33.8834576Z > Task :app:lintVitalAnalyzeRelease
+2025-10-17T03:55:33.9850475Z > Task :app:lintVitalReportRelease
+2025-10-17T03:55:33.9851282Z > Task :app:lintVitalRelease
+2025-10-17T03:55:33.9851807Z > Task :app:assembleRelease
+2025-10-17T03:55:34.0652218Z 
+2025-10-17T03:55:34.0652989Z BUILD SUCCESSFUL in 1m 30s
+2025-10-17T03:55:34.0653649Z 55 actionable tasks: 47 executed, 8 from cache
+2025-10-17T03:55:34.3924869Z -rw-r--r-- 1 runner runner 15M Oct 17 03:55 app/build/outputs/apk/release/app-release.apk
+2025-10-17T03:55:34.3926141Z ✅ Release APK built successfully: app/build/outputs/apk/release/app-release.apk
+2025-10-17T03:55:34.3939008Z -rw-r--r-- 1 runner runner 5.9M Oct 17 03:55 app/build/outputs/bundle/release/app-release.aab
+2025-10-17T03:55:34.3941525Z ✅ Release AAB built successfully: app/build/outputs/bundle/release/app-release.aab
+2025-10-17T03:55:34.3966671Z ##[group]Run echo "Verifying APK signatures with apksigner..."
+2025-10-17T03:55:34.3967119Z [36;1mecho "Verifying APK signatures with apksigner..."[0m
+2025-10-17T03:55:34.3967421Z [36;1m[0m
+2025-10-17T03:55:34.3967615Z [36;1m# Install build tools if needed[0m
+2025-10-17T03:55:34.3967903Z [36;1mecho "Installing Android SDK build tools..."[0m
+2025-10-17T03:55:34.3968261Z [36;1msdkmanager "build-tools;34.0.0" > /dev/null 2>&1 || true[0m
+2025-10-17T03:55:34.3968562Z [36;1m[0m
+2025-10-17T03:55:34.3968806Z [36;1mAPKSIGNER="${ANDROID_HOME}/build-tools/34.0.0/apksigner"[0m
+2025-10-17T03:55:34.3969101Z [36;1m[0m
+2025-10-17T03:55:34.3969280Z [36;1m# Verify debug APK[0m
+2025-10-17T03:55:34.3969514Z [36;1mecho "Verifying debug APK..."[0m
+2025-10-17T03:55:34.3969883Z [36;1m$APKSIGNER verify --verbose "$DEBUG_APK_PATH" > debug_verify.txt 2>&1[0m
+2025-10-17T03:55:34.3970241Z [36;1mcat debug_verify.txt[0m
+2025-10-17T03:55:34.3970455Z [36;1m[0m
+2025-10-17T03:55:34.3970758Z [36;1mif $APKSIGNER verify "$DEBUG_APK_PATH" 2>&1 | grep -q "Verifies"; then[0m
+2025-10-17T03:55:34.3971150Z [36;1m  echo "✅ Debug APK signature verified"[0m
+2025-10-17T03:55:34.3971416Z [36;1melse[0m
+2025-10-17T03:55:34.3971658Z [36;1m  echo "❌ Debug APK signature verification failed!"[0m
+2025-10-17T03:55:34.3971942Z [36;1m  exit 1[0m
+2025-10-17T03:55:34.3972122Z [36;1mfi[0m
+2025-10-17T03:55:34.3972292Z [36;1m[0m
+2025-10-17T03:55:34.3972469Z [36;1m# Verify release APK[0m
+2025-10-17T03:55:34.3972706Z [36;1mecho "Verifying release APK..."[0m
+2025-10-17T03:55:34.3973076Z [36;1m$APKSIGNER verify --verbose "$RELEASE_APK_PATH" > release_verify.txt 2>&1[0m
+2025-10-17T03:55:34.3973450Z [36;1mcat release_verify.txt[0m
+2025-10-17T03:55:34.3973670Z [36;1m[0m
+2025-10-17T03:55:34.3973958Z [36;1mif $APKSIGNER verify "$RELEASE_APK_PATH" 2>&1 | grep -q "Verifies"; then[0m
+2025-10-17T03:55:34.3974340Z [36;1m  echo "✅ Release APK signature verified"[0m
+2025-10-17T03:55:34.3974602Z [36;1melse[0m
+2025-10-17T03:55:34.3974840Z [36;1m  echo "❌ Release APK signature verification failed!"[0m
+2025-10-17T03:55:34.3975125Z [36;1m  exit 1[0m
+2025-10-17T03:55:34.3975303Z [36;1mfi[0m
+2025-10-17T03:55:34.4007960Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:55:34.4008193Z env:
+2025-10-17T03:55:34.4008366Z   JAVA_VERSION: 17
+2025-10-17T03:55:34.4008566Z   GRADLE_VERSION: wrapper
+2025-10-17T03:55:34.4008888Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:55:34.4009347Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:55:34.4009793Z   DEBUG_APK_PATH: app/build/outputs/apk/debug/app-debug.apk
+2025-10-17T03:55:34.4010174Z   RELEASE_APK_PATH: app/build/outputs/apk/release/app-release.apk
+2025-10-17T03:55:34.4010584Z   RELEASE_AAB_PATH: app/build/outputs/bundle/release/app-release.aab
+2025-10-17T03:55:34.4010907Z ##[endgroup]
+2025-10-17T03:55:34.4062086Z Verifying APK signatures with apksigner...
+2025-10-17T03:55:34.4063224Z Installing Android SDK build tools...
+2025-10-17T03:55:34.4068675Z Verifying debug APK...
+2025-10-17T03:55:34.9000544Z Verifies
+2025-10-17T03:55:34.9001002Z Verified using v1 scheme (JAR signing): false
+2025-10-17T03:55:34.9001616Z Verified using v2 scheme (APK Signature Scheme v2): true
+2025-10-17T03:55:34.9002273Z Verified using v3 scheme (APK Signature Scheme v3): false
+2025-10-17T03:55:34.9002898Z Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+2025-10-17T03:55:34.9003533Z Verified using v4 scheme (APK Signature Scheme v4): false
+2025-10-17T03:55:34.9004069Z Verified for SourceStamp: false
+2025-10-17T03:55:34.9004467Z Number of signers: 1
+2025-10-17T03:55:35.1178534Z ❌ Debug APK signature verification failed!
+2025-10-17T03:55:35.1191828Z ##[error]Process completed with exit code 1.
+2025-10-17T03:55:35.1264038Z ##[group]Run if [ -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore" ]; then
+2025-10-17T03:55:35.1264679Z [36;1mif [ -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore" ]; then[0m
+2025-10-17T03:55:35.1265211Z [36;1m  rm -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore"[0m
+2025-10-17T03:55:35.1265589Z [36;1m  echo "🧹 Keystore cleaned up"[0m
+2025-10-17T03:55:35.1265841Z [36;1mfi[0m
+2025-10-17T03:55:35.1297686Z shell: /usr/bin/bash -e {0}
+2025-10-17T03:55:35.1297915Z env:
+2025-10-17T03:55:35.1298086Z   JAVA_VERSION: 17
+2025-10-17T03:55:35.1298285Z   GRADLE_VERSION: wrapper
+2025-10-17T03:55:35.1298615Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:55:35.1299077Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-17T03:55:35.1299491Z   DEBUG_APK_PATH: app/build/outputs/apk/debug/app-debug.apk
+2025-10-17T03:55:35.1299909Z   RELEASE_APK_PATH: app/build/outputs/apk/release/app-release.apk
+2025-10-17T03:55:35.1300344Z   RELEASE_AAB_PATH: app/build/outputs/bundle/release/app-release.aab
+2025-10-17T03:55:35.1300666Z ##[endgroup]
+2025-10-17T03:55:35.1365995Z 🧹 Keystore cleaned up
+2025-10-17T03:55:35.1437299Z Post job cleanup.
+2025-10-17T03:55:35.3236350Z Post job cleanup.
+2025-10-17T03:55:35.4196258Z [command]/usr/bin/git version
+2025-10-17T03:55:35.4235791Z git version 2.51.0
+2025-10-17T03:55:35.4281922Z Temporarily overriding HOME='/home/runner/work/_temp/151eeb91-448c-4611-aacd-1493d92207bd' before making global git config changes
+2025-10-17T03:55:35.4282869Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-17T03:55:35.4296654Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-17T03:55:35.4335512Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-17T03:55:35.4369460Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-17T03:55:35.4606756Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-17T03:55:35.4629764Z http.https://github.com/.extraheader
+2025-10-17T03:55:35.4643845Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-10-17T03:55:35.4674970Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-17T03:55:35.5009849Z Cleaning up orphan processes
+2025-10-17T03:55:35.5267547Z Terminate orphan process: pid (2677) (java)

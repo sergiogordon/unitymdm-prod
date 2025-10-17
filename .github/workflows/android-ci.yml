@@ -142,7 +142,7 @@ jobs:
           $APKSIGNER verify --verbose "$DEBUG_APK_PATH" > debug_verify.txt 2>&1
           cat debug_verify.txt
           
-          if $APKSIGNER verify "$DEBUG_APK_PATH" 2>&1 | grep -q "Verifies"; then
+          if grep -q "Verifies" debug_verify.txt; then
             echo "✅ Debug APK signature verified"
           else
             echo "❌ Debug APK signature verification failed!"
@@ -154,7 +154,7 @@ jobs:
           $APKSIGNER verify --verbose "$RELEASE_APK_PATH" > release_verify.txt 2>&1
           cat release_verify.txt
           
-          if $APKSIGNER verify "$RELEASE_APK_PATH" 2>&1 | grep -q "Verifies"; then
+          if grep -q "Verifies" release_verify.txt; then
             echo "✅ Release APK signature verified"
           else
             echo "❌ Release APK signature verification failed!"
