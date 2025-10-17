@@ -342,7 +342,7 @@ async def create_enrollment_token(
     unity_package: Optional[str] = Query(None, description="Unity package to monitor"),
     admin_key: str = Depends(verify_admin_key),
     db: AsyncSession = Depends(get_async_db),
-    req: Request = None
+    req: Optional[Request] = None
 ):
     """Generate a single-use enrollment token for zero-touch provisioning"""
     enrollment_token = secrets.token_urlsafe(32)
@@ -460,7 +460,7 @@ async def register_device(
 @app.post("/v1/enroll")
 async def enroll_device_with_token(
     device_id: str = Query(...),
-    request: Request = None,
+    request: Optional[Request] = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     """Enroll device using enrollment token (idempotent)"""
