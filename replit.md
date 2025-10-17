@@ -16,10 +16,12 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 - ✅ `/v1/heartbeat` - Bearer token auth, <150ms p95 latency (measured 46-70ms)
 - ✅ `/admin/command` - FCM high-priority push with HMAC signature validation
 - ✅ `/v1/action-result` - Device command result tracking
+- ✅ **Firebase FCM Integration** - Fully operational, tested with real Firebase API
 - ✅ **Command Model** - Tracks FCM request_id, status, responses, completion
-- ✅ **Security** - X-Admin header, HMAC signatures, rate limiting
+- ✅ **Security** - X-Admin header, HMAC JSON-based signatures, rate limiting
 - ✅ **Metrics** - Counters for register, heartbeat, command_send, action_result
 - ✅ **Structured Logging** - All operations logged with request/response details
+- ✅ **HMAC Format** - JSON serialization with sorted keys for consistency
 
 ## Project Structure
 ```

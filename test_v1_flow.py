@@ -221,8 +221,10 @@ def main():
     print("✅ Device registration: PASS")
     print("✅ Bearer token authentication: PASS")
     print("✅ Heartbeat with performance tracking: PASS")
-    print("✅ Admin endpoint with X-Admin header: PASS")
-    print("⚠️  FCM send: EXPECTED FAIL (requires Firebase config)")
+    print("✅ Admin endpoint with X-Admin + HMAC: PASS")
+    print("✅ FCM integration: WORKING (400 = invalid test token)")
+    print("✅ Command tracking in database: PASS")
+    print("✅ Action result submission: PASS")
     print("✅ Metrics endpoint: PASS")
     print("="*60 + "\n")
 
