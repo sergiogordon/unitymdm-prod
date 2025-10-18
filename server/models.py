@@ -294,6 +294,30 @@ class DeviceHeartbeat(Base):
         Index('idx_heartbeat_device_ts', 'device_id', 'ts'),
     )
 
+class AlertState(Base):
+    __tablename__ = "alert_states"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    condition: Mapped[str] = mapped_column(String, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False, default='ok')
+    
+    last_raised_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_recovered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cooldown_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    
+    consecutive_violations: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_alert_device_condition', 'device_id', 'condition'),
+        Index('idx_alert_cooldown', 'cooldown_until'),
+        UniqueConstraint('device_id', 'condition', name='uq_device_condition'),
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
 
 # Configure connection pool for better concurrency (handles 100+ devices)
