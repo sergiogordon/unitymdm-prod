@@ -1142,6 +1142,17 @@ async def list_devices(
                         "elapsed_seconds": int(time_since_ping)
                     }
         
+        # Handle last_status - it could be a string (JSON) or already a dict
+        last_status_data = None
+        if device.last_status:
+            if isinstance(device.last_status, str):
+                try:
+                    last_status_data = json.loads(device.last_status)
+                except:
+                    last_status_data = None
+            elif isinstance(device.last_status, dict):
+                last_status_data = device.last_status
+        
         result.append({
             "id": device.id,
             "alias": device.alias,
@@ -1149,7 +1160,7 @@ async def list_devices(
             "last_seen": device.last_seen.isoformat() + "Z" if device.last_seen else None,
             "created_at": device.created_at.isoformat() + "Z" if device.created_at else None,
             "status": status,
-            "last_status": json.loads(device.last_status) if device.last_status else None,
+            "last_status": last_status_data,
             "ping_status": ping_status,
             "model": device.model,
             "manufacturer": device.manufacturer,
