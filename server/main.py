@@ -36,6 +36,9 @@ from observability import structured_logger, metrics, request_id_var
 from hmac_utils import compute_hmac_signature
 import uuid
 
+# Feature flags for gradual rollout
+READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
+
 # Helper function to ensure datetime is timezone-aware (assume UTC for naive datetimes)
 def ensure_utc(dt: Optional[datetime]) -> datetime:
     """Convert naive datetime to timezone-aware UTC datetime. Returns current time if None."""
