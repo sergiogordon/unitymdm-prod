@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, Text, create_engine, Integer, Index, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import String, DateTime, Text, create_engine, Integer, Index, Boolean, ForeignKey, UniqueConstraint, BigInteger, func, Computed
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from typing import Optional
 import os
+import uuid
 
 class Base(DeclarativeBase):
     pass
@@ -101,8 +103,15 @@ class ApkVersion(Base):
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+    build_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ci_run_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    git_sha: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    signer_fingerprint: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    storage_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
     __table_args__ = (
         Index('idx_apk_version_lookup', 'package_name', 'version_code'),
+        Index('idx_apk_build_type', 'version_code', 'build_type'),
         UniqueConstraint('package_name', 'version_code', name='uq_package_version'),
     )
 
@@ -144,8 +153,9 @@ class EnrollmentToken(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     token_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    alias: Mapped[str] = mapped_column(String, nullable=False)
-    token_hash: Mapped[str] = mapped_column(String, nullable=False)
+    alias: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    scope: Mapped[str] = mapped_column(String, default='register', nullable=False)
     
     issued_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -153,6 +163,7 @@ class EnrollmentToken(Base):
     
     uses_allowed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     uses_consumed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String, default='active', nullable=False, index=True)
@@ -163,6 +174,7 @@ class EnrollmentToken(Base):
     __table_args__ = (
         Index('idx_enrollment_token_status', 'status', 'expires_at'),
         Index('idx_enrollment_token_lookup', 'token_id'),
+        Index('idx_enrollment_issued_by', 'issued_by', 'issued_at'),
     )
 
 class EnrollmentEvent(Base):
@@ -207,6 +219,75 @@ class Command(Base):
     __table_args__ = (
         Index('idx_command_status', 'device_id', 'status'),
         Index('idx_command_created', 'created_at'),
+    )
+
+class FcmDispatch(Base):
+    __tablename__ = "fcm_dispatches"
+    
+    request_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    payload_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    fcm_message_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    http_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fcm_status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    error_msg: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    retries: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    __table_args__ = (
+        Index('idx_fcm_device_sent', 'device_id', 'sent_at'),
+        Index('idx_fcm_action_sent', 'action', 'sent_at'),
+    )
+
+class ApkDownloadEvent(Base):
+    __tablename__ = "apk_download_events"
+    
+    event_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    build_id: Mapped[int] = mapped_column(Integer, ForeignKey("apk_versions.id"), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    
+    token_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    admin_user: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    
+    __table_args__ = (
+        Index('idx_apk_download_build_ts', 'build_id', 'ts'),
+        Index('idx_apk_download_token_ts', 'token_id', 'ts'),
+    )
+
+class DeviceHeartbeat(Base):
+    __tablename__ = "device_heartbeats"
+    
+    hb_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    
+    ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default='ok', nullable=False)
+    
+    battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    plugged: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    temp_c: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    network_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    signal_dbm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    uptime_s: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ram_used_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    unity_pkg_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    unity_running: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    agent_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_heartbeat_device_ts', 'device_id', 'ts'),
     )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
