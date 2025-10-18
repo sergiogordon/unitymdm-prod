@@ -981,6 +981,23 @@ async def heartbeat(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
+    # Extract heartbeat telemetry for logging
+    battery_pct = payload.battery.pct if payload.battery else None
+    network_type = payload.network.transport if payload.network else None
+    uptime_s = payload.system.uptime_seconds if payload.system else None
+    
+    structured_logger.log_event(
+        "heartbeat.ingest",
+        device_id=device.id,
+        alias=device.alias,
+        battery_pct=battery_pct,
+        network_type=network_type,
+        uptime_s=uptime_s,
+        status="received"
+    )
+    
+    metrics.inc_counter("heartbeats_ingested_total")
+    
     print(f"[HEARTBEAT] Received from {device.alias}")
     
     # Parse previous status for comparison
