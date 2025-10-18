@@ -58,4 +58,8 @@ class SecurePreferences(context: Context) {
     var pendingInstallationId: Int
         get() = prefs.getInt("pending_installation_id", -1)
         set(value) = prefs.edit().putInt("pending_installation_id", value).apply()
+    
+    var hmacSecret: String
+        get() = prefs.getString("hmac_secret", "CHANGE_ME_ON_ENROLLMENT") ?: "CHANGE_ME_ON_ENROLLMENT"
+        set(value) = prefs.edit().putString("hmac_secret", value).apply()
 }

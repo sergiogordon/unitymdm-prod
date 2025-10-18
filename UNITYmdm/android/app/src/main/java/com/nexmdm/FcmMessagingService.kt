@@ -31,6 +31,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         private const val TAG = "FcmMessagingService"
         private const val RING_CHANNEL_ID = "ring_channel"
         private const val RING_NOTIFICATION_ID = 999
+        private const val HMAC_SECRET = "CHANGE_ME_ON_ENROLLMENT"
     }
     
     private val gson = Gson()
@@ -56,6 +57,28 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         val action = message.data["action"]
         val requestId = message.data["request_id"]
+        val deviceId = message.data["device_id"]
+        val timestamp = message.data["ts"]
+        val hmac = message.data["hmac"]
+        
+        if (action != null && requestId != null && deviceId != null && timestamp != null && hmac != null) {
+            val prefs = SecurePreferences(this)
+            val hmacSecret = prefs.hmacSecret
+            
+            val isValid = HmacValidator.verifyHmacSignature(
+                requestId = requestId,
+                deviceId = deviceId,
+                action = action,
+                timestamp = timestamp,
+                providedSignature = hmac,
+                hmacSecret = hmacSecret
+            )
+            
+            if (!isValid) {
+                Log.w(TAG, "[fcm.hmac_invalid] action=$action request_id=$requestId")
+                return
+            }
+        }
         
         when (action) {
             "ping" -> {
@@ -108,8 +131,27 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         try {
             startForegroundService(serviceIntent)
+            Log.i(TAG, "[command.executed] action=ping request_id=$requestId")
+            
+            if (requestId != null) {
+                postActionResult(
+                    requestId = requestId,
+                    action = "ping",
+                    outcome = "success",
+                    message = "Heartbeat triggered"
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start service from ping", e)
+            
+            if (requestId != null) {
+                postActionResult(
+                    requestId = requestId,
+                    action = "ping",
+                    outcome = "failed",
+                    message = "Error: ${e.message}"
+                )
+            }
         }
     }
     
@@ -522,9 +564,19 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         val packageName = data["package_name"]
         val intentUri = data["intent_uri"]
+        val requestId = data["request_id"]
         
         if (packageName.isNullOrEmpty()) {
             Log.e(TAG, "Package name is required for app launch")
+            
+            if (requestId != null) {
+                postActionResult(
+                    requestId = requestId,
+                    action = "launch_app",
+                    outcome = "failed",
+                    message = "Missing package_name"
+                )
+            }
             return
         }
         
@@ -537,6 +589,16 @@ class FcmMessagingService : FirebaseMessagingService() {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
                     Log.i(TAG, "✓ Successfully launched with intent URI")
+                    Log.i(TAG, "[command.executed] action=launch_app request_id=$requestId package=$packageName")
+                    
+                    if (requestId != null) {
+                        postActionResult(
+                            requestId = requestId,
+                            action = "launch_app",
+                            outcome = "success",
+                            message = "Launched $packageName with intent URI"
+                        )
+                    }
                     return
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to parse intent URI, falling back to package launch", e)
@@ -551,11 +613,39 @@ class FcmMessagingService : FirebaseMessagingService() {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(launchIntent)
                 Log.i(TAG, "✓ Successfully launched $packageName")
+                Log.i(TAG, "[command.executed] action=launch_app request_id=$requestId package=$packageName")
+                
+                if (requestId != null) {
+                    postActionResult(
+                        requestId = requestId,
+                        action = "launch_app",
+                        outcome = "success",
+                        message = "Launched $packageName"
+                    )
+                }
             } else {
                 Log.e(TAG, "✗ App not installed or no launch intent: $packageName")
+                
+                if (requestId != null) {
+                    postActionResult(
+                        requestId = requestId,
+                        action = "launch_app",
+                        outcome = "failed",
+                        message = "App not installed: $packageName"
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "✗ Failed to launch app: $packageName", e)
+            
+            if (requestId != null) {
+                postActionResult(
+                    requestId = requestId,
+                    action = "launch_app",
+                    outcome = "failed",
+                    message = "Error: ${e.message}"
+                )
+            }
         }
     }
     
@@ -943,6 +1033,64 @@ class FcmMessagingService : FirebaseMessagingService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error uploading FCM token", e)
+            }
+        }
+    }
+    
+    private fun postActionResult(
+        requestId: String,
+        action: String,
+        outcome: String,
+        message: String? = null
+    ) {
+        val prefs = SecurePreferences(this)
+        
+        if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty()) {
+            Log.w(TAG, "Server URL or device token not configured, skipping action result")
+            return
+        }
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = RetryHelper.withRetry(
+                    operation = "Post action result",
+                    maxRetries = 3
+                ) { attempt ->
+                    if (attempt > 1) {
+                        Log.i(TAG, "[result.retry] request_id=$requestId action=$action attempt=$attempt")
+                    }
+                    
+                    val payload = mutableMapOf(
+                        "request_id" to requestId,
+                        "device_id" to prefs.deviceId,
+                        "action" to action,
+                        "outcome" to outcome,
+                        "finished_at" to java.time.Instant.now().toString()
+                    )
+                    
+                    if (message != null) {
+                        payload["message"] = message
+                    }
+                    
+                    val json = gson.toJson(payload)
+                    
+                    val request = Request.Builder()
+                        .url("${prefs.serverUrl}/v1/action-result")
+                        .post(json.toRequestBody("application/json".toMediaType()))
+                        .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
+                        .build()
+                    
+                    val response = client.newCall(request).execute()
+                    
+                    if (response.isSuccessful) {
+                        Log.i(TAG, "[result.posted] request_id=$requestId action=$action outcome=$outcome")
+                        true
+                    } else {
+                        throw Exception("HTTP ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to post action result for request_id=$requestId: ${e.message}")
             }
         }
     }

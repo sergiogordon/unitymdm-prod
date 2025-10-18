@@ -21,6 +21,7 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -74,6 +75,17 @@ class MonitorService : Service() {
         
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+        
+        val apkInstaller = ApkInstaller(applicationContext)
+        val isDeviceOwner = apkInstaller.isDeviceOwner()
+        
+        if (isDeviceOwner) {
+            Log.i(TAG, "[device_owner.confirmed] agent_version=${BuildConfig.VERSION_NAME}")
+        } else {
+            Log.w(TAG, "[device_owner.warning] agent_version=${BuildConfig.VERSION_NAME} status=not_device_owner")
+        }
+        
+        Log.i(TAG, "[agent.startup] agent_version=${BuildConfig.VERSION_NAME} device_owner=$isDeviceOwner")
         
         registerFcmToken()
         
@@ -162,22 +174,39 @@ class MonitorService : Service() {
                 val payload = buildHeartbeatPayload(isPingResponse, pingRequestId)
                 val json = gson.toJson(payload)
                 
-                val request = Request.Builder()
-                    .url("${prefs.serverUrl}/v1/heartbeat")
-                    .post(json.toRequestBody("application/json".toMediaType()))
-                    .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
-                    .build()
+                val batteryInfo = telemetry.getBatteryInfo()
+                Log.i(TAG, "[heartbeat.sent] device_id=${prefs.deviceId} battery_pct=${batteryInfo.pct} is_ping=$isPingResponse")
                 
-                val response = client.newCall(request).execute()
-                
-                if (response.isSuccessful) {
-                    prefs.lastHeartbeatTime = System.currentTimeMillis()
-                    Log.d(TAG, "Heartbeat sent successfully (ping=${isPingResponse})")
-                } else {
-                    Log.e(TAG, "Heartbeat failed: ${response.code}")
+                val result = RetryHelper.withRetry(
+                    operation = "Send heartbeat",
+                    maxRetries = 3
+                ) { attempt ->
+                    val request = Request.Builder()
+                        .url("${prefs.serverUrl}/v1/heartbeat")
+                        .post(json.toRequestBody("application/json".toMediaType()))
+                        .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
+                        .build()
+                    
+                    val response = client.newCall(request).execute()
+                    
+                    when (response.code) {
+                        in 200..299 -> {
+                            prefs.lastHeartbeatTime = System.currentTimeMillis()
+                            Log.i(TAG, "[heartbeat.ack] device_id=${prefs.deviceId} status=${response.code}")
+                            true
+                        }
+                        401 -> {
+                            Log.w(TAG, "[heartbeat.unauthorized] device_id=${prefs.deviceId} status=401 message='Auth failed, backing off'")
+                            delay(60000)
+                            throw Exception("Unauthorized (401), backing off for 60s")
+                        }
+                        else -> {
+                            throw Exception("HTTP ${response.code}")
+                        }
+                    }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending heartbeat", e)
+                Log.e(TAG, "[heartbeat.failed] device_id=${prefs.deviceId} error=${e.message}")
             }
         }
     }
