@@ -82,7 +82,7 @@ function ADBSetupContent() {
 
   const fetchTokens = async () => {
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch("/api/proxy/v1/enroll-tokens?limit=50", {
         headers: {
           "Authorization": `Bearer ${token}`
@@ -107,7 +107,7 @@ function ADBSetupContent() {
     setLoading(true)
     try {
       const aliasArray = aliases.split(/[,\s]+/).filter(a => a.trim())
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       
       const response = await fetch("/api/proxy/v1/enroll-tokens", {
         method: "POST",
@@ -174,7 +174,7 @@ function ADBSetupContent() {
   }
 
   const fetchScriptContent = async (token: EnrollmentToken) => {
-    const authToken = localStorage.getItem('access_token')
+    const authToken = localStorage.getItem('auth_token')
     
     setScriptContents(prev => ({
       ...prev,
@@ -236,7 +236,7 @@ function ADBSetupContent() {
   }
 
   const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
-    const authToken = localStorage.getItem('access_token')
+    const authToken = localStorage.getItem('auth_token')
     const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
     const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
     
