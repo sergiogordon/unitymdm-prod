@@ -19,7 +19,8 @@ from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
     UpdateDeviceSettingsRequest, CreateEnrollmentTokensRequest, CreateEnrollmentTokensResponse,
-    EnrollmentTokenResponse, ListEnrollmentTokensResponse, EnrollmentTokenListItem
+    EnrollmentTokenResponse, ListEnrollmentTokensResponse, EnrollmentTokenListItem,
+    ActionResultRequest
 )
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
@@ -31,6 +32,7 @@ from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
 from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
 from email_service import email_service
 from observability import structured_logger, metrics, request_id_var
+from hmac_utils import compute_hmac_signature
 import uuid
 
 # Helper function to ensure datetime is timezone-aware (assume UTC for naive datetimes)
@@ -149,7 +151,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-async def send_fcm_launch_app(fcm_token: str, package_name: str) -> bool:
+async def send_fcm_launch_app(fcm_token: str, package_name: str, device_id: str = "unknown") -> bool:
     """
     Helper function to send FCM command to launch an app on a device
     Returns True if successful, False otherwise
@@ -169,11 +171,19 @@ async def send_fcm_launch_app(fcm_token: str, package_name: str) -> bool:
         "Content-Type": "application/json"
     }
     
+    request_id = str(uuid.uuid4())
+    timestamp = datetime.now(timezone.utc).isoformat()
+    hmac_signature = compute_hmac_signature(request_id, device_id, "launch_app", timestamp)
+    
     message = {
         "message": {
             "token": fcm_token,
             "data": {
                 "action": "launch_app",
+                "request_id": request_id,
+                "device_id": device_id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
                 "package_name": package_name
             },
             "android": {
@@ -1120,7 +1130,7 @@ async def heartbeat(
         if not is_app_running and device.fcm_token:
             try:
                 print(f"[AUTO-RELAUNCH] {device.alias}: {device.monitored_package} is down, sending relaunch command")
-                asyncio.create_task(send_fcm_launch_app(device.fcm_token, device.monitored_package))
+                asyncio.create_task(send_fcm_launch_app(device.fcm_token, device.monitored_package, device.id))
                 log_device_event(db, device.id, "auto_relaunch_triggered", {
                     "package": device.monitored_package
                 })
@@ -1140,6 +1150,71 @@ async def heartbeat(
     })
     
     return HeartbeatResponse(ok=True)
+
+@app.post("/v1/action-result")
+async def action_result(
+    payload: ActionResultRequest,
+    device: Device = Depends(verify_device_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Receive action result from device after executing FCM command.
+    Validates device_id matches authenticated device and updates dispatch record.
+    """
+    if payload.device_id != device.id:
+        raise HTTPException(status_code=403, detail="device_id mismatch")
+    
+    from models import FcmDispatch
+    
+    dispatch = db.query(FcmDispatch).filter(
+        FcmDispatch.request_id == payload.request_id
+    ).first()
+    
+    if not dispatch:
+        structured_logger.log_event(
+            "result.unknown",
+            level="WARN",
+            request_id=payload.request_id,
+            device_id=payload.device_id,
+            action=payload.action,
+            outcome=payload.outcome
+        )
+        raise HTTPException(status_code=404, detail="request_id not found")
+    
+    if dispatch.completed_at:
+        structured_logger.log_event(
+            "result.duplicate",
+            request_id=payload.request_id,
+            device_id=payload.device_id,
+            action=payload.action,
+            outcome=payload.outcome,
+            message="idempotent_repost"
+        )
+        return {"ok": True, "message": "Already processed (idempotent)"}
+    
+    dispatch.completed_at = payload.finished_at
+    dispatch.result = payload.outcome
+    dispatch.result_message = payload.message
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "result.posted",
+        request_id=payload.request_id,
+        device_id=payload.device_id,
+        action=payload.action,
+        outcome=payload.outcome,
+        message=payload.message
+    )
+    
+    log_device_event(db, device.id, "action_completed", {
+        "request_id": payload.request_id,
+        "action": payload.action,
+        "outcome": payload.outcome,
+        "message": payload.message
+    })
+    
+    return {"ok": True, "message": "Result recorded"}
 
 @app.get("/v1/devices/{device_id}/events")
 async def get_device_events(
@@ -1610,12 +1685,18 @@ async def ping_device(
         "Content-Type": "application/json"
     }
     
+    timestamp = datetime.now(timezone.utc).isoformat()
+    hmac_signature = compute_hmac_signature(request_id, device_id, "ping", timestamp)
+    
     message = {
         "message": {
             "token": device.fcm_token,
             "data": {
                 "action": "ping",
                 "request_id": request_id,
+                "device_id": device_id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
                 "expect_reply_within": "60"
             },
             "android": {
@@ -2117,8 +2198,16 @@ async def launch_app_on_devices(
                 continue
             
             # Build FCM message with launch_app action
+            request_id = str(uuid.uuid4())
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(request_id, device_id, "launch_app", timestamp)
+            
             message_data = {
                 "action": "launch_app",
+                "request_id": request_id,
+                "device_id": device_id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
                 "package_name": package_name
             }
             
