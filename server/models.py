@@ -238,6 +238,10 @@ class FcmDispatch(Base):
     error_msg: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     response_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    result_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
     retries: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
     __table_args__ = (
