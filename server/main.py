@@ -540,6 +540,84 @@ async def prometheus_metrics(x_admin: str = Header(None)):
         media_type="text/plain; version=0.0.4"
     )
 
+@app.post("/ops/nightly")
+async def trigger_nightly_maintenance(
+    x_admin: str = Header(None),
+    dry_run: bool = False,
+    retention_days: int = 90
+):
+    """
+    Trigger nightly maintenance job (partition lifecycle management).
+    Protected endpoint for external schedulers (UptimeRobot, Cronjob.org).
+    
+    Uses advisory locks to prevent concurrent runs.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    structured_logger.log_event(
+        "ops.nightly_maintenance.triggered",
+        dry_run=dry_run,
+        retention_days=retention_days
+    )
+    
+    try:
+        from nightly_maintenance import run_nightly_maintenance
+        
+        result = run_nightly_maintenance(retention_days=retention_days, dry_run=dry_run)
+        
+        return {
+            "ok": True,
+            "result": result
+        }
+    
+    except Exception as e:
+        structured_logger.log_event(
+            "ops.nightly_maintenance.error",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail=f"Maintenance job failed: {str(e)}")
+
+@app.post("/ops/reconcile")
+async def trigger_reconciliation(
+    x_admin: str = Header(None),
+    dry_run: bool = False,
+    max_rows: int = 5000
+):
+    """
+    Trigger hourly reconciliation job (device_last_status consistency repair).
+    Protected endpoint for external schedulers.
+    
+    Uses advisory locks to prevent concurrent runs.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    structured_logger.log_event(
+        "ops.reconciliation.triggered",
+        dry_run=dry_run,
+        max_rows=max_rows
+    )
+    
+    try:
+        from reconciliation_job import run_reconciliation
+        
+        result = run_reconciliation(dry_run=dry_run, max_rows=max_rows)
+        
+        return {
+            "ok": True,
+            "result": result
+        }
+    
+    except Exception as e:
+        structured_logger.log_event(
+            "ops.reconciliation.error",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail=f"Reconciliation job failed: {str(e)}")
+
 @app.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
