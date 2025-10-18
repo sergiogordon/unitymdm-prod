@@ -319,6 +319,26 @@ class DeviceHeartbeat(Base):
         Index('idx_heartbeat_device_ts', 'device_id', 'ts'),
     )
 
+class DeviceLastStatus(Base):
+    __tablename__ = "device_last_status"
+    
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), primary_key=True, nullable=False)
+    last_ts: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    
+    battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    network_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    unity_running: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    signal_dbm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    agent_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default='ok', nullable=False)
+    
+    __table_args__ = (
+        Index('idx_last_status_ts', 'last_ts'),
+        Index('idx_last_status_offline_query', 'last_ts', 'status'),
+        Index('idx_last_status_unity_down', 'unity_running', 'last_ts'),
+    )
+
 class AlertState(Base):
     __tablename__ = "alert_states"
     
