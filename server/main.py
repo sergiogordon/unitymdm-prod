@@ -2543,6 +2543,72 @@ async def list_enrollment_tokens(
         total=len(token_items)
     )
 
+@app.delete("/v1/enroll-tokens/{token_id}")
+async def revoke_enrollment_token(
+    token_id: str,
+    req: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Revoke an enrollment token"""
+    from models import EnrollmentToken, EnrollmentEvent
+    
+    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+    
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    now = datetime.now(timezone.utc)
+    
+    if token.status == 'revoked':
+        return {
+            "ok": True,
+            "message": "Token already revoked",
+            "token_id": token_id,
+            "status": "revoked"
+        }
+    
+    if token.status == 'exhausted':
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot revoke exhausted token"
+        )
+    
+    if token.status == 'expired' or token.expires_at < now:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot revoke expired token"
+        )
+    
+    token.status = 'revoked'
+    db.commit()
+    
+    event = EnrollmentEvent(
+        event_type='token.revoke',
+        token_id=token_id,
+        alias=token.alias,
+        ip_address=req.client.host if req.client else None,
+        details=json.dumps({
+            "revoked_by": current_user.username
+        })
+    )
+    db.add(event)
+    db.commit()
+    
+    structured_logger.log_event(
+        "sec.token.revoke",
+        token_id=token_id,
+        alias=token.alias,
+        revoked_by=current_user.username
+    )
+    
+    return {
+        "ok": True,
+        "message": "Token revoked successfully",
+        "token_id": token_id,
+        "status": "revoked"
+    }
+
 @app.get("/v1/scripts/enroll.cmd")
 async def get_windows_enroll_script(
     alias: str = Query(...),
