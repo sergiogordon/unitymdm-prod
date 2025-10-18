@@ -1,7 +1,7 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw } from "lucide-react"
+import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw, Command } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -206,6 +206,31 @@ function ADBSetupContent() {
     }
   }
 
+  const copyOneLiner = async (token: EnrollmentToken) => {
+    const authToken = localStorage.getItem('access_token')
+    const url = `/v1/scripts/enroll.one-liner.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${authToken}`
+        }
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || "Failed to fetch one-liner")
+      }
+      
+      const oneLinerCommand = await response.text()
+      await navigator.clipboard.writeText(oneLinerCommand)
+      alert(`✅ One-liner copied to clipboard!\n\nPaste into Windows Command Prompt (cmd.exe) to enroll device "${token.alias}"`)
+    } catch (error) {
+      alert(`Failed to copy one-liner: ${error}`)
+      console.error(error)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { variant: any, label: string }> = {
       'active': { variant: 'default', label: 'Active' },
@@ -256,7 +281,7 @@ function ADBSetupContent() {
             <h1 className="text-3xl font-bold tracking-tight">ADB Setup</h1>
           </div>
           <p className="text-muted-foreground">
-            Generate per-device tokens and one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
+            Generate per-device tokens and one-click ADB scripts. Use the <strong>One-Liner</strong> button to copy a single command for Windows CMD (no files needed), or download .cmd/.sh scripts. Each enrollment downloads the latest APK, grants permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
           </p>
         </div>
 
@@ -367,7 +392,18 @@ function ADBSetupContent() {
                       <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
                       <TableCell className="text-xs">{token.note || '-'}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => copyOneLiner(token)}
+                            title="Copy One-Liner (Windows CMD) - Paste into Command Prompt. Requires ADB in PATH."
+                            disabled={token.status !== 'active'}
+                            className="gap-1"
+                          >
+                            <Command className="h-3 w-3" />
+                            One-Liner
+                          </Button>
                           {token.full_token && (
                             <Button
                               variant="outline"
