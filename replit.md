@@ -25,7 +25,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch.
 - **Android Agent**: Dedicated Android application with an automated CI/CD pipeline (GitHub Actions) for secure deployment.
-- **Zero-Touch Enrollment**: Secure provisioning via single-use tokens and server-generated ADB scripts.
+- **Zero-Touch Enrollment**: Secure provisioning via single-use tokens and server-generated ADB scripts. Supports one-liner Windows CMD commands for paste-and-go enrollment without file downloads.
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival with SHA-256 checksums.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics with latency histograms, connection pool monitoring.
 
