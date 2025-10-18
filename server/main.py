@@ -448,6 +448,21 @@ async def health_check():
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
 
+@app.get("/metrics")
+async def prometheus_metrics(x_admin: str = Header(None)):
+    """Prometheus-compatible metrics endpoint (requires admin authentication)"""
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    structured_logger.log_event("metrics.scrape")
+    
+    metrics_text = metrics.get_prometheus_text()
+    
+    return Response(
+        content=metrics_text,
+        media_type="text/plain; version=0.0.4"
+    )
+
 @app.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -1574,6 +1589,13 @@ async def ping_device(
     import uuid
     request_id = str(uuid.uuid4())
     
+    structured_logger.log_event(
+        "dispatch.request",
+        request_id=request_id,
+        device_id=device_id,
+        action="ping"
+    )
+    
     import httpx
     
     try:
@@ -1602,15 +1624,30 @@ async def ping_device(
         }
     }
     
+    fcm_start_time = time.time()
+    
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            
+            latency_ms = (time.time() - fcm_start_time) * 1000
             
             if response.status_code != 200:
                 try:
                     fcm_result = response.json()
                 except:
                     fcm_result = {"raw_response": response.text}
+                
+                structured_logger.log_event(
+                    "dispatch.fail",
+                    level="ERROR",
+                    request_id=request_id,
+                    device_id=device_id,
+                    action="ping",
+                    fcm_http_code=response.status_code,
+                    fcm_status="failed",
+                    latency_ms=int(latency_ms)
+                )
                 
                 return {
                     "ok": False,
@@ -1619,6 +1656,20 @@ async def ping_device(
                 }
             
             fcm_result = response.json()
+            
+            structured_logger.log_event(
+                "dispatch.sent",
+                request_id=request_id,
+                device_id=device_id,
+                action="ping",
+                fcm_http_code=response.status_code,
+                fcm_status="success",
+                latency_ms=int(latency_ms)
+            )
+            
+            metrics.observe_histogram("fcm_dispatch_latency_ms", latency_ms, {
+                "action": "ping"
+            })
             
             device.last_ping_sent = datetime.now(timezone.utc)
             device.ping_request_id = request_id
@@ -1634,8 +1685,31 @@ async def ping_device(
             }
             
         except httpx.TimeoutException:
+            latency_ms = (time.time() - fcm_start_time) * 1000
+            structured_logger.log_event(
+                "dispatch.fail",
+                level="ERROR",
+                request_id=request_id,
+                device_id=device_id,
+                action="ping",
+                fcm_http_code=504,
+                fcm_status="timeout",
+                latency_ms=int(latency_ms)
+            )
             raise HTTPException(status_code=504, detail="FCM request timed out")
         except Exception as e:
+            latency_ms = (time.time() - fcm_start_time) * 1000
+            structured_logger.log_event(
+                "dispatch.fail",
+                level="ERROR",
+                request_id=request_id,
+                device_id=device_id,
+                action="ping",
+                fcm_http_code=500,
+                fcm_status="error",
+                error=str(e),
+                latency_ms=int(latency_ms)
+            )
             raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
 
 @app.post("/v1/devices/{device_id}/ring")
@@ -2391,6 +2465,15 @@ async def create_enrollment_tokens(
         )
         db.add(event)
         
+        structured_logger.log_event(
+            "sec.token.create",
+            token_id=token_id,
+            alias=alias,
+            issued_by=current_user.username,
+            expires_in_sec=request.expires_in_sec,
+            uses_allowed=request.uses_allowed
+        )
+        
         tokens_response.append(EnrollmentTokenResponse(
             token_id=token_id,
             alias=alias,
@@ -2430,6 +2513,12 @@ async def list_enrollment_tokens(
             if token.expires_at < now:
                 token.status = 'expired'
                 current_status = 'expired'
+                structured_logger.log_event(
+                    "sec.token.expired",
+                    token_id=token.token_id,
+                    alias=token.alias,
+                    expired_at=token.expires_at.isoformat()
+                )
             elif token.uses_consumed >= token.uses_allowed:
                 token.status = 'exhausted'
                 current_status = 'exhausted'
@@ -2802,10 +2891,13 @@ async def list_apks(
 @app.get("/v1/apk/download/{apk_id}")
 async def download_apk_version(
     apk_id: int,
+    request: Request,
     x_device_token: str = Header(...),
     db: Session = Depends(get_db)
 ):
     """Download a specific APK version (requires device token) - For devices"""
+    from models import ApkDownloadEvent
+    
     # Optimize: Use a cache or hash lookup instead of iterating all devices
     # For now, at least limit the query
     devices = db.query(Device).limit(100).all()  # Limit to first 100
@@ -2831,6 +2923,34 @@ async def download_apk_version(
     
     if not os.path.exists(apk.file_path):
         raise HTTPException(status_code=404, detail="APK file not found on server")
+    
+    token_id_last4 = device.token_id[-4:] if device.token_id else "none"
+    
+    structured_logger.log_event(
+        "apk.download",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        token_id=token_id_last4,
+        source="manual",
+        device_id=device.id
+    )
+    
+    download_event = ApkDownloadEvent(
+        build_id=apk.id,
+        source="manual",
+        token_id=token_id_last4,
+        admin_user=None,
+        ip=request.client.host if request.client else None
+    )
+    db.add(download_event)
+    db.commit()
+    
+    metrics.inc_counter("apk_download_total", {
+        "build_type": apk.build_type or "unknown",
+        "source": "manual"
+    })
     
     print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
     
@@ -2875,10 +2995,13 @@ async def download_apk_web(
 
 @app.get("/v1/apk/download-latest")
 async def download_latest_apk(
+    request: Request,
     x_admin_key: str = Header(...),
     db: Session = Depends(get_db)
 ):
     """Download the latest APK version (requires admin key) - For ADB scripts"""
+    from models import ApkDownloadEvent
+    
     # Verify admin key
     if not verify_admin_key(x_admin_key):
         raise HTTPException(status_code=401, detail="Invalid admin key")
@@ -2903,6 +3026,31 @@ async def download_latest_apk(
     
     if not os.path.exists(apk.file_path):
         raise HTTPException(status_code=404, detail="APK file not found on server")
+    
+    structured_logger.log_event(
+        "apk.download",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        token_id="admin",
+        source="enrollment"
+    )
+    
+    download_event = ApkDownloadEvent(
+        build_id=apk.id,
+        source="enrollment",
+        token_id="admin",
+        admin_user="admin_key",
+        ip=request.client.host if request.client else None
+    )
+    db.add(download_event)
+    db.commit()
+    
+    metrics.inc_counter("apk_download_total", {
+        "build_type": apk.build_type or "unknown",
+        "source": "enrollment"
+    })
     
     print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key")
     
