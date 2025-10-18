@@ -9,6 +9,7 @@ This project is a production-ready, cloud-based Mobile Device Management (MDM) s
 - Comprehensive error handling
 - Real-time updates via WebSockets
 - Email notifications for critical events
+- Signal-rich, low-noise alerts with auto-remediation
 
 ## System Architecture
 The system employs a clear separation between its frontend and backend, built for scalability and real-time communication.
@@ -30,6 +31,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 ### Feature Specifications
 - **Core Control Loop**: Secure device registration, heartbeat processing, FCM command dispatch, action result tracking, and HMAC signature validation.
 - **Device Management**: Real-time heartbeat monitoring, battery/memory tracking, remote command execution, auto-relaunch, and offline detection.
+- **Alert System**: Automated alerting for offline devices (>12m), low battery (<15%), and Unity app down with Discord webhook integration, deduplication, rate limiting, and optional auto-remediation via FCM.
 - **Security**: bcrypt hashing, HMAC SHA-256, JWT, IP-based rate limiting, and audit tracking.
 - **Performance**: Connection pooling, async database operations, and indexed queries for sub-100ms heartbeat processing.
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
