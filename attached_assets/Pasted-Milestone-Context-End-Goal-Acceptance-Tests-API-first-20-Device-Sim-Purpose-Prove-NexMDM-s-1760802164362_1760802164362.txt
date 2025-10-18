@@ -1,0 +1,121 @@
+Milestone Context & End Goal — Acceptance Tests (API-first + 20-Device Sim)
+
+Purpose:
+Prove NexMDM’s backend behaves correctly and reliably under real usage by (1) contract-testing every public endpoint across success and failure modes, and (2) running a 20-device enrollment simulation that exercises the production control loop without involving the frontend.
+
+⸻
+
+What “done” means
+
+A) Contract tests for every endpoint
+
+Each test validates status codes, schemas, idempotency, security checks, and logging side-effects. All examples include 200 paths plus representative 4xx/5xx.
+
+Endpoints in scope
+	•	Device lifecycle:
+	•	POST /v1/register
+	•	POST /v1/heartbeat
+	•	POST /v1/action-result
+	•	Admin/dispatch:
+	•	POST /admin/command
+	•	Enrollment & APK:
+	•	POST /v1/enroll-tokens (create batch)
+	•	GET /v1/enroll-tokens (list recent/active)
+	•	DELETE /v1/enroll-tokens/{token_id} (revoke)
+	•	GET /v1/apk/download-latest (Bearer enrollment token)
+	•	GET /v1/scripts/enroll.cmd|enroll.sh (server-templated)
+	•	Ops/metrics (read-only):
+	•	GET /metrics (admin gated)
+	•	GET /healthz (no auth or admin-gated per config)
+
+Test matrix (representative)
+	•	200 paths
+	•	register: valid enrollment token → returns {device_id, device_token}; bcrypt stored; structured log register.success.
+	•	heartbeat: valid Bearer → upsert OK; p95 latency budget respected; log heartbeat.ingest.
+	•	action-result: known request_id → marks dispatch complete; idempotent on retry.
+	•	admin/command: valid admin + HMAC → returns {request_id}; row in fcm_dispatches.
+	•	enroll-tokens create: returns tokens; DB rows present; sec.token.create log emitted.
+	•	enroll-tokens list: filters by status, returns recent.
+	•	enroll-tokens delete: status → revoked; subsequent use rejected.
+	•	apk/download-latest: valid enrollment token → 200 binary; creates apk_download_event with source="enrollment".
+	•	scripts/enroll.*: admin authenticated → returns templated script; no secrets in logs.
+	•	/metrics: returns counters in Prometheus text; includes http totals, dispatch latency, apk downloads.
+	•	/healthz: returns 200 with DB ping included (configurable).
+	•	4xx/5xx
+	•	401: missing/invalid Bearer on device routes; expired/revoked enrollment token; reuse of single-use token.
+	•	403: admin route without X-Admin or missing HMAC; script endpoints without admin auth.
+	•	404: unknown token_id on revoke; unknown request_id on action-result.
+	•	409: re-issuing same request_id on /admin/command (should return prior dispatch metadata without duplicate send); revoking already exhausted/expired token (policy: 409 or idempotent 200 with note).
+	•	422: bad payloads (schema violations) on all POSTs.
+	•	429: token creation per-admin limit; APK burst limit per token/IP.
+	•	5xx: dependency failure (DB down mock) returns 503; logs level=ERROR with request_id.
+	•	Idempotency/semantics
+	•	/admin/command with same request_id twice → only one fcm_dispatches row; second call echoes first.
+	•	/v1/action-result posted twice → single completion persisted.
+	•	/v1/heartbeat 3x within 10s bucket → 1 row (dedup hit counter increments).
+	•	Observability side-effects
+	•	Every test asserts a structured log line with event, route, request_id (generated if missing), and domain fields (e.g., device_id, alias).
+
+Pass criteria
+	•	All tests green on CI against a clean DB (alembic upgrade head).
+	•	Negative tests produce expected 4xx with machine-readable error codes and do not mutate state.
+	•	p95 added overhead from logging/security checks within budgets (spot-measured during tests).
+
+⸻
+
+B) 20-Device Enrollment Simulation (backend-only)
+
+Goal:
+Exercise the real control loop—token issuance → APK fetch (simulated) → register → heartbeat stream → admin command → action result—using a local CLI/pytest harness that mimics 20 devices in parallel.
+
+Scenario flow
+	1.	Prep:
+	•	Admin creates 20 tokens (D01…D20) via POST /v1/enroll-tokens (TTL ~45 min).
+	•	(Optional) Fetch GET /v1/scripts/enroll.sh just to validate render (not executed here).
+	2.	Register (parallel):
+	•	For each alias, simulate device POST to /v1/register with its token.
+	•	Assert {device_id, device_token} returned; store Bearer for subsequent calls.
+	3.	Heartbeats (parallel, timed):
+	•	Each device posts heartbeats every ~10–15 s (random jitter) for 2 minutes.
+	•	Payload includes battery, network, uptime, agent/unity fields.
+	•	Verify dedupe behavior by occasionally sending two heartbeats <10 s apart.
+	4.	Command fan-out:
+	•	Admin issues one ping command to each device (/admin/command) capturing request_id.
+	•	For each device, simulate FCM delivery by directly calling /v1/action-result with the same request_id and a synthetic “ok” result after 1–3 s.
+	5.	Tear-down checks:
+	•	List recent fcm_dispatches and ensure 20 sent, 20 completed, no duplicate request_id.
+	•	Verify device_heartbeats shows expected counts (allowing dedupe).
+	•	Verify apk_download_events increased if you included an APK fetch step using enrollment token (optional in sim).
+
+Success criteria
+	•	≥20 devices register successfully; all 20 appear in /v1/devices (or via DB read).
+	•	Heartbeat ingestion error rate <1%; dedupe counter >0 and aligned with intentional duplicates.
+	•	20/20 commands produce corresponding action_result and mark dispatch rows completed.
+	•	End-to-end logs contain consistent request_id chains for command → result per device.
+
+Load/latency checks (lightweight)
+	•	During the 2-minute sim, observe:
+	•	/v1/heartbeat p95 <150 ms, p99 <300 ms.
+	•	Dispatch log write p95 <50 ms.
+	•	/metrics scrape stays <50 ms.
+
+⸻
+
+Non-goals (for this milestone)
+	•	No UI/FE automation or E2E browser tests.
+	•	No Android agent participation (all device behavior simulated over HTTP).
+	•	No chaos testing (DB kills, network partitions) beyond a simple 5xx injection.
+
+⸻
+
+Observability & artifacts
+	•	CI stores a concise test run summary (counts, latencies, failures) as a build artifact.
+	•	Logs include acceptance.* events to separate from normal ops.
+	•	Optional CSV/JSON of the 20-device sim with per-device timelines (register → first heartbeat → command → result).
+
+⸻
+
+Definition of Done
+	•	Contract tests cover all listed endpoints (200 + key 4xx/5xx paths) and pass in CI from a clean DB.
+	•	The 20-device simulation completes green twice in a row with success metrics within targets.
+	•	No unexpected state growth: tables reflect dedupe/idempotency rules; no duplicate dispatches or heartbeats outside designed windows.
