@@ -109,9 +109,18 @@ class ApkVersion(Base):
     signer_fingerprint: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     storage_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    staged_rollout_percent: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    promoted_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    rollback_from_build_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    wifi_only: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    must_install: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
     __table_args__ = (
         Index('idx_apk_version_lookup', 'package_name', 'version_code'),
         Index('idx_apk_build_type', 'version_code', 'build_type'),
+        Index('idx_apk_current', 'is_current', 'package_name'),
         UniqueConstraint('package_name', 'version_code', name='uq_package_version'),
     )
 
@@ -264,6 +273,22 @@ class ApkDownloadEvent(Base):
     __table_args__ = (
         Index('idx_apk_download_build_ts', 'build_id', 'ts'),
         Index('idx_apk_download_token_ts', 'token_id', 'ts'),
+    )
+
+class ApkDeploymentStats(Base):
+    __tablename__ = "apk_deployment_stats"
+    
+    build_id: Mapped[int] = mapped_column(Integer, ForeignKey("apk_versions.id"), primary_key=True)
+    total_checks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_eligible: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_downloads: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    installs_success: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    installs_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    verify_failed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_updated: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_deployment_stats_updated', 'last_updated'),
     )
 
 class DeviceHeartbeat(Base):
