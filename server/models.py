@@ -339,6 +339,28 @@ class DeviceLastStatus(Base):
         Index('idx_last_status_unity_down', 'unity_running', 'last_ts'),
     )
 
+class HeartbeatPartition(Base):
+    __tablename__ = "hb_partitions"
+    
+    partition_name: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    range_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    range_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False, default='active')
+    
+    row_count: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    bytes_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    checksum_sha256: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    archive_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    dropped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_hb_partition_range', 'range_start', 'range_end'),
+        Index('idx_hb_partition_state', 'state'),
+    )
+
 class AlertState(Base):
     __tablename__ = "alert_states"
     
