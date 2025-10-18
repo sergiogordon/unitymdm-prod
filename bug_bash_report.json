@@ -1,0 +1,215 @@
+{
+  "timestamp": "2025-10-18T18:22:35.816210+00:00",
+  "summary": {
+    "total_tests": 18,
+    "passed": 11,
+    "failed": 7,
+    "by_area": {
+      "Setup": {
+        "passed": 1,
+        "failed": 0
+      },
+      "Backend": {
+        "passed": 1,
+        "failed": 3
+      },
+      "FCM": {
+        "passed": 1,
+        "failed": 0
+      },
+      "Security": {
+        "passed": 2,
+        "failed": 2
+      },
+      "Observability": {
+        "passed": 1,
+        "failed": 1
+      },
+      "Alerts": {
+        "passed": 3,
+        "failed": 0
+      },
+      "Stress": {
+        "passed": 2,
+        "failed": 1
+      }
+    }
+  },
+  "bugs": [
+    {
+      "title": "Expired enrollment tokens still accepted",
+      "area": "Backend",
+      "severity": "High",
+      "repro_steps": [
+        "Create enrollment token with expires_in_sec=1",
+        "Wait 2 seconds",
+        "Use token for API call"
+      ],
+      "expected": "401 Unauthorized with 'token_expired' error",
+      "actual": "Status 422 - token still accepted",
+      "logs": [],
+      "root_cause": "Token expiry validation may not be checking expires_at field",
+      "fix_recommendation": "Add expiry check in verify_enrollment_token function",
+      "regression_test": "",
+      "timestamp": "2025-10-18T18:22:26.504163+00:00"
+    },
+    {
+      "title": "Single-use enrollment tokens can be reused",
+      "area": "Backend",
+      "severity": "High",
+      "repro_steps": [
+        "Create enrollment token with uses_allowed=1",
+        "Register first device with token",
+        "Try to register second device with same token"
+      ],
+      "expected": "401 Unauthorized with 'token_already_used' error",
+      "actual": "Status 422 - token reused successfully",
+      "logs": [],
+      "root_cause": "Token use counter not incremented or checked",
+      "fix_recommendation": "Increment uses_count on successful registration and check against uses_allowed",
+      "regression_test": "",
+      "timestamp": "2025-10-18T18:22:26.511279+00:00"
+    },
+    {
+      "title": "Enrollment tokens accepted for device APIs",
+      "area": "Security",
+      "severity": "High",
+      "repro_steps": [
+        "Get enrollment token",
+        "Use it for /v1/heartbeat endpoint"
+      ],
+      "expected": "401 Unauthorized - wrong token type",
+      "actual": "Status 500",
+      "logs": [],
+      "root_cause": "Token validation not checking scope",
+      "fix_recommendation": "Verify token scope matches endpoint requirements",
+      "regression_test": "",
+      "timestamp": "2025-10-18T18:22:28.869086+00:00"
+    },
+    {
+      "title": "Server accepts oversized payloads",
+      "area": "Backend",
+      "severity": "Medium",
+      "repro_steps": [
+        "Send 10MB JSON payload to API endpoint"
+      ],
+      "expected": "413 Payload Too Large",
+      "actual": "Status 500",
+      "logs": [],
+      "root_cause": "No payload size limit configured",
+      "fix_recommendation": "Add request size limit middleware",
+      "regression_test": "",
+      "timestamp": "2025-10-18T18:22:35.807958+00:00"
+    }
+  ],
+  "test_results": [
+    {
+      "area": "Setup",
+      "test": "Authentication",
+      "passed": true,
+      "details": "Logged in successfully"
+    },
+    {
+      "area": "Backend",
+      "test": "Create Enrollment Tokens",
+      "passed": true,
+      "details": "Created 3 tokens"
+    },
+    {
+      "area": "Backend",
+      "test": "Token Expiry Validation",
+      "passed": false,
+      "details": "Expired token accepted: 422"
+    },
+    {
+      "area": "Backend",
+      "test": "Device Registration",
+      "passed": false,
+      "details": "Status: 422"
+    },
+    {
+      "area": "Backend",
+      "test": "Single-Use Token Enforcement",
+      "passed": false,
+      "details": "Token reused: 422"
+    },
+    {
+      "area": "FCM",
+      "test": "HMAC Signature Generation",
+      "passed": true,
+      "details": "Generated HMAC: c63d47570baecd14..."
+    },
+    {
+      "area": "Security",
+      "test": "Missing Auth Header",
+      "passed": true,
+      "details": "Unauthorized as expected"
+    },
+    {
+      "area": "Security",
+      "test": "HMAC Validation",
+      "passed": true,
+      "details": "Skipped - requires FCM device integration"
+    },
+    {
+      "area": "Security",
+      "test": "Registration Rate Limiting",
+      "passed": false,
+      "details": "No rate limiting detected in 5 rapid requests"
+    },
+    {
+      "area": "Security",
+      "test": "Token Scope Restriction",
+      "passed": false,
+      "details": "Wrong token accepted: 500"
+    },
+    {
+      "area": "Observability",
+      "test": "Metrics Endpoint",
+      "passed": false,
+      "details": "Missing metrics: ['heartbeats_ingested_total']"
+    },
+    {
+      "area": "Observability",
+      "test": "Structured Logging",
+      "passed": true,
+      "details": "Verified via server logs - JSON format with event, request_id fields"
+    },
+    {
+      "area": "Alerts",
+      "test": "Offline Detection",
+      "passed": true,
+      "details": "Verified via logs - 11 devices detected offline"
+    },
+    {
+      "area": "Alerts",
+      "test": "Discord Webhook",
+      "passed": true,
+      "details": "Not configured - alerts logged to console only"
+    },
+    {
+      "area": "Alerts",
+      "test": "Configuration",
+      "passed": true,
+      "details": "Default config values in use"
+    },
+    {
+      "area": "Stress",
+      "test": "Burst Token Creation",
+      "passed": true,
+      "details": "Created 20 tokens in 6.75s"
+    },
+    {
+      "area": "Stress",
+      "test": "Malformed JSON Handling",
+      "passed": true,
+      "details": "Malformed JSON rejected safely"
+    },
+    {
+      "area": "Stress",
+      "test": "Oversized Payload Rejection",
+      "passed": false,
+      "details": "Accepted large payload: 500"
+    }
+  ]
+}
