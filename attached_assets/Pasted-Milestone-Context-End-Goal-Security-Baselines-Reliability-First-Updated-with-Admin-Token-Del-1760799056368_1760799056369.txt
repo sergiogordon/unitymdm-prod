@@ -1,0 +1,107 @@
+Milestone Context & End Goal — Security Baselines (Reliability-First) — Updated with Admin Token Deletion
+
+Purpose:
+Keep bootstrap secure and reliable while you iterate fast. Add simple, admin-only controls to revoke/delete enrollment tokens so you can immediately retry enrollments on the same devices without waiting for TTL.
+
+What “done” means (delta from prior version)
+Token scopes & lifecycle (unchanged)
+
+Tokens scoped to: GET /v1/apk/download-latest and first POST /v1/register.
+
+TTL enforced (default 30–60 min).
+
+Single-use by default (uses_allowed = 1).
+
+Admin token delete / revoke (new)
+
+API:
+
+DELETE /v1/enroll-tokens/{token_id} → hard revoke (preferred), or
+
+POST /v1/enroll-tokens/{token_id}/revoke → soft revoke.
+
+Behavior:
+
+Marks token status=revoked, sets expires_at=now(), and invalidates it immediately.
+
+Subsequent use attempts return 401 (token_revoked).
+
+If you’re using opaque, DB-backed tokens (recommended), revocation is instant with a single DB write.
+
+If you were using JWTs, maintain a short-lived denylist cache to honor revocations until TTL—another reason to prefer opaque tokens here.
+
+UX (existing ADB Setup page):
+
+Per-row Revoke action with confirm modal (“Revoke token for D07? This cannot be undone.”).
+
+Optional bulk revoke for selected rows.
+
+Status badge flips to Revoked immediately.
+
+Minimal rate limits (unchanged)
+
+Per-admin token creation limit (e.g., 200/hour).
+
+APK download burst caps per token and per /24 IP.
+
+Gentle 429s with Retry-After.
+
+Transport & crypto (unchanged)
+
+HTTPS required (HSTS toggle available).
+
+bcrypt for device tokens.
+
+HMAC-signed FCM payloads; agent verifies before executing.
+
+Operational safety nets (unchanged)
+
+Precise 4xx error codes; masked secrets; ±120s clock skew tolerance.
+
+Non-goals (unchanged)
+
+No complex RBAC, no mTLS, no SIEM/WAF.
+
+Performance & reliability targets (unchanged)
+
+Security checks add ≤10 ms p95 per hot request.
+
+Revocation write p95 <10 ms; invalid token check O(1) indexed lookup.
+
+Observability (extended)
+
+New events:
+
+sec.token.revoke (fields: token_id, alias, admin_id, reason, ts)
+
+sec.token.revoke_attempt (404 if token not found; 409 if already exhausted/expired/revoked)
+
+Existing: sec.token.create, sec.token.consume, sec.ratelimit.hit, sec.hmac.invalid, sec.https.enforced.
+
+Acceptance tests (additions)
+
+Revoke active token:
+
+Create token; verify APK download=200.
+
+DELETE /v1/enroll-tokens/{id} → 204.
+
+Retry APK download/register with same token → 401 (token_revoked).
+
+Create new token and enroll same device → succeeds (200), proving quick retry loop.
+
+Idempotency after revoke:
+
+Revoke a token after APK was downloaded but before /v1/register → register must fail with 401.
+
+Edge: Revoking an already-consumed/expired token returns 409 (or 200 with idempotent message), and leaves audit log.
+
+Implementation notes (concise)
+
+Opaque tokens: store random 32–48 byte values (base64url); persist only token_hash (SHA-256), never plaintext.
+
+Fast path checks: index on token_hash + status + expires_at.
+
+Delete vs revoke: implement as revoke (status change) rather than physical delete for auditability; the UI can still label this as “Delete” if you prefer.
+
+Retry workflow: after revoke, generate new token for the same alias; operator re-runs script unchanged except for token value.
