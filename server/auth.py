@@ -30,9 +30,11 @@ def generate_device_token() -> str:
     return secrets.token_urlsafe(32)
 
 async def verify_device_token(
-    credentials: HTTPAuthorizationCredentials = Security(security),
+    credentials: HTTPAuthorizationCredentials | None = Security(security),
     db: Session = Depends(get_db)
 ) -> Device:
+    if not credentials:
+        raise HTTPException(status_code=403, detail="Missing authorization header")
     token = credentials.credentials
     
     # Compute token_id for fast lookup
