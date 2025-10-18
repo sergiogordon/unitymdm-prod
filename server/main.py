@@ -30,6 +30,8 @@ from alerts import alert_scheduler, alert_manager
 from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
 from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
 from email_service import email_service
+from observability import structured_logger, metrics, request_id_var
+import uuid
 
 # Helper function to ensure datetime is timezone-aware (assume UTC for naive datetimes)
 def ensure_utc(dt: Optional[datetime]) -> datetime:
@@ -39,6 +41,41 @@ def ensure_utc(dt: Optional[datetime]) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 app = FastAPI(title="NexMDM API")
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """
+    Middleware to generate/extract request_id for correlation across logs.
+    Also tracks HTTP request metrics.
+    """
+    req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request_id_var.set(req_id)
+    
+    start_time = time.time()
+    
+    response = await call_next(request)
+    
+    latency_ms = (time.time() - start_time) * 1000
+    
+    route = request.url.path
+    if route.startswith("/v1/apk/download/") and route != "/v1/apk/download-latest":
+        route = "/v1/apk/download/{apk_id}"
+    elif "/devices/" in route and route.endswith("/ping"):
+        route = "/v1/devices/{id}/ping"
+    
+    metrics.inc_counter("http_requests_total", {
+        "route": route,
+        "method": request.method,
+        "status_code": str(response.status_code)
+    })
+    
+    metrics.observe_histogram("http_request_latency_ms", latency_ms, {
+        "route": route
+    })
+    
+    response.headers["X-Request-ID"] = req_id
+    
+    return response
 
 app.add_middleware(
     CORSMiddleware,
