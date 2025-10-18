@@ -7,7 +7,8 @@ import kotlin.random.Random
 object RetryHelper {
     private const val TAG = "RetryHelper"
     private const val MAX_RETRIES = 3
-    private const val BASE_DELAY_MS = 1000L
+    private const val BASE_DELAY_MS = 2000L
+    private const val MAX_DELAY_MS = 300000L
     
     suspend fun <T> withRetry(
         operation: String,
@@ -21,7 +22,7 @@ object RetryHelper {
                 val result = block(attempt)
                 
                 if (attempt > 1) {
-                    Log.i(TAG, "$operation succeeded on attempt $attempt")
+                    Log.i(TAG, "[retry.ok] operation=$operation attempt=$attempt")
                 }
                 
                 return result
@@ -31,11 +32,11 @@ object RetryHelper {
                 if (attempt < maxRetries) {
                     val delayMs = calculateBackoffDelay(attempt)
                     
-                    Log.w(TAG, "$operation failed (attempt $attempt/$maxRetries), retrying in ${delayMs}ms: ${e.message}")
+                    Log.w(TAG, "[retry.schedule] operation=$operation attempt=$attempt delay_ms=$delayMs error=${e.message}")
                     
                     delay(delayMs)
                 } else {
-                    Log.e(TAG, "$operation failed after $maxRetries attempts", e)
+                    Log.e(TAG, "[retry.exhausted] operation=$operation attempts=$maxRetries error=${e.message}", e)
                 }
             }
         }
@@ -46,10 +47,10 @@ object RetryHelper {
     private fun calculateBackoffDelay(attempt: Int): Long {
         val exponentialDelay = BASE_DELAY_MS * (1 shl (attempt - 1))
         
-        val jitter = Random.nextLong(0, exponentialDelay / 2)
+        val cappedDelay = minOf(exponentialDelay, MAX_DELAY_MS)
         
-        val totalDelay = exponentialDelay + jitter
+        val jitter = Random.nextLong(0, cappedDelay + 1)
         
-        return minOf(totalDelay, 30000L)
+        return jitter
     }
 }

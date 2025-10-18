@@ -1052,46 +1052,47 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = RetryHelper.withRetry(
-                    operation = "Post action result",
-                    maxRetries = 3
-                ) { attempt ->
-                    if (attempt > 1) {
-                        Log.i(TAG, "[result.retry] request_id=$requestId action=$action attempt=$attempt")
-                    }
-                    
-                    val payload = mutableMapOf(
-                        "request_id" to requestId,
-                        "device_id" to prefs.deviceId,
-                        "action" to action,
-                        "outcome" to outcome,
-                        "finished_at" to java.time.Instant.now().toString()
-                    )
-                    
-                    if (message != null) {
-                        payload["message"] = message
-                    }
-                    
-                    val json = gson.toJson(payload)
-                    
-                    val request = Request.Builder()
-                        .url("${prefs.serverUrl}/v1/action-result")
-                        .post(json.toRequestBody("application/json".toMediaType()))
-                        .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
-                        .build()
-                    
-                    val response = client.newCall(request).execute()
-                    
-                    if (response.isSuccessful) {
-                        Log.i(TAG, "[result.posted] request_id=$requestId action=$action outcome=$outcome")
-                        true
-                    } else {
-                        throw Exception("HTTP ${response.code}")
-                    }
+                val payload = mutableMapOf(
+                    "request_id" to requestId,
+                    "device_id" to prefs.deviceId,
+                    "action" to action,
+                    "outcome" to outcome,
+                    "finished_at" to java.time.Instant.now().toString()
+                )
+                
+                if (message != null) {
+                    payload["message"] = message
                 }
+                
+                val json = gson.toJson(payload)
+                
+                val queueManager = QueueManager.getInstance(this@FcmMessagingService)
+                queueManager.enqueue(
+                    type = QueuedItem.TYPE_ACTION_RESULT,
+                    payload = json,
+                    requestId = requestId,
+                    ttlMs = QueuedItem.TTL_24_HOURS_MS
+                )
+                
+                Log.i(TAG, "[result.queued] request_id=$requestId action=$action outcome=$outcome ttl=24h")
+                
+                startMonitorService()
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to post action result for request_id=$requestId: ${e.message}")
+                Log.e(TAG, "Failed to queue action result for request_id=$requestId: ${e.message}")
             }
+        }
+    }
+    
+    private fun startMonitorService() {
+        try {
+            val intent = Intent(this, MonitorService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start MonitorService: ${e.message}")
         }
     }
 }

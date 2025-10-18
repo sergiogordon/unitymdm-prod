@@ -45,6 +45,9 @@ class MonitorService : Service() {
     private lateinit var prefs: SecurePreferences
     private lateinit var telemetry: TelemetryCollector
     private lateinit var speedtestDetector: SpeedtestDetector
+    private lateinit var queueManager: QueueManager
+    private lateinit var networkMonitor: NetworkMonitor
+    private lateinit var powerMonitor: PowerManagementMonitor
     private val gson = Gson()
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var alarmManager: AlarmManager
@@ -69,6 +72,9 @@ class MonitorService : Service() {
         prefs = SecurePreferences(this)
         telemetry = TelemetryCollector(this)
         speedtestDetector = SpeedtestDetector(this)
+        queueManager = QueueManager.getInstance(this)
+        networkMonitor = NetworkMonitor(this)
+        powerMonitor = PowerManagementMonitor(this)
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         
         acquireWakeLock()
@@ -76,18 +82,22 @@ class MonitorService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         
-        val apkInstaller = ApkInstaller(applicationContext)
-        val isDeviceOwner = apkInstaller.isDeviceOwner()
+        val powerStatus = powerMonitor.checkAndLogPowerStatus()
         
-        if (isDeviceOwner) {
-            Log.i(TAG, "[device_owner.confirmed] agent_version=${BuildConfig.VERSION_NAME}")
-        } else {
-            Log.w(TAG, "[device_owner.warning] agent_version=${BuildConfig.VERSION_NAME} status=not_device_owner")
+        Log.i(TAG, "[agent.startup] agent_version=${BuildConfig.VERSION_NAME} device_owner=${powerStatus.isDeviceOwner} power_ok=${powerStatus.powerOk}")
+        
+        networkMonitor.start {
+            Log.i(TAG, "[net.regain] network validated - triggering queue drain")
+            serviceScope.launch {
+                drainQueue()
+            }
         }
         
-        Log.i(TAG, "[agent.startup] agent_version=${BuildConfig.VERSION_NAME} device_owner=$isDeviceOwner")
-        
         registerFcmToken()
+        
+        serviceScope.launch {
+            drainQueue()
+        }
         
         scheduleNextHeartbeat(5000)
         handler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
@@ -156,6 +166,7 @@ class MonitorService : Service() {
         super.onDestroy()
         cancelScheduledHeartbeat()
         handler.removeCallbacks(watchdogRunnable)
+        networkMonitor.stop()
         releaseWakeLock()
         serviceJob.cancel()
     }
@@ -175,40 +186,86 @@ class MonitorService : Service() {
                 val json = gson.toJson(payload)
                 
                 val batteryInfo = telemetry.getBatteryInfo()
-                Log.i(TAG, "[heartbeat.sent] device_id=${prefs.deviceId} battery_pct=${batteryInfo.pct} is_ping=$isPingResponse")
+                val currentTime = System.currentTimeMillis()
+                val bucketSeconds = currentTime / 10000
+                val dedupeKey = "hb_${prefs.deviceId}_$bucketSeconds"
                 
-                val result = RetryHelper.withRetry(
-                    operation = "Send heartbeat",
-                    maxRetries = 3
-                ) { attempt ->
-                    val request = Request.Builder()
-                        .url("${prefs.serverUrl}/v1/heartbeat")
-                        .post(json.toRequestBody("application/json".toMediaType()))
-                        .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
-                        .build()
-                    
-                    val response = client.newCall(request).execute()
-                    
-                    when (response.code) {
-                        in 200..299 -> {
+                queueManager.enqueue(
+                    type = QueuedItem.TYPE_HEARTBEAT,
+                    payload = json,
+                    dedupeKey = dedupeKey
+                )
+                
+                Log.i(TAG, "[heartbeat.queued] device_id=${prefs.deviceId} battery_pct=${batteryInfo.pct} is_ping=$isPingResponse dedupe_key=$dedupeKey")
+                
+                drainQueue()
+            } catch (e: Exception) {
+                Log.e(TAG, "[heartbeat.queue_failed] device_id=${prefs.deviceId} error=${e.message}")
+            }
+        }
+    }
+    
+    private suspend fun drainQueue() {
+        if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty()) {
+            return
+        }
+        
+        if (powerMonitor.shouldPauseRetries()) {
+            Log.w(TAG, "[queue.paused] low_battery - deferring non-essential retries")
+            return
+        }
+        
+        val stats = queueManager.getQueueStats()
+        if (stats.totalItems == 0) {
+            return
+        }
+        
+        Log.i(TAG, "[queue.drain.start] total=${stats.totalItems} hb=${stats.heartbeatItems} results=${stats.resultItems}")
+        
+        val summary = queueManager.drainQueue { item ->
+            try {
+                val request = Request.Builder()
+                    .url(
+                        when (item.type) {
+                            QueuedItem.TYPE_HEARTBEAT -> "${prefs.serverUrl}/v1/heartbeat"
+                            QueuedItem.TYPE_ACTION_RESULT -> "${prefs.serverUrl}/v1/action-result"
+                            else -> throw Exception("Unknown queue item type: ${item.type}")
+                        }
+                    )
+                    .post(item.payload.toRequestBody("application/json".toMediaType()))
+                    .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                
+                when (response.code) {
+                    in 200..299 -> {
+                        if (item.type == QueuedItem.TYPE_HEARTBEAT) {
                             prefs.lastHeartbeatTime = System.currentTimeMillis()
-                            Log.i(TAG, "[heartbeat.ack] device_id=${prefs.deviceId} status=${response.code}")
-                            true
                         }
-                        401 -> {
-                            Log.w(TAG, "[heartbeat.unauthorized] device_id=${prefs.deviceId} status=401 message='Auth failed, backing off'")
-                            delay(60000)
-                            throw Exception("Unauthorized (401), backing off for 60s")
-                        }
-                        else -> {
-                            throw Exception("HTTP ${response.code}")
-                        }
+                        Log.i(TAG, "[deliver.ok] id=${item.id} type=${item.type} status=${response.code} attempts=${item.attempts + 1}")
+                        QueueManager.DrainResult.Success
+                    }
+                    401 -> {
+                        Log.e(TAG, "[deliver.fail] id=${item.id} type=${item.type} status=401 - dropping unauthorized item")
+                        QueueManager.DrainResult.Drop("Unauthorized")
+                    }
+                    in 500..599 -> {
+                        Log.w(TAG, "[deliver.fail] id=${item.id} type=${item.type} status=${response.code} - server error, will retry")
+                        QueueManager.DrainResult.Retry("Server error ${response.code}")
+                    }
+                    else -> {
+                        Log.e(TAG, "[deliver.fail] id=${item.id} type=${item.type} status=${response.code}")
+                        QueueManager.DrainResult.Drop("HTTP ${response.code}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "[heartbeat.failed] device_id=${prefs.deviceId} error=${e.message}")
+                Log.w(TAG, "[deliver.fail] id=${item.id} type=${item.type} error=${e.message}")
+                QueueManager.DrainResult.Retry(e.message ?: "Unknown error")
             }
         }
+        
+        Log.i(TAG, "[queue.drain.end] success=${summary.successCount} failed=${summary.failedCount} expired=${summary.expiredCount}")
     }
 
     private fun <T> T.asMap(): Map<String, Any?> {
@@ -219,6 +276,9 @@ class MonitorService : Service() {
     private fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
         val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
         val apkInstaller = ApkInstaller(applicationContext)
+        val powerStatus = powerMonitor.checkAndLogPowerStatus()
+        val networkState = networkMonitor.getCurrentNetworkState()
+        val queueDepth = serviceScope.launch { queueManager.getQueueDepth() }
         
         return HeartbeatPayload(
             device_id = prefs.deviceId,
@@ -244,7 +304,10 @@ class MonitorService : Service() {
             is_ping_response = if (isPingResponse) true else null,
             ping_request_id = pingRequestId,
             self_heal_hints = null,
-            is_device_owner = apkInstaller.isDeviceOwner()
+            is_device_owner = apkInstaller.isDeviceOwner(),
+            power_ok = powerStatus.powerOk,
+            doze_whitelisted = powerStatus.dozeWhitelisted,
+            net_validated = networkState.validated
         )
     }
     

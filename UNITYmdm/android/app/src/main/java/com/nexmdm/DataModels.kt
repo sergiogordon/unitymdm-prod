@@ -17,7 +17,10 @@ data class HeartbeatPayload(
     @SerializedName("is_ping_response") val is_ping_response: Boolean?,
     @SerializedName("ping_request_id") val ping_request_id: String?,
     @SerializedName("self_heal_hints") val self_heal_hints: List<String>?,
-    @SerializedName("is_device_owner") val is_device_owner: Boolean?
+    @SerializedName("is_device_owner") val is_device_owner: Boolean?,
+    @SerializedName("power_ok") val power_ok: Boolean? = null,
+    @SerializedName("doze_whitelisted") val doze_whitelisted: Boolean? = null,
+    @SerializedName("net_validated") val net_validated: Boolean? = null
 )
 
 data class AppVersion(
