@@ -132,3 +132,11 @@ class EnrollmentTokenListItem(BaseModel):
 class ListEnrollmentTokensResponse(BaseModel):
     tokens: list[EnrollmentTokenListItem]
     total: int
+
+class ActionResultRequest(BaseModel):
+    request_id: str
+    device_id: str
+    action: str
+    outcome: str
+    message: Optional[str] = None
+    finished_at: datetime
