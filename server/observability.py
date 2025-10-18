@@ -70,6 +70,7 @@ class MetricsCollector:
         self._lock = Lock()
         self._counters: Dict[str, Dict[tuple, int]] = defaultdict(lambda: defaultdict(int))
         self._histograms: Dict[str, Dict[tuple, list]] = defaultdict(lambda: defaultdict(list))
+        self._gauges: Dict[str, Dict[tuple, float]] = defaultdict(lambda: defaultdict(float))
         
         self.latency_buckets = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
     
@@ -84,6 +85,12 @@ class MetricsCollector:
         label_tuple = tuple(sorted((labels or {}).items()))
         with self._lock:
             self._histograms[metric_name][label_tuple].append(value)
+    
+    def set_gauge(self, metric_name: str, value: float, labels: Optional[Dict[str, str]] = None):
+        """Set a gauge metric to a specific value"""
+        label_tuple = tuple(sorted((labels or {}).items()))
+        with self._lock:
+            self._gauges[metric_name][label_tuple] = value
     
     def get_prometheus_text(self) -> str:
         """
@@ -126,8 +133,29 @@ class MetricsCollector:
                         lines.append(f"{metric_name}_count {len(observations)}")
                         if observations:
                             lines.append(f"{metric_name}_sum {sum(observations)}")
+            
+            # Gauges
+            for metric_name, label_data in sorted(self._gauges.items()):
+                lines.append(f"# TYPE {metric_name} gauge")
+                for label_tuple, value in sorted(label_data.items()):
+                    if label_tuple:
+                        label_str = ",".join(f'{k}="{v}"' for k, v in label_tuple)
+                        lines.append(f"{metric_name}{{{label_str}}} {value}")
+                    else:
+                        lines.append(f"{metric_name} {value}")
         
         return "\n".join(lines) + "\n"
+    
+    def get_pool_stats(self, engine) -> Dict[str, int]:
+        """Extract connection pool statistics from SQLAlchemy engine"""
+        pool = engine.pool
+        return {
+            "size": pool.size(),
+            "checked_in": pool.checkedin(),
+            "checked_out": pool.checkedout(),
+            "overflow": pool.overflow(),
+            "total": pool.size() + pool.overflow()
+        }
 
 
 structured_logger = StructuredLogger()

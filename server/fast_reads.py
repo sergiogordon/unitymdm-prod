@@ -8,6 +8,8 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import os
+import time
+from observability import metrics
 
 def get_offline_devices_fast(db: Session, heartbeat_interval_seconds: int) -> List[Dict[str, Any]]:
     """
@@ -16,6 +18,8 @@ def get_offline_devices_fast(db: Session, heartbeat_interval_seconds: int) -> Li
     
     Returns list of: {device_id, alias, last_seen, offline_seconds}
     """
+    start_time = time.time()
+    
     cutoff_ts = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval_seconds * 3)
     
     query = text("""
@@ -31,7 +35,7 @@ def get_offline_devices_fast(db: Session, heartbeat_interval_seconds: int) -> Li
     """)
     
     result = db.execute(query, {"cutoff_ts": cutoff_ts})
-    return [
+    devices = [
         {
             "device_id": row.device_id,
             "alias": row.alias,
@@ -40,6 +44,11 @@ def get_offline_devices_fast(db: Session, heartbeat_interval_seconds: int) -> Li
         }
         for row in result
     ]
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("last_status_read_latency_ms", latency_ms, {"query": "offline_devices"})
+    
+    return devices
 
 def get_unity_down_devices_fast(db: Session) -> List[Dict[str, Any]]:
     """
@@ -82,6 +91,8 @@ def get_device_status_fast(db: Session, device_id: str) -> Optional[Dict[str, An
     
     Returns: {last_ts, battery_pct, network_type, unity_running, signal_dbm, agent_version, ip, status}
     """
+    start_time = time.time()
+    
     query = text("""
         SELECT 
             last_ts,
@@ -97,6 +108,10 @@ def get_device_status_fast(db: Session, device_id: str) -> Optional[Dict[str, An
     """)
     
     result = db.execute(query, {"device_id": device_id}).fetchone()
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("last_status_read_latency_ms", latency_ms, {"query": "device_status"})
+    
     if not result:
         return None
     
@@ -121,6 +136,8 @@ def get_all_device_statuses_fast(db: Session, device_ids: List[str]) -> Dict[str
     if not device_ids:
         return {}
     
+    start_time = time.time()
+    
     query = text("""
         SELECT 
             device_id,
@@ -137,7 +154,7 @@ def get_all_device_statuses_fast(db: Session, device_ids: List[str]) -> Dict[str
     """)
     
     result = db.execute(query, {"device_ids": device_ids})
-    return {
+    statuses = {
         row.device_id: {
             "last_ts": row.last_ts,
             "battery_pct": row.battery_pct,
@@ -150,6 +167,11 @@ def get_all_device_statuses_fast(db: Session, device_ids: List[str]) -> Dict[str
         }
         for row in result
     }
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("last_status_read_latency_ms", latency_ms, {"query": "batch_statuses"})
+    
+    return statuses
 
 def is_device_online_fast(db: Session, device_id: str, heartbeat_interval_seconds: int) -> bool:
     """

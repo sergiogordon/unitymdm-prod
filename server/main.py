@@ -533,6 +533,15 @@ async def prometheus_metrics(x_admin: str = Header(None)):
     
     structured_logger.log_event("metrics.scrape")
     
+    # Update connection pool metrics
+    from models import engine
+    pool_stats = metrics.get_pool_stats(engine)
+    metrics.set_gauge("db_pool_size", pool_stats["size"])
+    metrics.set_gauge("db_pool_checked_in", pool_stats["checked_in"])
+    metrics.set_gauge("db_pool_checked_out", pool_stats["checked_out"])
+    metrics.set_gauge("db_pool_overflow", pool_stats["overflow"])
+    metrics.set_gauge("db_pool_in_use", pool_stats["checked_out"])  # Alias for alerts
+    
     metrics_text = metrics.get_prometheus_text()
     
     return Response(
@@ -617,6 +626,38 @@ async def trigger_reconciliation(
             error_type=type(e).__name__
         )
         raise HTTPException(status_code=500, detail=f"Reconciliation job failed: {str(e)}")
+
+@app.get("/ops/pool_health")
+async def get_pool_health(x_admin: str = Header(None)):
+    """
+    Check connection pool health and saturation levels.
+    Protected endpoint for monitoring and alerting systems.
+    
+    Returns pool utilization with WARN/CRITICAL thresholds.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    try:
+        from pool_monitor import check_pool_health, check_postgres_connection_health
+        
+        pool_health = check_pool_health()
+        pg_health = check_postgres_connection_health()
+        
+        return {
+            "ok": True,
+            "pool": pool_health,
+            "postgres": pg_health
+        }
+    
+    except Exception as e:
+        structured_logger.log_event(
+            "ops.pool_health.error",
+            level="ERROR",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail=f"Pool health check failed: {str(e)}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(
@@ -1289,7 +1330,11 @@ async def heartbeat(
         'agent_version': payload.app_version
     }
     
+    # Track heartbeat write latency
+    hb_write_start = time.time()
     hb_result = record_heartbeat_with_bucketing(db, device.id, heartbeat_data, bucket_seconds=10)
+    hb_write_latency_ms = (time.time() - hb_write_start) * 1000
+    metrics.observe_histogram("hb_write_latency_ms", hb_write_latency_ms, {})
     
     if hb_result['created']:
         metrics.inc_counter("hb_writes_total")

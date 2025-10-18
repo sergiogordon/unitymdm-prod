@@ -64,9 +64,43 @@ FROM hb_partitions WHERE range_start >= NOW() - INTERVAL '7 days' ORDER BY range
 
 # Check last reconciliation run
 grep "reconciliation.completed" /tmp/logs/backend_*.log | tail -1
+
+# Check connection pool health
+curl -H "x-admin: $ADMIN_KEY" https://your-domain.repl.co/ops/pool_health
 ```
 
-#### 2. Metrics Review
+#### 2. Connection Pool Configuration
+
+**Validated Settings (Production-Safe)**:
+- SQLAlchemy pool_size: 50
+- SQLAlchemy max_overflow: 50
+- **Total max connections**: 100
+- Postgres max_connections: 450
+- **Safety margin**: 350 connections reserved for other clients
+
+**Health Thresholds**:
+- WARN: Pool utilization >80% (>80/100 connections in use)
+- CRITICAL: Pool utilization >95% (>95/100 connections in use)
+
+**Monitoring Commands**:
+```bash
+# Check pool health via API
+curl -H "x-admin: $ADMIN_KEY" https://your-domain.repl.co/ops/pool_health
+
+# Check pool health via CLI
+cd server && python pool_monitor.py
+
+# Check Postgres connection usage
+psql $DATABASE_URL -c "SELECT count(*) as current, 
+  (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') as max 
+  FROM pg_stat_activity;"
+```
+
+**Alert Integration**: Set up monitoring alerts for `db_pool_utilization_pct` metric:
+- Alert on >80% for 5+ minutes
+- Page on >95% for 1+ minute
+
+#### 3. Metrics Review
 
 Access metrics endpoint (requires ADMIN_KEY):
 ```bash
