@@ -1,0 +1,115 @@
+**Milestone Context & End Goal — OTA Updates via APK Management (Milestone 4)**
+
+**Purpose:**
+Enable safe, one-click fleet updates of the Android agent. Admins promote a build to **current**, and devices either **poll** `/v1/agent/update` or receive an **FCM “update”** command to securely fetch and install the APK. Include **staged rollout** and **rollback** to minimize risk.
+
+---
+
+### What “done” means
+
+**Admin capabilities (APK Management):**
+
+* Mark any uploaded build as **Current** (promote).
+* Configure **staged rollout** percentage (e.g., 1%, 5%, 10%, 25%, 50%, 100%).
+* **Rollback** flag to immediately stop a rollout and revert the “current” pointer to the last safe build.
+* Optional **canary cohorts** (by alias tag or device list) for early exposure.
+
+**Device behavior (Agent):**
+
+* **Poll** `/v1/agent/update` on:
+
+  * app start / service start,
+  * every **6 hours** (default), and
+  * immediately upon receiving an FCM `"update"` command.
+* Update manifest response includes: `{ build_id, version_code, version_name, url, sha256, signer_fingerprint, wifi_only, must_install, staged_rollout_percent }`.
+* Agent decides eligibility via **deterministic cohorting** (e.g., `hash(device_id) % 100 < rollout%`), **idempotently** skips if already on that version.
+* **Secure fetch & install**:
+
+  * HTTPS only; Bearer token auth.
+  * Verify SHA-256 and **signer certificate fingerprint** matches expected.
+  * Install silently (standard `pm install -r` path; foreground service continues).
+* **Safety constraints (configurable defaults)**:
+
+  * Wi-Fi only (default true).
+  * Battery ≥ 30% or charging.
+  * Not during a phone call; defer until idle.
+* **Result reporting**: Post `/v1/action-result` with `{request_id/build_id, outcome, reason}`, and emit local logs.
+
+**Rollout & rollback semantics:**
+
+* **Staged rollout** increases adoption using cohort hashing; no server state per device required.
+* **Rollback** flips the “current” pointer to the last safe build.
+
+  * Agents on the rolled-back build do **not** downgrade by default, but future update checks serve the prior safe build to those not yet updated.
+  * Optional `force_downgrade=true` flag (admin) allows downgrade if signed by the same key.
+
+---
+
+### Non-goals
+
+* No Play Store integration.
+* No delta/patch updates (full APK only).
+* No per-device scheduling UI; cohorting and basic constraints only.
+* No multi-app management (just the NexMDM agent).
+
+---
+
+### Performance & reliability targets
+
+* Update check (`/v1/agent/update`) p95 **<100 ms** server-side.
+* Download start within **<5 s** of FCM “update” (network permitting).
+* Verify + install completes within **<90 s** for a 30–50 MB APK on Wi-Fi.
+* Staged rollout respects target within **±2%** using cohort hashing.
+* Zero installs when signature/fingerprint mismatch is detected.
+
+---
+
+### Security baseline
+
+* HTTPS only; HSTS optional.
+* **Signer fingerprint** verification required (prevents supply-chain tampering).
+* **SHA-256** checksum validated before install.
+* Auth: device Bearer token for manifest + APK URL; tokens never logged.
+* FCM “update” must include a valid **HMAC**; agent ignores if invalid.
+
+---
+
+### Observability
+
+* Structured logs & counters:
+
+  * Server: `ota.promote`, `ota.rollback`, `ota.rollout.update`, `ota.manifest.200`, `ota.manifest.304`, `ota.download.200`, `ota.download.fail`, `ota.adoption.progress`
+  * Agent: `ota.check`, `ota.eligible`, `ota.ineligible.cohort`, `ota.download.start|fail`, `ota.verify.fail`, `ota.install.ok|fail`
+* Metrics:
+
+  * `ota_checks_total`, `ota_downloads_total`, `ota_installs_total{ok,fail}`, `ota_verify_fail_total`, `ota_adoption_ratio{build_id}` over time.
+* APK Management also records `apk_download_events` with `source="agent-ota"`.
+
+---
+
+### Acceptance tests
+
+**Admin flows:**
+
+1. **Promote & 10% rollout:** Promote Build B2; set rollout=10%. Verify `/v1/agent/update` returns B2 to ~10% of devices (cohort hash), others get 304/“no update”.
+2. **Increase to 50% then 100%:** Adoption curves reflect new percentages without re-cohorting devices.
+3. **Rollback:** Flip to previous build B1. New checks serve B1; no further B2 installs. (Optional `force_downgrade=true` path validated on a test device signed by same key.)
+
+**Agent/device flows:**
+
+1. **Poll path:** On startup and 6-hour tick, eligible device downloads, verifies signer & sha256, installs, and posts result.
+2. **FCM “update”:** Send signed command; agent checks immediately and proceeds if eligible.
+3. **Constraints:** With `wifi_only=true` and not on Wi-Fi → manifest says update available; agent defers and logs `ota.defer.wifi`. On Wi-Fi → proceeds. Battery <30% and not charging → defers until threshold met.
+4. **Integrity failures:** Tamper the checksum or signer → agent aborts, posts failure, and never installs.
+5. **Idempotency:** If already on version, agent returns `no update`/skips; repeated FCM “update” does not reinstall.
+
+**Telemetry:**
+
+* `/metrics` shows increases in `ota_checks_total` and `ota_installs_total{ok}` aligned with staged rollout.
+* Logs correlate `build_id` across `manifest → download → install → result`.
+
+---
+
+### When complete
+
+You’ll have **one-click fleet updates**: promote a build, set a rollout %, and (optionally) hit “rollback” if needed. Devices update securely—verifying signer and checksum—either on their own schedule or instantly via an FCM nudge, with clean telemetry of adoption and failures.
