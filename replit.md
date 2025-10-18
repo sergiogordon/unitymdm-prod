@@ -37,7 +37,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Performance Optimization**: Database partitioning, dual-write fast reads, connection pool monitoring, deduplication bucketing. Target SLIs: p95 <150ms, p99 <300ms for 2,000 devices.
 - **Operational Tooling**: Load testing infrastructure (2,000 devices with realistic jitter), acceptance test suite, pool health monitoring, automated maintenance jobs with advisory locks.
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
-- **Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff, 5-minute heartbeat intervals, and structured logging.
+- **Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff, 5-minute heartbeat intervals, structured logging, and reliability features (persistent queue, network monitoring, power-aware retries).
 - **OTA Updates (Milestone 4)**: Secure fleet-wide Android agent updates with one-click promotion, staged rollouts (1%-100%), deterministic device cohorting, rollback capability, and comprehensive adoption telemetry. Devices poll `/v1/agent/update` on startup, every 6 hours, or immediately via FCM nudge. Includes SHA-256 verification, signer fingerprint validation, Wi-Fi-only constraints, and safety controls (battery, network conditions).
 
 ### System Design Choices
@@ -53,6 +53,16 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 
+### Reliability Features (Milestone 5)
+The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:
+
+- **Persistent Queue**: Room database-backed queue for unsent heartbeats and action-results that survives crashes and reboots. Queued items are retained until successfully delivered or expired (24h TTL for action-results).
+- **Network Resilience**: NetworkCallback monitors connectivity state changes (wifi/cellular/offline) and triggers immediate queue drain when network becomes validated. Exponential backoff with full jitter (2s base, 5min cap) prevents overwhelming the server during network instability.
+- **Power Management**: On startup, verifies Device Owner status and battery whitelist. In Device Owner mode, confirms Doze exemption and unrestricted battery access. Pauses non-essential retries when battery drops below 10% and not charging.
+- **Queue Management**: Implements size limits (500 items, 10MB), prunes old heartbeats first (never prunes action-results), and coalesces duplicate heartbeats within the same 10s dedupe bucket.
+- **Enhanced Observability**: Heartbeat payloads include `power_ok`, `doze_whitelisted`, and `net_validated` flags. Structured logs track queue operations (`queue.enqueue`, `queue.drain`, `queue.prune`), network changes (`net.change`, `net.regain`), retry scheduling (`retry.schedule`), and delivery outcomes (`deliver.ok`, `deliver.fail`).
+- **Startup Recovery**: On service start or boot, automatically drains pending queue items within 5 seconds, ensuring no data loss from crashes or restarts.
+
 ## External Dependencies
 - **PostgreSQL**: Primary database.
 - **FastAPI**: Backend Python web framework.
@@ -62,3 +72,4 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Firebase Cloud Messaging (FCM)**: For command dispatch to devices.
 - **GitHub Actions**: For Android Agent CI/CD.
 - **Replit Mail**: Email service for notifications.
+- **Room Database**: SQLite-based persistent storage for Android agent queue.
