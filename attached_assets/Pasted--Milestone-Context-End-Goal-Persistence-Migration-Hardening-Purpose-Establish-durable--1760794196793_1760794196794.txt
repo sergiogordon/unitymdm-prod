@@ -1,0 +1,152 @@
+# Milestone Context & End Goal — Persistence & Migration Hardening
+
+**Purpose:**
+
+Establish durable, query-efficient storage for enrollment, APK lineage, FCM dispatches, and heartbeats—backed by safe, rollbackable Alembic migrations and explicit idempotency rules—so NexMDM can scale to 100+ devices today and thousands later without data loss or table lock surprises.
+
+---
+
+## What “done” means
+
+### Schemas finalized (tables + keys + indexes)
+
+**1) `enroll_tokens`**
+
+- Fields: `token_id` (UUID, PK), `alias`, `token_hash` (unique), `scope` (enum: `apk_download, register`), `issued_by`, `issued_at`, `expires_at`, `uses_allowed` (int), `uses_consumed` (int), `last_used_at`, `note`, `status` (enum: `active, exhausted, expired, revoked`).
+- Indexes:
+    - `uniq(token_hash)`
+    - `idx(alias)`
+    - `idx(status, expires_at DESC)`
+    - `idx(issued_by, issued_at DESC)`
+- Rules: token value never stored (only hash). Single-use by default; multi-use allowed via `uses_allowed`.
+
+**2) `apk_builds` & `apk_download_events`**
+
+- `apk_builds`: `build_id` (UUID, PK), `version_code` (int), `version_name`, `build_type` (`debug|release`), `ci_run_id`, `git_sha`, `uploaded_at`, `signer_fingerprint`, `file_size`, `storage_url`.
+- `apk_download_events`: `event_id` (bigserial, PK), `build_id` (FK), `source` (`enrollment|manual|ci`), `token_id` (nullable FK), `admin_user` (nullable), `ip`, `ts`.
+- Indexes:
+    - `apk_builds.idx(version_code DESC, build_type)`
+    - `apk_download_events.idx(build_id, ts DESC)`
+    - `apk_download_events.idx(token_id, ts DESC)`
+
+**3) `fcm_dispatches`**
+
+- Fields: `request_id` (UUID, PK), `device_id` (FK), `action` (`ping|launch_app|...`), `payload_hash`, `sent_at`, `latency_ms`, `fcm_message_id` (nullable), `http_code` (int), `fcm_status` (`ok|retry|fail`), `error_msg` (nullable), `response_json` (jsonb), `retries` (int default 0).
+- Indexes:
+    - `idx(device_id, sent_at DESC)`
+    - `idx(fcm_message_id)`
+    - `idx(action, sent_at DESC)`
+- Rule: `request_id` is the **idempotency key** for admin commands and agent results.
+
+**4) `device_heartbeats`** (time-series friendly)
+
+- Fields: `hb_id` (bigserial, PK), `device_id` (FK), `ts` (timestamptz), `ip`, `status` (`ok|warn|error`), `battery_pct`, `plugged` (bool), `temp_c` (nullable), `network_type`, `signal_dbm` (nullable), `uptime_s`, `ram_used_mb` (nullable), `unity_pkg_version` (nullable), `unity_running` (bool), `agent_version`.
+- Indexes:
+    - `idx(device_id, ts DESC)` (cover most queries)
+    - Optional dedupe index (see idempotency below)
+
+### Idempotency guarantees (no dupes, safe retries)
+
+- **Admin commands & results:** `request_id` is globally unique.
+    - `/admin/command` inserts `fcm_dispatches` keyed by `request_id`; subsequent same `request_id` → **no duplicate send**, return prior record.
+    - `/v1/action-result` updates existing `fcm_dispatches` by `request_id` with completion status (or creates a lightweight “result” entry if you prefer a separate table).
+- **Heartbeats:** accept rapid retries without duplication by **bucketing** timestamps.
+    - Server rounds `ts` to the nearest 10 seconds, and creates a unique constraint on `(device_id, ts_10s_bucket)` **or** uses a `md5(device_id||ts_10s)` fingerprint column for a partial unique index for recent windows.
+    - Net effect: at-most-one heartbeat per device per 10s window.
+
+### Alembic migrations + rollback plan
+
+- **Versioned, reversible migrations** for all artifacts above.
+- **Zero-downtime pattern:**
+    1. Create tables & enums.
+    2. Add non-blocking indexes (Postgres `CONCURRENTLY` where applicable; in Alembic use two-step or raw SQL guarded by checks).
+    3. Backfill (if any) in **small batches** with application read-paths tolerant of both old/new shapes.
+    4. Flip feature flags to start writing new tables.
+    5. Remove old paths in a later migration.
+- **Downgrades** restore the previous schema and drop new tables/indexes (no data resurrection guaranteed, but schema rollback is clean).
+- **Migration linting:** CI runs `alembic upgrade head` on a blank DB, and `alembic downgrade -1` for new revisions to verify reversibility.
+
+### Retention & maintenance policies
+
+- `device_heartbeats`: retain 2 days online; older → archive to object storage (CSV/Parquet) via nightly job, then purge.
+- `fcm_dispatches`: retain 2 days (operational); aggregate/rollup older.
+- `apk_download_events`: retain 7 days
+- `enroll_tokens`: keep until expired + 7 days, then purge.
+
+---
+
+## Non-goals (for this milestone)
+
+- No UI changes or dashboards.
+- No analytics aggregation endpoints (basic counts are fine).
+- No multi-tenant partitioning yet.
+- No data lake plumbing (just simple archive job placeholders).
+
+---
+
+## Performance & reliability targets
+
+- **Heartbeats:** sustained 100–300 hb/min with p95 <150 ms query/write latency, p99 <300 ms.
+- **Dispatch logging:** insert p95 <50 ms; index lookups for `request_id` <5 ms.
+- **Migrations:** complete on an empty or small dataset in <60 s; no exclusive table locks on hot paths (verify with `CONCURRENTLY` where needed).
+- **Indexes:** all OLTP queries use covering indexes; no sequential scans on hot routes.
+
+---
+
+## Security baseline
+
+- Store **only `token_hash`** (e.g., SHA-256) for `enroll_tokens`.
+- Enforce **CHECK** constraints for enums; reject unknown statuses.
+- Row-level ownership checks on any administrative list endpoints (who created what).
+- Strict TTL enforcement in SQL (e.g., `WHERE expires_at > now()` paths) in addition to app logic.
+- PII-free: do not store device user data—only operational metrics.
+
+---
+
+## Observability
+
+- Structured logs on each write path: `event=create|update`, `entity=enroll_token|apk_build|fcm_dispatch|heartbeat`, `keys={...}`, `latency_ms`.
+- Counters:
+    - `db.writes.by_table`
+    - `db.errors.by_table`
+    - `fcm.dispatch.latency_ms` (distribution)
+    - `hb.dedup.hits` (how often dedupe triggers)
+- Migration logs: revision id, started/ended timestamps, rows affected.
+
+---
+
+## Acceptance tests
+
+- **Schema tests:** Migrate a clean DB to `head` and back `1` in CI successfully.
+- **API idempotency:**
+    - Send `/admin/command` twice with the same `request_id` → one `fcm_dispatches` row; second call returns prior dispatch metadata.
+    - Post `/v1/action-result` twice with same `request_id` → one completion record, no duplicate.
+- **Heartbeat dedupe:**
+    - Post 3 heartbeats for same device within 10 seconds → 1 row persisted.
+    - Post at t=0s and t=12s → 2 rows persisted.
+- **Token lifecycle:**
+    - Create tokens (batch), use once for APK and register → `uses_consumed` increments; reuse attempt returns 401 and does not create new device.
+    - List endpoint shows `active → exhausted/expired` transitions.
+- **Query performance:**
+    - `GET last 100 heartbeats for device` uses the index; explain shows index scan.
+    - `GET dispatch by request_id` resolves in O(1).
+
+---
+
+## Implementation notes (how to do it cleanly, still no code)
+
+- **Enums:** use Postgres enums for `status`/`build_type` or validated CHECK strings if you prefer easier migrations.
+- **Time bucketing:** heartbeats include a computed `ts_10s_bucket = date_trunc('second', ts) - (extract(second from ts)::int % 10) * interval '1 second'`. Unique on `(device_id, ts_10s_bucket)`.
+- **Partitioning (optional if volume grows):** monthly partitions for `device_heartbeats` (native range partitioning on `ts`), attach indexes per partition.
+- **Alembic sequencing:**
+    - `rev_001_init_core`: create tables + base indexes and constraints.
+    - `rev_002_add_dedup_idx`: add unique dedupe index for heartbeats.
+    - `rev_003_add_partitions` (optional later): create and attach partitions.
+    - `rev_004_add_events`: add `apk_download_events` if not included in `rev_001`.
+- **Operational guardrails:** wrap all writes with timeouts; use `READ COMMITTED`; ensure connection pool sizing matches your Uvicorn workers (e.g., 5–10 per worker).
+
+---
+
+### When complete
+
+You’ll have a **battle-tested storage layer** with clear idempotency semantics, safe migrations (with downgrade), and fast indexed reads/writes—ready to support the next milestones (Agent runtime, Security/Alerts, and scale testing) without schema churn.
