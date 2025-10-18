@@ -3371,7 +3371,7 @@ async def list_apks(
     current_user: User = Depends(get_current_user)
 ):
     """List all uploaded APK versions with OTA deployment info"""
-    from server.models import ApkDeploymentStats
+    from models import ApkDeploymentStats
     
     apks = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).all()
     
@@ -3977,8 +3977,8 @@ async def agent_update_check(
     Agent OTA update check endpoint.
     Returns update manifest if device is eligible for rollout, 304 if no update available.
     """
-    from server.ota_utils import get_current_build, is_device_eligible_for_rollout, increment_deployment_stat, log_ota_event, calculate_sha256
-    from server.models import ApkDownloadEvent
+    from ota_utils import get_current_build, is_device_eligible_for_rollout, increment_deployment_stat, log_ota_event, calculate_sha256
+    from models import ApkDownloadEvent
     
     devices = db.query(Device).limit(100).all()
     device = None
@@ -4064,7 +4064,7 @@ async def promote_apk_build(
     Promote an APK build to current with staged rollout.
     Demotes any previously promoted build for the same package.
     """
-    from server.ota_utils import log_ota_event, get_or_create_deployment_stats
+    from ota_utils import log_ota_event, get_or_create_deployment_stats
     
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
@@ -4137,7 +4137,7 @@ async def update_rollout_percentage(
     """
     Update staged rollout percentage for the current build.
     """
-    from server.ota_utils import log_ota_event
+    from ota_utils import log_ota_event
     
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
@@ -4188,7 +4188,7 @@ async def rollback_to_previous_build(
     Rollback to the previous safe build.
     Sets the rollback_from build as current again.
     """
-    from server.ota_utils import log_ota_event
+    from ota_utils import log_ota_event
     
     current_build = db.query(ApkVersion).filter(
         ApkVersion.is_current == True
@@ -4258,7 +4258,7 @@ async def get_deployment_stats(
     """
     Get deployment statistics for a specific build.
     """
-    from server.models import ApkDeploymentStats
+    from models import ApkDeploymentStats
     
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
@@ -4305,8 +4305,8 @@ async def nudge_update_check(
     Send FCM 'update' command to trigger immediate OTA update check on devices.
     If device_ids is None, sends to all devices with FCM tokens.
     """
-    from server.fcm_v1 import send_fcm_message_v1
-    from server.hmac_utils import compute_hmac_signature
+    from fcm_v1 import send_fcm_message_v1
+    from hmac_utils import compute_hmac_signature
     import uuid
     
     if payload.device_ids:
