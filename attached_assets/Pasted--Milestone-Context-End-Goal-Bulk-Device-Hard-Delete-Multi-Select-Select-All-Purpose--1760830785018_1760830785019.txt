@@ -1,0 +1,126 @@
+**Milestone Context & End Goal — Bulk Device Hard Delete (Multi-Select + Select-All)**
+
+**Purpose:**
+Enable admins to remove many devices at once with **true hard deletes** (no soft state), cleanly cascading related rows and purging historical data safely. Keep the UX simple (multi-select + “select all matching”), protected by confirmations and scopes.
+
+---
+
+### What “done” means
+
+#### Frontend (Dashboard → Devices)
+
+* **Multi-select controls**
+
+  * Per-row checkbox + header checkbox (select current page).
+  * “Select **all N** matching this filter” banner after selecting page (N from backend).
+* **Bulk Actions bar** (appears when ≥1 selected)
+
+  * Primary action: **Delete N devices**.
+  * Secondary: **Clear selection**.
+* **Destructive confirmation modal**
+
+  * Summary: count + up to 10 sample aliases.
+  * Type-to-confirm: `DELETE <N>`.
+  * Final checkbox: “Also delete historical telemetry (heartbeats/dispatch logs)” (enabled by default).
+* **Result UX**
+
+  * Success toast: `{deleted, skipped}` with a link to “View audit log”.
+  * Table refresh; removed rows disappear immediately.
+  * Any per-device errors listed in collapsible “Details”.
+
+#### Backend APIs (hard delete only)
+
+* **Create selection (for “select-all matching”)**
+  `POST /admin/devices/selection`  (scope: `device_manage`)
+  Body: `{ filter: { query, status, network, unity, ... } }`
+  200 → `{ selection_id, total_count, expires_at }` (15-minute TTL)
+* **Bulk hard delete**
+  `POST /admin/devices/bulk-delete`  (scope: `device_manage`)
+  Body (one of):
+
+  * `{ device_ids: ["...","..."], purge_history: true }`
+  * `{ selection_id: "sel_...", purge_history: true }`
+    Behavior:
+  * **Immediate deletes (request path):**
+
+    * `DELETE FROM device_last_status WHERE device_id IN (…)`
+    * `DELETE FROM devices WHERE id IN (…)`
+    * **Token revoke:** invalidate device tokens instantly; future calls return **410 Gone** `{reason:"device_deleted"}`.
+  * **Historical purge (async job, partition-pruned):**
+
+    * Enqueue per-device tasks to delete from `device_heartbeats`, `fcm_dispatches`, `apk_download_events` (if applicable).
+    * Jobs run with time budget; resume until complete; idempotent.
+  * 200 → `{ deleted: n, skipped: m, request_id }`
+* **Audit log**
+  Emit `device.hard_delete.request|completed` with `{admin_id, count, purge_history, selection_id?, request_id}`.
+
+#### Data & operations
+
+* **Hard delete is the only mode.** No `deleted_at` flags anywhere.
+* **Selection snapshots** ensure “select all matching” is stable even if filters change client-side.
+* **Constraints**: server-side maximum batch size (e.g., 10k) to protect DB; larger deletes require multiple calls.
+
+---
+
+### Security & safety
+
+* Requires admin key with scope **`device_manage`**.
+* Rate-limit bulk delete requests (e.g., 10 ops/min) and log actor ID.
+* UI type-to-confirm + irreversible warning.
+* Tokens revoked before returning 200; devices can’t re-post heartbeats/results.
+* Historical purge runs under DB **advisory lock** to avoid concurrent job collisions.
+
+---
+
+### Observability
+
+* Logs:
+
+  * `device.hard_delete.request` (counts, purge flag, selection vs explicit)
+  * `device.hard_delete.completed` (deleted, skipped, duration_ms)
+  * `device.token.revoke.batch`
+  * `device.purge.enqueued|progress|completed|failed`
+* Metrics:
+
+  * `devices_deleted_total`
+  * `bulk_delete_duration_ms_bucket`
+  * `purge_jobs_enqueued_total`, `purge_jobs_completed_total`, `purge_rows_deleted_total{table}`
+
+---
+
+### Performance targets
+
+* Immediate delete of **≤10k devices** completes DB work in **<5 s** on indexed PKs.
+* Token revoke batch write p95 **<500 ms**.
+* Purge workers process **≥10k heartbeat rows/sec** per partition (off request path).
+* No table-level locks on hot partitions; normal ingestion unaffected.
+
+---
+
+### Acceptance tests
+
+**UI / Flow**
+
+1. Select 5 devices on page → Bulk bar shows “Delete 5”; confirm with type-to-confirm → rows disappear; toast shows `{deleted:5, skipped:0}`.
+2. Apply filter “Offline”, select page → click “Select all **N** matching” → delete with purge on → table shows none remaining for that filter.
+3. Attempt without scope → 403 with clear toast.
+
+**Backend semantics**
+4. After delete, device tries `/v1/heartbeat` → **410 Gone** (or 401) and **no new rows** in DB.
+5. Purge job logs show per-partition deletes; rerunning job is idempotent.
+6. Selection snapshot used after TTL → 410/400 with message “Snapshot expired”; UI prompts to re-create.
+
+**Safety**
+7. Batch >10k triggers 413/422 with guidance to delete in smaller chunks.
+8. Simulate job crash mid-purge → next tick resumes; final counters match expected rows removed.
+
+**Audit**
+9. Audit entries record admin, counts, purge flag, selection_id, and request_id.
+
+---
+
+### Definition of Done
+
+* Devices page supports **multi-select** and **select-all matching** with a single **Hard Delete** flow.
+* Backend performs **true hard deletes**, revokes tokens immediately, and purges history via background workers.
+* Operations are **secure**, **fast**, and **audited**, with clear user confirmations and no residual “ghost” devices.
