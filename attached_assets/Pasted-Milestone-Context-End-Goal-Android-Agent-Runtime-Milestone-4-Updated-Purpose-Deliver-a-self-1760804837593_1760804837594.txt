@@ -1,0 +1,115 @@
+Milestone Context & End Goal — Android Agent Runtime (Milestone 4, Updated)
+
+Purpose:
+Deliver a self-managing, always-on Android agent that runs in Device Owner Mode, posts reliable 5-minute heartbeats, executes signed FCM commands (ping, launch_app), and reports results back to the backend with retry/backoff. This milestone completes the real-device control loop in production.
+
+⸻
+
+What “done” means
+
+1. Device Owner Mode
+	•	Agent is provisioned as Device Owner via ADB (dpm set-device-owner com.nexmdm/.NexDeviceAdminReceiver), enabling full background privileges and bypassing battery/Doze restrictions.
+	•	Verifies Device Owner status at startup:
+	•	If already set → logs confirmation and continues.
+	•	If not set → requests provisioning intent (for factory-reset devices) or logs a warning for non-compliant setups.
+	•	Device Owner privileges allow:
+	•	Persistent foreground service (never killed by OS).
+	•	Auto-grant of required permissions and Doze whitelist.
+	•	Programmatic network and power optimizations.
+
+2. Heartbeat Runtime
+	•	Schedule: every 5 minutes (300 s) via WorkManager with backoff/retry on failure.
+	•	Payload:
+{ device_id, alias, agent_version, battery_pct, plugged, uptime_s, ram_used_mb, network_type, signal_dbm, unity_pkg, unity_running, unity_version, ip }
+	•	Behavior:
+	•	Foreground service always running; WorkManager triggers heartbeat tasks.
+	•	Retries with exponential backoff (max 3 retries, jitter) on network/server errors.
+	•	Uses Bearer token from EncryptedSharedPreferences.
+	•	Handles 401 (invalid token) gracefully with re-enrollment prompt or backoff.
+
+3. Secure Storage & Config
+	•	Uses EncryptedSharedPreferences for:
+	•	device_token
+	•	server_url
+	•	alias
+	•	unity_pkg
+	•	One-time configuration broadcast handled idempotently; updates allowed without reinstall.
+
+4. FCM Command Handling
+	•	FirebaseMessagingService validates HMAC over {request_id, device_id, action, ts}.
+	•	Supported actions:
+	•	ping: respond with success result immediately.
+	•	launch_app: launches configured unity_pkg and verifies process is running.
+	•	Unknown or invalid HMAC actions ignored (with failure result posted for audit).
+
+5. Action-Result Posting
+	•	Posts to /v1/action-result with:
+{ request_id, device_id, action, outcome, message, finished_at }
+	•	Retries with exponential backoff until acknowledged (200).
+	•	Idempotent via consistent request_id reuse.
+
+6. Doze & Optimization Safeguards
+	•	Device Owner Mode automatically whitelists the agent from power management.
+	•	Explicit Doze-whitelist and appops calls remain as fallback for non-owner devices.
+	•	Foreground service ensures WorkManager jobs remain active even during idle.
+
+⸻
+
+Non-Goals
+	•	No new commands beyond ping and launch_app.
+	•	No OTA updates or app-store delivery (handled in later milestone).
+	•	No user-visible UI or device setup wizard (headless agent only).
+
+⸻
+
+Performance & Reliability Targets
+	•	Heartbeat RTT (device → server → ack): < 3 s typical on Wi-Fi/cellular.
+	•	Heartbeat interval accuracy: ±30 s.
+	•	98 %+ command success rate under normal conditions.
+	•	Zero permanent data loss on transient network failures.
+	•	Foreground service uptime ≥ 99 %.
+
+⸻
+
+Security Baseline
+	•	HTTPS only; reject plaintext.
+	•	HMAC validation on all FCM payloads.
+	•	device_token stored only in EncryptedSharedPreferences.
+	•	Strict allow-list of supported actions.
+	•	Logs redact tokens and HMAC keys.
+
+⸻
+
+Observability
+	•	Structured logs:
+	•	agent.startup, device_owner.confirmed, heartbeat.sent, heartbeat.ack,
+fcm.received, fcm.hmac_invalid, command.executed, result.posted, result.retry.
+	•	Logs include: ts, device_id, alias, request_id, battery_pct, network_type, latency_ms.
+	•	Optional “debug” toggle for verbose mode (redacted by default).
+
+⸻
+
+Acceptance Tests
+	1.	Device Owner provisioning:
+	•	Factory-reset device → run ADB setup → agent becomes Device Owner → logs device_owner.confirmed.
+	•	Reboot or update → Device Owner persists.
+	2.	Service lifecycle:
+	•	Kill app → service auto-restarts.
+	•	Reboot device → heartbeat resumes within 5 min.
+	3.	Heartbeat loop:
+	•	Posts every ~5 min; backend receives regular updates.
+	•	Simulated network loss → retries until recovery; no duplicate rows in backend (idempotent).
+	4.	Command execution:
+	•	Send ping → result posted within seconds.
+	•	Send launch_app → app launched + success posted.
+	•	Invalid HMAC → ignored, logged fcm.hmac_invalid.
+	5.	Power/Doze handling:
+	•	Observe heartbeats and FCM still process while device idle; no missing intervals beyond 10 min.
+	6.	Data persistence:
+	•	Restart app or reboot → agent reads stored config and token; resumes normal operation.
+
+⸻
+
+When Complete
+
+Every NexMDM-managed phone runs in Device Owner Mode, reports metrics every 5 minutes, and reliably executes commands from the backend with full on-device resilience—establishing a robust, production-ready control loop across the real fleet.
