@@ -92,6 +92,7 @@ def record_heartbeat_with_bucketing(
 ) -> dict:
     """
     Record device heartbeat with time-bucketing for deduplication.
+    Dual-writes to both device_heartbeats (partitioned) and device_last_status (fast read).
     Multiple heartbeats within the same bucket window are deduplicated.
     
     Args:
@@ -101,9 +102,11 @@ def record_heartbeat_with_bucketing(
         bucket_seconds: Time bucket size in seconds (default: 10)
         
     Returns:
-        dict with 'created' (bool) and 'heartbeat' (record) keys
+        dict with 'created' (bool), 'heartbeat' (record), and 'last_status_updated' (bool) keys
     """
-    from models import DeviceHeartbeat
+    from models import DeviceHeartbeat, DeviceLastStatus
+    from sqlalchemy import insert
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
     
     start = datetime.now(timezone.utc)
     ts = datetime.now(timezone.utc)
@@ -124,7 +127,7 @@ def record_heartbeat_with_bucketing(
         log_db_operation('dedup_hit', 'device_heartbeats', 
                          {'device_id': device_id, 'bucket': str(bucket_ts)}, 
                          latency_ms)
-        return {'created': False, 'heartbeat': existing}
+        return {'created': False, 'heartbeat': existing, 'last_status_updated': False}
     
     # Create new heartbeat
     heartbeat = DeviceHeartbeat(
@@ -135,6 +138,38 @@ def record_heartbeat_with_bucketing(
     )
     
     db.add(heartbeat)
+    
+    # DUAL WRITE: Upsert to device_last_status for O(1) reads
+    # Extract key metrics for fast read table
+    last_status_data = {
+        'device_id': device_id,
+        'last_ts': ts,
+        'battery_pct': heartbeat_data.get('battery_pct'),
+        'network_type': heartbeat_data.get('network_type'),
+        'unity_running': heartbeat_data.get('unity_running'),
+        'signal_dbm': heartbeat_data.get('signal_dbm'),
+        'agent_version': heartbeat_data.get('agent_version'),
+        'ip': heartbeat_data.get('ip'),
+        'status': heartbeat_data.get('status', 'ok')
+    }
+    
+    # Use PostgreSQL INSERT ... ON CONFLICT UPDATE (upsert)
+    stmt = pg_insert(DeviceLastStatus).values(**last_status_data)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['device_id'],
+        set_={
+            'last_ts': stmt.excluded.last_ts,
+            'battery_pct': stmt.excluded.battery_pct,
+            'network_type': stmt.excluded.network_type,
+            'unity_running': stmt.excluded.unity_running,
+            'signal_dbm': stmt.excluded.signal_dbm,
+            'agent_version': stmt.excluded.agent_version,
+            'ip': stmt.excluded.ip,
+            'status': stmt.excluded.status
+        }
+    )
+    db.execute(stmt)
+    
     db.commit()
     db.refresh(heartbeat)
     
@@ -142,7 +177,7 @@ def record_heartbeat_with_bucketing(
     log_db_operation('create', 'device_heartbeats', 
                      {'device_id': device_id}, latency_ms)
     
-    return {'created': True, 'heartbeat': heartbeat}
+    return {'created': True, 'heartbeat': heartbeat, 'last_status_updated': True}
 
 
 def record_apk_download(

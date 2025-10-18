@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -1179,6 +1179,43 @@ async def heartbeat(
     
     if hasattr(payload, 'is_device_owner') and payload.is_device_owner is not None:
         device.is_device_owner = payload.is_device_owner
+    
+    # PERFORMANCE OPTIMIZATION: Persist heartbeat to partitioned table + dual-write to device_last_status
+    from db_utils import record_heartbeat_with_bucketing
+    
+    unity_running = None
+    if device.monitored_package and device.monitored_package in payload.app_versions:
+        app_info = payload.app_versions.get(device.monitored_package)
+        if app_info and app_info.installed:
+            if device.monitored_package == "org.zwanoo.android.speedtest":
+                has_notif = payload.speedtest_running_signals.has_service_notification
+                fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
+                unity_running = (has_notif or (fg_seconds is not None and fg_seconds < 60))
+    
+    heartbeat_data = {
+        'ip': str(payload.network.ip) if payload.network and payload.network.ip else None,
+        'status': 'ok',
+        'battery_pct': battery_pct,
+        'plugged': payload.battery.charging if payload.battery else None,
+        'temp_c': int(payload.battery.temperature_c) if payload.battery else None,
+        'network_type': network_type,
+        'signal_dbm': None,  # Not available in current schema
+        'uptime_s': uptime_s,
+        'ram_used_mb': payload.memory.total_ram_mb - payload.memory.avail_ram_mb if payload.memory else None,
+        'unity_pkg_version': payload.app_version,
+        'unity_running': unity_running,
+        'agent_version': payload.app_version
+    }
+    
+    hb_result = record_heartbeat_with_bucketing(db, device.id, heartbeat_data, bucket_seconds=10)
+    
+    if hb_result['created']:
+        metrics.inc_counter("hb_writes_total")
+    else:
+        metrics.inc_counter("hb_dedupe_total")
+    
+    if hb_result.get('last_status_updated'):
+        metrics.inc_counter("last_status_upserts_total")
     
     if payload.is_ping_response and payload.ping_request_id:
         if device.ping_request_id == payload.ping_request_id and device.last_ping_sent:
