@@ -3129,7 +3129,9 @@ async def list_apks(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """List all uploaded APK versions"""
+    """List all uploaded APK versions with OTA deployment info"""
+    from server.models import ApkDeploymentStats
+    
     apks = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).all()
     
     base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
@@ -3138,17 +3140,47 @@ async def list_apks(
     else:
         base_url = "http://localhost:8000"
     
-    return [{
-        "id": apk.id,
-        "package_name": apk.package_name,
-        "version_name": apk.version_name,
-        "version_code": apk.version_code,
-        "file_size": apk.file_size,
-        "uploaded_at": apk.uploaded_at.isoformat(),
-        "uploaded_by": apk.uploaded_by,
-        "download_url": get_apk_download_url(apk, base_url),
-        "notes": apk.notes
-    } for apk in apks]
+    result = []
+    for apk in apks:
+        stats = db.query(ApkDeploymentStats).filter(
+            ApkDeploymentStats.build_id == apk.id
+        ).first()
+        
+        apk_data = {
+            "id": apk.id,
+            "package_name": apk.package_name,
+            "version_name": apk.version_name,
+            "version_code": apk.version_code,
+            "file_size": apk.file_size,
+            "uploaded_at": apk.uploaded_at.isoformat(),
+            "uploaded_by": apk.uploaded_by,
+            "download_url": get_apk_download_url(apk, base_url),
+            "notes": apk.notes,
+            "is_current": apk.is_current,
+            "staged_rollout_percent": apk.staged_rollout_percent if apk.is_current else None,
+            "promoted_at": apk.promoted_at.isoformat() if apk.promoted_at else None,
+            "promoted_by": apk.promoted_by,
+            "wifi_only": apk.wifi_only,
+            "must_install": apk.must_install,
+            "signer_fingerprint": apk.signer_fingerprint
+        }
+        
+        if stats:
+            apk_data["deployment_stats"] = {
+                "total_checks": stats.total_checks,
+                "total_eligible": stats.total_eligible,
+                "total_downloads": stats.total_downloads,
+                "installs_success": stats.installs_success,
+                "installs_failed": stats.installs_failed,
+                "verify_failed": stats.verify_failed,
+                "adoption_rate": round((stats.installs_success / stats.total_eligible * 100), 2) if stats.total_eligible > 0 else 0
+            }
+        else:
+            apk_data["deployment_stats"] = None
+        
+        result.append(apk_data)
+    
+    return result
 
 @app.get("/v1/apk/download/{apk_id}")
 async def download_apk_version(
@@ -3690,6 +3722,334 @@ async def update_installation_status(
     })
     
     return {"success": True}
+
+# ==================== OTA Update Management ====================
+
+@app.get("/v1/agent/update")
+async def agent_update_check(
+    request: Request,
+    x_device_token: str = Header(...),
+    current_version_code: Optional[int] = Header(None, alias="x-current-version-code"),
+    db: Session = Depends(get_db)
+):
+    """
+    Agent OTA update check endpoint.
+    Returns update manifest if device is eligible for rollout, 304 if no update available.
+    """
+    from server.ota_utils import get_current_build, is_device_eligible_for_rollout, increment_deployment_stat, log_ota_event, calculate_sha256
+    from server.models import ApkDownloadEvent
+    
+    devices = db.query(Device).limit(100).all()
+    device = None
+    for d in devices:
+        if verify_token(x_device_token, d.token_hash):
+            device = d
+            break
+    
+    if not device:
+        metrics.inc_counter("ota_checks_total", {"status": "unauthorized"})
+        raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    current_build = get_current_build(db, package_name="com.nexmdm.agent")
+    
+    if not current_build:
+        log_ota_event("ota.manifest.304", device_id=device.id, reason="no_current_build")
+        metrics.inc_counter("ota_checks_total", {"status": "no_build"})
+        raise HTTPException(status_code=304, detail="No current build available")
+    
+    increment_deployment_stat(db, current_build.id, "total_checks")
+    
+    if current_version_code and current_version_code >= current_build.version_code:
+        log_ota_event("ota.manifest.304", device_id=device.id, build_id=current_build.id, 
+                     current_version=current_version_code, reason="up_to_date")
+        metrics.inc_counter("ota_checks_total", {"status": "up_to_date"})
+        raise HTTPException(status_code=304, detail="Already on current version")
+    
+    if not is_device_eligible_for_rollout(device.id, current_build.staged_rollout_percent):
+        log_ota_event("ota.manifest.304", device_id=device.id, build_id=current_build.id,
+                     rollout_percent=current_build.staged_rollout_percent, reason="cohort_ineligible")
+        metrics.inc_counter("ota_checks_total", {"status": "cohort_ineligible"})
+        raise HTTPException(status_code=304, detail="Not in rollout cohort")
+    
+    increment_deployment_stat(db, current_build.id, "total_eligible")
+    
+    base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
+    if base_url:
+        base_url = f"https://{base_url}"
+    else:
+        base_url = "http://localhost:8000"
+    
+    download_url = f"{base_url}/v1/apk/download/{current_build.id}"
+    
+    sha256_checksum = None
+    if os.path.exists(current_build.file_path):
+        try:
+            sha256_checksum = calculate_sha256(current_build.file_path)
+        except Exception as e:
+            print(f"Failed to calculate SHA256 for build {current_build.id}: {e}")
+    
+    log_ota_event("ota.manifest.200", device_id=device.id, build_id=current_build.id,
+                 version_code=current_build.version_code, rollout_percent=current_build.staged_rollout_percent)
+    metrics.inc_counter("ota_checks_total", {"status": "update_available"})
+    
+    return {
+        "update_available": True,
+        "build_id": current_build.id,
+        "version_code": current_build.version_code,
+        "version_name": current_build.version_name,
+        "url": download_url,
+        "file_size": current_build.file_size,
+        "sha256": sha256_checksum,
+        "signer_fingerprint": current_build.signer_fingerprint,
+        "wifi_only": current_build.wifi_only,
+        "must_install": current_build.must_install,
+        "staged_rollout_percent": current_build.staged_rollout_percent,
+        "package_name": current_build.package_name
+    }
+
+class PromoteApkRequest(BaseModel):
+    staged_rollout_percent: int = 100
+    wifi_only: bool = True
+    must_install: bool = False
+
+@app.post("/v1/apk/{apk_id}/promote")
+async def promote_apk_build(
+    apk_id: int,
+    payload: PromoteApkRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Promote an APK build to current with staged rollout.
+    Demotes any previously promoted build for the same package.
+    """
+    from server.ota_utils import log_ota_event, get_or_create_deployment_stats
+    
+    apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK not found")
+    
+    if not apk.is_active:
+        raise HTTPException(status_code=400, detail="Cannot promote inactive APK")
+    
+    if payload.staged_rollout_percent < 0 or payload.staged_rollout_percent > 100:
+        raise HTTPException(status_code=400, detail="Rollout percent must be between 0 and 100")
+    
+    previous_current = db.query(ApkVersion).filter(
+        ApkVersion.package_name == apk.package_name,
+        ApkVersion.is_current == True
+    ).first()
+    
+    if previous_current:
+        previous_current.is_current = False
+        log_ota_event("ota.demote", build_id=previous_current.id, 
+                     version_code=previous_current.version_code, promoted_to=apk.id)
+    
+    apk.is_current = True
+    apk.staged_rollout_percent = payload.staged_rollout_percent
+    apk.wifi_only = payload.wifi_only
+    apk.must_install = payload.must_install
+    apk.promoted_at = datetime.now(timezone.utc)
+    apk.promoted_by = current_user.username
+    if previous_current:
+        apk.rollback_from_build_id = previous_current.id
+    
+    get_or_create_deployment_stats(db, apk.id)
+    
+    db.commit()
+    
+    log_ota_event("ota.promote", build_id=apk.id, version_code=apk.version_code,
+                 rollout_percent=payload.staged_rollout_percent, promoted_by=current_user.username,
+                 wifi_only=payload.wifi_only, must_install=payload.must_install)
+    metrics.inc_counter("ota_promotions_total", {"package": apk.package_name})
+    
+    structured_logger.log_event(
+        "ota.promote",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        rollout_percent=payload.staged_rollout_percent,
+        promoted_by=current_user.username
+    )
+    
+    return {
+        "success": True,
+        "build_id": apk.id,
+        "version_code": apk.version_code,
+        "version_name": apk.version_name,
+        "staged_rollout_percent": apk.staged_rollout_percent,
+        "promoted_at": apk.promoted_at.isoformat(),
+        "promoted_by": apk.promoted_by,
+        "previous_build_id": previous_current.id if previous_current else None
+    }
+
+class UpdateRolloutRequest(BaseModel):
+    staged_rollout_percent: int
+
+@app.post("/v1/apk/{apk_id}/rollout")
+async def update_rollout_percentage(
+    apk_id: int,
+    payload: UpdateRolloutRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update staged rollout percentage for the current build.
+    """
+    from server.ota_utils import log_ota_event
+    
+    apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK not found")
+    
+    if not apk.is_current:
+        raise HTTPException(status_code=400, detail="APK is not the current build")
+    
+    if payload.staged_rollout_percent < 0 or payload.staged_rollout_percent > 100:
+        raise HTTPException(status_code=400, detail="Rollout percent must be between 0 and 100")
+    
+    old_percent = apk.staged_rollout_percent
+    apk.staged_rollout_percent = payload.staged_rollout_percent
+    
+    db.commit()
+    
+    log_ota_event("ota.rollout.update", build_id=apk.id, version_code=apk.version_code,
+                 old_percent=old_percent, new_percent=payload.staged_rollout_percent,
+                 updated_by=current_user.username)
+    
+    structured_logger.log_event(
+        "ota.rollout.update",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        old_percent=old_percent,
+        new_percent=payload.staged_rollout_percent,
+        updated_by=current_user.username
+    )
+    
+    return {
+        "success": True,
+        "build_id": apk.id,
+        "version_code": apk.version_code,
+        "old_rollout_percent": old_percent,
+        "new_rollout_percent": apk.staged_rollout_percent
+    }
+
+class RollbackRequest(BaseModel):
+    force_downgrade: bool = False
+
+@app.post("/v1/apk/rollback")
+async def rollback_to_previous_build(
+    payload: RollbackRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Rollback to the previous safe build.
+    Sets the rollback_from build as current again.
+    """
+    from server.ota_utils import log_ota_event
+    
+    current_build = db.query(ApkVersion).filter(
+        ApkVersion.is_current == True
+    ).first()
+    
+    if not current_build:
+        raise HTTPException(status_code=404, detail="No current build to rollback from")
+    
+    if not current_build.rollback_from_build_id:
+        raise HTTPException(status_code=400, detail="No previous build available for rollback")
+    
+    previous_build = db.query(ApkVersion).filter(
+        ApkVersion.id == current_build.rollback_from_build_id
+    ).first()
+    
+    if not previous_build:
+        raise HTTPException(status_code=404, detail="Previous build not found")
+    
+    current_build.is_current = False
+    previous_build.is_current = True
+    previous_build.promoted_at = datetime.now(timezone.utc)
+    previous_build.promoted_by = f"{current_user.username} (rollback)"
+    
+    if payload.force_downgrade:
+        previous_build.must_install = True
+    
+    db.commit()
+    
+    log_ota_event("ota.rollback", build_id=previous_build.id, 
+                 version_code=previous_build.version_code,
+                 rolled_back_from=current_build.id,
+                 force_downgrade=payload.force_downgrade,
+                 performed_by=current_user.username)
+    metrics.inc_counter("ota_rollbacks_total", {"package": previous_build.package_name})
+    
+    structured_logger.log_event(
+        "ota.rollback",
+        from_build_id=current_build.id,
+        from_version_code=current_build.version_code,
+        to_build_id=previous_build.id,
+        to_version_code=previous_build.version_code,
+        force_downgrade=payload.force_downgrade,
+        performed_by=current_user.username
+    )
+    
+    return {
+        "success": True,
+        "rolled_back_to": {
+            "build_id": previous_build.id,
+            "version_code": previous_build.version_code,
+            "version_name": previous_build.version_name
+        },
+        "rolled_back_from": {
+            "build_id": current_build.id,
+            "version_code": current_build.version_code,
+            "version_name": current_build.version_name
+        },
+        "force_downgrade": payload.force_downgrade
+    }
+
+@app.get("/v1/apk/{apk_id}/deployment-stats")
+async def get_deployment_stats(
+    apk_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get deployment statistics for a specific build.
+    """
+    from server.models import ApkDeploymentStats
+    
+    apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK not found")
+    
+    stats = db.query(ApkDeploymentStats).filter(
+        ApkDeploymentStats.build_id == apk_id
+    ).first()
+    
+    if not stats:
+        return {
+            "build_id": apk_id,
+            "total_checks": 0,
+            "total_eligible": 0,
+            "total_downloads": 0,
+            "installs_success": 0,
+            "installs_failed": 0,
+            "verify_failed": 0,
+            "last_updated": None
+        }
+    
+    return {
+        "build_id": stats.build_id,
+        "total_checks": stats.total_checks,
+        "total_eligible": stats.total_eligible,
+        "total_downloads": stats.total_downloads,
+        "installs_success": stats.installs_success,
+        "installs_failed": stats.installs_failed,
+        "verify_failed": stats.verify_failed,
+        "last_updated": stats.last_updated.isoformat() if stats.last_updated else None,
+        "adoption_rate": round((stats.installs_success / stats.total_eligible * 100), 2) if stats.total_eligible > 0 else 0
+    }
 
 # ==================== Battery Whitelist Management ====================
 
