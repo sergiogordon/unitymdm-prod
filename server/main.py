@@ -2889,7 +2889,8 @@ async def list_enrollment_tokens(
     for token in tokens:
         current_status = token.status
         if token.status == 'active':
-            if token.expires_at < now:
+            token_expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
+            if token_expires_at < now:
                 token.status = 'expired'
                 current_status = 'expired'
                 structured_logger.log_event(
