@@ -1,7 +1,7 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, FileCode } from "lucide-react"
+import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, FileCode, Command } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -266,6 +266,31 @@ function ADBSetupContent() {
     }
   }
 
+  const copyOneLiner = async (token: EnrollmentToken) => {
+    const authToken = localStorage.getItem('auth_token')
+    const url = `/api/proxy/v1/scripts/enroll.one-liner.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
+    
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Authorization": `Bearer ${authToken}`
+        }
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || "Failed to fetch one-liner")
+      }
+      
+      const oneLinerCommand = await response.text()
+      await navigator.clipboard.writeText(oneLinerCommand)
+      alert(`✅ One-liner copied to clipboard!\n\nPaste into Windows Command Prompt (cmd.exe) to enroll device "${token.alias}"`)
+    } catch (error) {
+      alert(`Failed to copy one-liner: ${error}`)
+      console.error(error)
+    }
+  }
+
   const copyScriptToClipboard = async (scriptContent: string, platform: string) => {
     try {
       await navigator.clipboard.writeText(scriptContent)
@@ -429,7 +454,18 @@ function ADBSetupContent() {
                         <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
                         <TableCell className="text-xs">{token.note || '-'}</TableCell>
                         <TableCell>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => copyOneLiner(token)}
+                              title="Copy One-Liner (Windows CMD) - Paste into Command Prompt. Requires ADB in PATH."
+                              disabled={token.status !== 'active'}
+                              className="gap-1"
+                            >
+                              <Command className="h-3 w-3" />
+                              One-Liner
+                            </Button>
                             {token.full_token && (
                               <Button
                                 variant="outline"
