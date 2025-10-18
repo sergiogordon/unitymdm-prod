@@ -3250,6 +3250,90 @@ echo "========================================"
         }
     )
 
+@app.get("/v1/scripts/enroll.one-liner.cmd")
+async def get_windows_one_liner_script(
+    alias: str = Query(...),
+    token_id: str = Query(...),
+    agent_pkg: str = Query("com.nexmdm"),
+    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate single-line Windows CMD enrollment command"""
+    from models import EnrollmentToken, EnrollmentEvent
+    
+    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    if token.status != 'active':
+        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    
+    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
+    if server_url:
+        server_url = f"https://{server_url}"
+    else:
+        server_url = "http://localhost:8000"
+    
+    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else "REPLACE_WITH_TOKEN"
+    
+    event = EnrollmentEvent(
+        event_type='script.render_one_liner',
+        token_id=token_id,
+        alias=alias,
+        details=json.dumps({"platform": "windows_oneliner", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+    )
+    db.add(event)
+    db.commit()
+    
+    structured_logger.log_event(
+        "script.render_one_liner",
+        token_id=token_id,
+        alias=alias,
+        platform="windows"
+    )
+    
+    metrics.increment_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
+    
+    apk_endpoint = f"{server_url}/v1/apk/download/latest"
+    
+    one_liner = f'''echo [NexMDM Deployment - Device: {alias}] && echo. && ^
+echo [Step 1/7] Downloading latest APK... && ^
+curl --fail --silent --show-error -H "Authorization: Bearer {token_value}" "{apk_endpoint}" -o "%TEMP%\\nexmdm-latest.apk" && echo ✅ APK downloaded! && echo. && ^
+echo [Step 2/7] Installing APK... && ^
+adb install -r "%TEMP%\\nexmdm-latest.apk" 1>nul 2>nul || (adb shell pm path {agent_pkg} 1>nul 2>nul || (echo [ERROR] Install failed & exit /b 1)) && echo ✅ APK installed/updated! && echo. && ^
+echo [Step 3/7] (Optional) Device Owner... && ^
+adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver 1>nul 2>nul && echo ✅ Device Owner set! || echo ℹ️ Skipping (not factory-reset) && echo. && ^
+echo [Step 4/7] Permissions ^& Doze whitelist... && ^
+adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS 2>nul && ^
+adb shell pm grant {agent_pkg} android.permission.CAMERA 2>nul && ^
+adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION 2>nul && ^
+adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow 2>nul && ^
+adb shell appops set {agent_pkg} AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul && ^
+adb shell appops set {agent_pkg} GET_USAGE_STATS allow 2>nul && ^
+adb shell dumpsys deviceidle whitelist +{agent_pkg} 1>nul && echo ✅ Whitelisted! && echo. && ^
+echo [Step 5/7] Optimizations... && ^
+adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5" && ^
+adb shell dumpsys deviceidle whitelist +{unity_pkg} 1>nul && ^
+adb shell appops set {unity_pkg} RUN_ANY_IN_BACKGROUND allow 2>nul && echo ✅ Optimizations applied! && echo. && ^
+echo [Step 6/7] Launch ^& configure... && ^
+adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 1>nul 2>nul && ^
+timeout /t 2 /nobreak >nul && ^
+adb shell am broadcast -a {agent_pkg}.CONFIGURE -n {agent_pkg}/.ConfigReceiver --es server_url "{server_url}" --es token "{token_value}" --es alias "{alias}" --es unity_pkg "{unity_pkg}" 1>nul && ^
+timeout /t 3 /nobreak >nul && echo ✅ Configuration sent! && echo. && ^
+echo [Step 7/7] Verifying... && ^
+adb shell pidof {agent_pkg} 1>nul && echo ✅ Service running || echo [WARN] Service starting... && echo. && ^
+echo ========================================== && echo ✅ ENROLLMENT COMPLETE && echo ========================================== && ^
+echo 📱 "{alias}" should appear in the dashboard within ~60s.'''
+    
+    return Response(
+        content=one_liner,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'inline; filename="enroll-{alias}-oneliner.cmd"'
+        }
+    )
+
 @app.post("/v1/apk/upload")
 async def upload_apk(
     file: UploadFile = File(...),
