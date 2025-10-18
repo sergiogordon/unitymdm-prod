@@ -1,7 +1,7 @@
 """
 Database utility functions for idempotency, retention, and maintenance.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 from typing import Optional
@@ -305,6 +305,61 @@ def cleanup_old_apk_downloads(db: Session, retention_days: int = 7) -> int:
                      {'cutoff': str(cutoff), 'deleted': result}, latency_ms)
     
     return result
+
+
+def create_heartbeat_partition(target_date: date) -> None:
+    """
+    Create a daily partition for device_heartbeats table.
+    Idempotent: safe to call multiple times for the same date.
+    
+    Args:
+        target_date: Date for which to create the partition (datetime.date object)
+    
+    Raises:
+        Exception: If partition creation fails
+    """
+    from models import SessionLocal
+    
+    partition_name = f"device_heartbeats_{target_date.strftime('%Y%m%d')}"
+    start_ts = datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc)
+    end_ts = datetime.combine(target_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    
+    db = SessionLocal()
+    try:
+        # Check if partition already exists
+        check_query = text("""
+            SELECT EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_inherits i ON c.oid = i.inhrelid
+                JOIN pg_class p ON p.oid = i.inhparent
+                WHERE p.relname = 'device_heartbeats'
+                AND c.relname = :partition_name
+            )
+        """)
+        
+        exists = db.execute(check_query, {"partition_name": partition_name}).scalar()
+        
+        if exists:
+            logger.info(f"Partition {partition_name} already exists (idempotent)")
+            return
+        
+        # Create partition
+        create_query = text(f"""
+            CREATE TABLE {partition_name} PARTITION OF device_heartbeats
+            FOR VALUES FROM (:start_ts) TO (:end_ts)
+        """)
+        
+        db.execute(create_query, {"start_ts": start_ts, "end_ts": end_ts})
+        db.commit()
+        
+        logger.info(f"Created partition {partition_name} for range [{start_ts}, {end_ts})")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create partition {partition_name}: {e}")
+        raise
+    finally:
+        db.close()
 
 
 def run_all_retention_cleanups(db: Session) -> dict:
