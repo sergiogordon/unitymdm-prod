@@ -1,0 +1,87 @@
+Milestone Context & End Goal — Observability & Ops (Reliability-First)
+
+Purpose:
+Provide clear, low-overhead visibility into the control loop so you can diagnose issues fast without adding heavy infra. Standardize structured logs, expose minimal counters, and ensure APK Management captures when debug APKs are fetched during enrollment.
+
+⸻
+
+What “done” means:
+	•	Structured logs are emitted on all hot paths with consistent keys:
+	•	Common fields: ts, level, event, request_id, route, ip, user_agent, device_id, alias, status_code, latency_ms.
+	•	Domain fields by event type:
+	•	register.*: { device_id, alias, token_id (last4), result }
+	•	heartbeat.*: { device_id, status, battery_pct, network_type, uptime_s }
+	•	dispatch.*: { request_id, device_id, action, fcm_http_code, fcm_status, dispatch_latency_ms }
+	•	action_result.*: { request_id, device_id, action, outcome }
+	•	apk.*: { build_id, version_code, version_name, build_type, token_id (last4), source="enrollment|manual" }
+	•	sec.* (from Security milestone): { reason, token_id (last4) }
+	•	Minimal counters (system totals; no per-tenant slicing):
+	•	http_requests_total{route,method,status_code}
+	•	http_request_latency_ms_bucket{route} (coarse buckets)
+	•	fcm_dispatch_latency_ms_bucket{action}
+	•	apk_download_total{build_type,source}
+	•	heartbeats_ingested_total
+	•	heartbeats_dedup_hits_total (if dedup is on)
+	•	Counter exposure:
+	•	A lightweight /metrics endpoint (or equivalent), guarded by admin auth, surfaces the counters above in a Prometheus-compatible text format.
+	•	APK Management logging:
+	•	Every GET /v1/apk/download-latest invoked via an enrollment token creates an apk_download_event row linked to apk_builds.build_id with source="enrollment", and emits a apk.download structured log line.
+	•	Correlation & IDs:
+	•	request_id generated on ingress if missing; propagated to all downstream logs (FCM dispatches, DB writes).
+	•	Device-scoped logs include device_id and alias when known.
+	•	Log handling:
+	•	JSON lines to stdout (12-factor friendly), log level default INFO, security denials at WARN, server errors at ERROR.
+	•	Rotation/retention handled by the host (container platform or filebeat)—documented in runbook.
+
+⸻
+
+Non-goals (for this milestone):
+	•	No new dashboards, alert rules, or third-party log stacks.
+	•	No span/trace instrumentation (keep it simple).
+	•	No per-device timeseries beyond counts (heartbeats remain in DB).
+
+⸻
+
+Performance & reliability targets:
+	•	Logging adds ≤5 ms p95 to request handling on hot routes.
+	•	/metrics scrape completes in <50 ms under nominal load.
+	•	No blocking I/O in the request path (use async logging or buffered stdout).
+	•	Counter cardinality capped:
+	•	route uses named routes (e.g., /v1/heartbeat, not dynamic IDs).
+	•	status_code is coarse (200/4xx/5xx if needed).
+
+⸻
+
+Operational details:
+	•	Events vocabulary (stable event values):
+	•	register.request, register.success, register.fail
+	•	heartbeat.ingest, heartbeat.dedup
+	•	dispatch.request, dispatch.sent, dispatch.fail
+	•	action_result.ingest
+	•	apk.download, apk.download.fail
+	•	metrics.scrape
+	•	Security (from prior milestone): sec.token.create|consume|revoke|expired|ratelimit|hmac.invalid|https.enforced
+	•	Runbook notes:
+	•	How to enable/disable /metrics.
+	•	How to grep/aggregate logs by request_id or device_id.
+	•	Expected QPS for counters and acceptable ranges.
+
+⸻
+
+Acceptance tests:
+	•	Structured logs present:
+	•	Trigger each route (/v1/register, /v1/heartbeat, /admin/command, /v1/action-result, /v1/apk/download-latest) and verify one JSON log line with the proper event and required keys is emitted.
+	•	Counters increment correctly:
+	•	Hit /v1/heartbeat 10 times → http_requests_total{route="/v1/heartbeat"} increases by 10; heartbeats_ingested_total increases by ≥10 (minus any dedup hits).
+	•	Send an admin command → dispatch.sent log emitted and fcm_dispatch_latency_ms_bucket records an observation.
+	•	APK Management logging:
+	•	Download debug APK with an enrollment token → DB row created in apk_download_events with source="enrollment" and matching build_id; corresponding apk.download log emitted.
+	•	Correlation:
+	•	A single request_id is visible across: inbound admin command, dispatch.sent, and the subsequent action_result.ingest.
+	•	Overhead check:
+	•	Under a 100-device heartbeat simulation, p95 added latency from logging stays within the ≤5 ms budget.
+
+⸻
+
+When complete:
+You’ll have clear, consistent telemetry for every critical step (enroll → heartbeat → command → result → APK fetch) and a tiny set of reliable counters to confirm load behavior—without heavy dependencies or UI changes.
