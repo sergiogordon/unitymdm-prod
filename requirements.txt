@@ -28,3 +28,5 @@ sqlalchemy[asyncio]
 uvicorn[standard]
 websockets
 alembic
+pytest
+pytest-asyncio

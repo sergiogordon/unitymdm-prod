@@ -19,7 +19,8 @@ def test_healthz():
 
 def test_metrics_endpoint():
     """Test /metrics endpoint"""
-    response = httpx.get(f"{BASE_URL}/metrics", headers={"X-Admin": ADMIN_KEY})
+    admin_headers = {"X-Admin": ADMIN_KEY} if ADMIN_KEY else {}
+    response = httpx.get(f"{BASE_URL}/metrics", headers=admin_headers)
     assert response.status_code == 200
     assert "http_requests_total" in response.text
     assert "http_request_latency_ms" in response.text
@@ -37,9 +38,10 @@ def test_register_logging():
     import uuid
     test_alias = f"test-device-{uuid.uuid4().hex[:8]}"
     
+    admin_headers = {"X-Admin": ADMIN_KEY} if ADMIN_KEY else {}
     response = httpx.post(
         f"{BASE_URL}/v1/register?alias={test_alias}",
-        headers={"X-Admin": ADMIN_KEY}
+        headers=admin_headers
     )
     
     if response.status_code == 200:
@@ -55,7 +57,8 @@ def test_register_logging():
 
 def test_heartbeat_metrics():
     """Verify heartbeat metrics counter exists"""
-    response = httpx.get(f"{BASE_URL}/metrics", headers={"X-Admin": ADMIN_KEY})
+    admin_headers = {"X-Admin": ADMIN_KEY} if ADMIN_KEY else {}
+    response = httpx.get(f"{BASE_URL}/metrics", headers=admin_headers)
     text = response.text
     
     if "heartbeats_ingested_total" in text:
