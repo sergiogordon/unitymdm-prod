@@ -12,6 +12,19 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 
 ## Recent Changes (October 18, 2025)
 
+### ADB Setup Page Enhancements ✅
+- ✅ **Inline Script Preview Feature** - View enrollment scripts directly in the dashboard
+  - Expandable script preview for each enrollment token
+  - Shows both Bash (.sh) and Windows (.cmd) scripts side-by-side
+  - Copy button for each script to clipboard
+  - Lazy loading - scripts fetched only when expanded
+  - Proper loading states and error handling
+  - Fixed race condition in state management using functional setState
+- ✅ **API Routing Fix** - Fixed 404 errors on token generation
+  - All `/v1/enroll-tokens` endpoints now properly route through `/api/proxy/`
+  - Fixed script download endpoints to use proxy route
+  - Token generation now working correctly
+
 ### Frontend-Backend Integration Complete ✅
 - ✅ **Next.js API Proxy** - Proxy route forwards all requests to backend port 8000
 - ✅ **Binary Data Support** - Proxy preserves APK uploads/downloads using ArrayBuffer

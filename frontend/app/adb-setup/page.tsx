@@ -92,7 +92,7 @@ function ADBSetupContent() {
   const fetchTokens = async () => {
     try {
       const token = localStorage.getItem('access_token')
-      const response = await fetch("/v1/enroll-tokens?limit=50", {
+      const response = await fetch("/api/proxy/v1/enroll-tokens?limit=50", {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -118,7 +118,7 @@ function ADBSetupContent() {
       const aliasArray = aliases.split(/[,\s]+/).filter(a => a.trim())
       const token = localStorage.getItem('access_token')
       
-      const response = await fetch("/v1/enroll-tokens", {
+      const response = await fetch("/api/proxy/v1/enroll-tokens", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -195,10 +195,10 @@ function ADBSetupContent() {
     
     try {
       const [bashResponse, windowsResponse] = await Promise.all([
-        fetch(`/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+        fetch(`/api/proxy/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
           headers: { "Authorization": `Bearer ${authToken}` }
         }),
-        fetch(`/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+        fetch(`/api/proxy/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
           headers: { "Authorization": `Bearer ${authToken}` }
         })
       ])
@@ -246,7 +246,7 @@ function ADBSetupContent() {
 
   const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
     const authToken = localStorage.getItem('access_token')
-    const endpoint = platform === 'windows' ? '/v1/scripts/enroll.cmd' : '/v1/scripts/enroll.sh'
+    const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
     const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
     
     try {
