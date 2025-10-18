@@ -1,0 +1,78 @@
+Milestone Context & End Goal — Alerts & Auto-Remediation (Milestone 5 subset, Updated)
+
+Purpose:
+Add lightweight, reliable alerting so you immediately know when devices fall out of compliance—without spam. Include auto-remediation hooks but keep them disabled by default.
+
+⸻
+
+What “done” means
+
+Alert conditions & thresholds
+	•	Offline: No heartbeat for >12 minutes (adds a 2-minute buffer over your 10-minute target).
+	•	Low battery: battery_pct < 15% on any heartbeat.
+	•	Unity down: unity_running == false on any heartbeat (or require two consecutive heartbeats—config toggle).
+
+Delivery
+	•	Discord webhook with structured payload: condition, device_id, alias, last_seen, battery, network, unity status/version, link to device page.
+	•	Severity: WARN (battery), CRIT (offline, unity down unresolved).
+
+Dedupe & rate-limit
+	•	Per-device cooldown: 30 minutes (default) per condition.
+	•	Global burst cap: 60 alerts/minute.
+	•	Roll-up: If >10 devices trip the same condition in 60s, send one summary + list top 20, “and N more…”.
+	•	Stateful suppression: No repeats while state persists; emit a recovery when it clears.
+
+Auto-remediation (available, but OFF by default)
+	•	Config flag: ALERTS_ENABLE_AUTOREMEDIATION=false (default).
+	•	When enabled:
+	•	Unity down: send launch_app FCM (HMAC-signed). If next heartbeat within 10m shows unity_running=true → “self-healed” info; else escalate to CRIT.
+	•	Offline: queue a single ping when entering offline state. If result returns and heartbeats resume → recovery.
+	•	Low battery: no automatic action; alert only.
+
+Config knobs (env or settings)
+	•	ALERT_OFFLINE_MINUTES=12
+	•	ALERT_LOW_BATTERY_PCT=15
+	•	ALERT_DEVICE_COOLDOWN_MIN=30
+	•	ALERT_GLOBAL_CAP_PER_MIN=60
+	•	ALERT_ROLLUP_THRESHOLD=10
+	•	ALERTS_ENABLE_AUTOREMEDIATION=false
+	•	UNITY_DOWN_REQUIRE_CONSECUTIVE=false (set true to require two bad heartbeats)
+
+Observability
+	•	Events: alert.evaluate.start|end, alert.raise{offline|battery|unity_down}, alert.recover,
+alert.dedupe.hit, alert.rate_limited, remediation.attempt|success|fail.
+	•	Counters: alerts_sent_total{condition}, alerts_suppressed_total{reason}, remediations_attempted_total{action}, remediations_success_total{action}.
+
+Security
+	•	Webhook URL stored as a secret; never logged.
+	•	HMAC-signed FCM for remediation; invalid HMAC never executes.
+
+⸻
+
+Non-goals
+	•	No SMS/PagerDuty/email integrations.
+	•	No advanced escalation policies or quiet-hours UI.
+	•	No rule engine beyond the three conditions.
+
+⸻
+
+Performance & reliability targets
+	•	Evaluator runs every 60s and completes in <200 ms for ~1k devices (indexed queries).
+	•	Webhook dispatch p95 <300 ms; FCM enqueue p95 <200 ms.
+	•	Zero duplicate alerts per device/condition within cooldown.
+
+⸻
+
+Acceptance tests
+	•	Offline (12m): Stop heartbeats; after 12m + ≤60s tick, send one Discord alert; queue a single ping only if auto-remediation is enabled. Resume heartbeats → send recovery; no duplicates within cooldown.
+	•	Low battery: Heartbeat at 14% → one alert; repeated <15% within cooldown → suppressed; back to ≥15% → recovery.
+	•	Unity down: With auto-remediation enabled, heartbeat shows unity_running=false → server sends launch_app; next heartbeat true → “self-healed” info; if still false after 10m → CRIT. With remediation disabled, send alert only (no FCM).
+	•	Dedupe & roll-up: Multiple triggers for same device inside cooldown → suppressed with alert.dedupe.hit. >10 devices flip offline in 60s → single roll-up alert.
+	•	Rate-limit: Force >60 alerts/min → extras suppressed; alert.rate_limited increments.
+	•	No secrets in logs: Verify webhook URL and tokens do not appear in logs.
+
+⸻
+
+When complete
+
+You’ll have signal-rich, low-noise alerts for the three conditions that matter (offline >12m, low battery, Unity down) and optional auto-remediation hooks you can turn on when ready—keeping reliability high as the fleet grows.
