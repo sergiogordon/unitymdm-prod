@@ -1,7 +1,7 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw } from "lucide-react"
+import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, FileCode } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,6 +24,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 
 interface EnrollmentToken {
   token_id: string
@@ -54,6 +59,8 @@ function ADBSetupContent() {
   const [loading, setLoading] = useState(false)
   const [tokens, setTokens] = useState<EnrollmentToken[]>([])
   const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set())
+  const [expandedScripts, setExpandedScripts] = useState<Set<string>>(new Set())
+  const [scriptContents, setScriptContents] = useState<Record<string, { bash: string, windows: string }>>({})
   const [isDark, setIsDark] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -175,6 +182,68 @@ function ADBSetupContent() {
     }
   }
 
+  const fetchScriptContent = async (token: EnrollmentToken) => {
+    const authToken = localStorage.getItem('access_token')
+    
+    setScriptContents(prev => ({
+      ...prev,
+      [token.token_id]: {
+        bash: 'Loading...',
+        windows: 'Loading...'
+      }
+    }))
+    
+    try {
+      const [bashResponse, windowsResponse] = await Promise.all([
+        fetch(`/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+          headers: { "Authorization": `Bearer ${authToken}` }
+        }),
+        fetch(`/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+          headers: { "Authorization": `Bearer ${authToken}` }
+        })
+      ])
+
+      if (!bashResponse.ok || !windowsResponse.ok) {
+        throw new Error('Failed to fetch scripts')
+      }
+
+      const bashText = await bashResponse.text()
+      const windowsText = await windowsResponse.text()
+
+      setScriptContents(prev => ({
+        ...prev,
+        [token.token_id]: {
+          bash: bashText,
+          windows: windowsText
+        }
+      }))
+    } catch (error) {
+      console.error("Failed to fetch script content:", error)
+      setScriptContents(prev => ({
+        ...prev,
+        [token.token_id]: {
+          bash: 'Error loading script. Please try downloading instead.',
+          windows: 'Error loading script. Please try downloading instead.'
+        }
+      }))
+    }
+  }
+
+  const toggleScriptExpand = (token: EnrollmentToken) => {
+    setExpandedScripts(prev => {
+      const newExpanded = new Set(prev)
+      if (newExpanded.has(token.token_id)) {
+        newExpanded.delete(token.token_id)
+      } else {
+        newExpanded.add(token.token_id)
+        if (!scriptContents[token.token_id]) {
+          fetchScriptContent(token)
+        }
+      }
+      return newExpanded
+    })
+  }
+
   const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
     const authToken = localStorage.getItem('access_token')
     const endpoint = platform === 'windows' ? '/v1/scripts/enroll.cmd' : '/v1/scripts/enroll.sh'
@@ -203,6 +272,16 @@ function ADBSetupContent() {
     } catch (error) {
       alert(`Failed to download ${platform} script`)
       console.error(error)
+    }
+  }
+
+  const copyScriptToClipboard = async (scriptContent: string, platform: string) => {
+    try {
+      await navigator.clipboard.writeText(scriptContent)
+      alert(`${platform} script copied to clipboard!`)
+    } catch (error) {
+      console.error("Failed to copy:", error)
+      alert("Failed to copy script to clipboard")
     }
   }
 
@@ -338,67 +417,133 @@ function ADBSetupContent() {
                 </TableHeader>
                 <TableBody>
                   {tokens.map((token) => (
-                    <TableRow key={token.token_id}>
-                      <TableCell className="font-medium">{token.alias}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs">
-                            {revealedTokens.has(token.token_id) && token.full_token
-                              ? token.full_token
-                              : `****${token.token_last4}`}
-                          </code>
-                          {token.full_token && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleTokenReveal(token.token_id)}
-                            >
-                              {revealedTokens.has(token.token_id) ? (
-                                <EyeOff className="h-3 w-3" />
-                              ) : (
-                                <Eye className="h-3 w-3" />
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(token.status)}</TableCell>
-                      <TableCell className="text-xs">{formatDateTime(token.expires_at)}</TableCell>
-                      <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
-                      <TableCell className="text-xs">{token.note || '-'}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          {token.full_token && (
+                    <>
+                      <TableRow key={token.token_id}>
+                        <TableCell className="font-medium">{token.alias}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <code className="text-xs">
+                              {revealedTokens.has(token.token_id) && token.full_token
+                                ? token.full_token
+                                : `****${token.token_last4}`}
+                            </code>
+                            {token.full_token && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => toggleTokenReveal(token.token_id)}
+                              >
+                                {revealedTokens.has(token.token_id) ? (
+                                  <EyeOff className="h-3 w-3" />
+                                ) : (
+                                  <Eye className="h-3 w-3" />
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(token.status)}</TableCell>
+                        <TableCell className="text-xs">{formatDateTime(token.expires_at)}</TableCell>
+                        <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
+                        <TableCell className="text-xs">{token.note || '-'}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {token.full_token && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => copyToken(token)}
+                                title="Copy Token"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => copyToken(token)}
-                              title="Copy Token"
+                              onClick={() => downloadScript(token, 'windows')}
+                              title="Download Windows Script"
                             >
-                              <Copy className="h-3 w-3" />
+                              <Download className="h-3 w-3 mr-1" />
+                              .cmd
                             </Button>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => downloadScript(token, 'windows')}
-                            title="Download Windows Script"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            .cmd
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => downloadScript(token, 'bash')}
-                            title="Download Bash Script"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            .sh
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadScript(token, 'bash')}
+                              title="Download Bash Script"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              .sh
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleScriptExpand(token)}
+                              title="View Script Contents"
+                            >
+                              {expandedScripts.has(token.token_id) ? (
+                                <ChevronUp className="h-3 w-3" />
+                              ) : (
+                                <ChevronDown className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {expandedScripts.has(token.token_id) && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="bg-muted/30 p-4">
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <FileCode className="h-4 w-4" />
+                                <h4 className="font-semibold">Enrollment Scripts Preview</h4>
+                              </div>
+                              
+                              {scriptContents[token.token_id] ? (
+                                <div className="space-y-4">
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <Label className="text-sm font-medium">Bash Script (.sh)</Label>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => copyScriptToClipboard(scriptContents[token.token_id].bash, 'Bash')}
+                                      >
+                                        <Copy className="h-3 w-3 mr-1" />
+                                        Copy
+                                      </Button>
+                                    </div>
+                                    <pre className="bg-background border rounded-md p-4 overflow-x-auto text-xs max-h-96">
+                                      <code>{scriptContents[token.token_id].bash}</code>
+                                    </pre>
+                                  </div>
+                                  
+                                  <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <Label className="text-sm font-medium">Windows Script (.cmd)</Label>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => copyScriptToClipboard(scriptContents[token.token_id].windows, 'Windows')}
+                                      >
+                                        <Copy className="h-3 w-3 mr-1" />
+                                        Copy
+                                      </Button>
+                                    </div>
+                                    <pre className="bg-background border rounded-md p-4 overflow-x-auto text-xs max-h-96">
+                                      <code>{scriptContents[token.token_id].windows}</code>
+                                    </pre>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-sm text-muted-foreground">Loading scripts...</div>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
                   ))}
                 </TableBody>
               </Table>
