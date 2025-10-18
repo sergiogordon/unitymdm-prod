@@ -128,3 +128,30 @@ curl -s -H "X-Admin: $ADMIN_KEY" http://localhost:8000/metrics | grep http_reque
 
 **Log Rotation**:
 Logs are emitted to stdout (12-factor app pattern). Rotation and retention should be handled by the container platform or log aggregation service (e.g., Replit logs, Docker logs driver, filebeat).
+
+## Testing & Quality Assurance
+
+### Acceptance Test Suite
+Comprehensive pytest-based test suite validates all backend APIs, observability, and performance budgets. Located in `server/tests/`.
+
+**Test Coverage**:
+- **Contract Tests**: All public endpoints (device lifecycle, enrollment, APK, ops/metrics) with success and failure paths
+- **20-Device Simulation**: Full enrollment control loop with parallel registration, heartbeat streaming, command dispatch, and latency tracking
+- **Observability**: Structured logging, metrics collection, and request ID propagation verification
+- **Idempotency**: FCM dispatch, heartbeat bucketing, and action result deduplication
+- **Performance**: Validates p95/p99 latency budgets (heartbeats <150ms, dispatch <50ms, metrics scrape <50ms)
+
+**Running Tests**:
+```bash
+cd server
+./run_acceptance_tests.sh
+```
+
+**Test Structure**:
+- `tests/conftest.py`: Shared fixtures (test DB, auth, observability capture)
+- `tests/test_device_lifecycle.py`: /v1/register, /v1/heartbeat, /v1/action-result
+- `tests/test_enrollment_apk.py`: Enrollment tokens, APK downloads, enrollment scripts
+- `tests/test_ops_metrics.py`: /metrics, /healthz, request ID middleware
+- `tests/test_20_device_simulation.py`: Complete 20-device enrollment simulation
+
+See `server/ACCEPTANCE_TESTS.md` for detailed test documentation and results.
