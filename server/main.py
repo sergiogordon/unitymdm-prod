@@ -402,7 +402,11 @@ async def startup_event():
     validate_configuration()
     init_db()
     migrate_database()
-    asyncio.create_task(alert_scheduler())
+    await alert_scheduler.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await alert_scheduler.stop()
 
 backend_start_time = datetime.now(timezone.utc)
 
@@ -1609,18 +1613,24 @@ async def update_all_devices_settings(
 
 @app.post("/v1/test-alert")
 async def send_test_alert():
-    webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
-    if not webhook_url:
+    from discord_webhook import discord_client
+    from alert_config import alert_config
+    
+    if not alert_config.DISCORD_WEBHOOK_URL:
         raise HTTPException(status_code=400, detail="Discord webhook not configured")
     
-    await alert_manager.send_discord_alert(
-        "✅ Test Alert",
-        "Your NexMDM Discord integration is working correctly!",
-        0x00FF00,
-        None
+    success = await discord_client.send_alert(
+        condition="test",
+        device_id="test-device",
+        alias="Test Device",
+        severity="INFO",
+        details="Your NexMDM Discord integration is working correctly!"
     )
     
-    return {"ok": True, "message": "Test alert sent to Discord"}
+    if success:
+        return {"ok": True, "message": "Test alert sent to Discord"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send test alert")
 
 @app.post("/v1/devices/fcm-token")
 async def update_fcm_token(
