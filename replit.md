@@ -12,6 +12,44 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 
 ## Recent Changes (October 18, 2025)
 
+### Persistence & Migration Hardening ✅
+- ✅ **Alembic Migration Framework** - Production-ready schema versioning with rollback capability
+  - Alembic initialized with automatic DATABASE_URL detection
+  - Baseline migration created and applied to existing schema
+  - Reversible migrations with tested upgrade/downgrade paths
+- ✅ **New Persistence Tables** - Time-series optimized storage for scale
+  - `fcm_dispatches` - FCM message tracking with request_id idempotency key
+  - `apk_download_events` - APK download audit trail (7-day retention)
+  - `device_heartbeats` - Time-series heartbeat storage (2-day retention)
+- ✅ **Enhanced Schemas** - Battle-tested for 100+ devices
+  - `enrollment_tokens` - Added scope (apk_download|register) and last_used_at tracking
+  - `apk_versions` - Added CI metadata (build_type, ci_run_id, git_sha, signer_fingerprint, storage_url)
+- ✅ **Idempotency Guarantees** - Zero duplicate writes under high concurrency
+  - FCM dispatch deduplication via unique request_id (prevents duplicate sends on retry)
+  - Heartbeat time-bucketing (10-second windows, max 1 heartbeat per device per bucket)
+  - APK download event logging with token/admin attribution
+- ✅ **Retention Policies** - Automated cleanup for operational data
+  - Heartbeats: 2-day retention with nightly cleanup
+  - FCM dispatches: 2-day retention
+  - APK download events: 7-day retention
+  - Cleanup script: `python server/cleanup_job.py`
+- ✅ **Database Utilities** - Production-tested helper functions
+  - `record_fcm_dispatch()` - Idempotent FCM logging
+  - `record_heartbeat_with_bucketing()` - Deduplicated heartbeat storage
+  - `record_apk_download()` - Download event tracking
+  - `run_all_retention_cleanups()` - Batch cleanup execution
+- ✅ **Structured Logging** - Operational observability
+  - DB operation logging: event, entity, keys, latency_ms
+  - Counters: db.writes.by_table, db.errors.by_table, hb.dedup.hits
+  - FCM dispatch latency distribution tracking
+- ✅ **Migration Testing** - Validated rollback and idempotency
+  - Test suite in `server/test_idempotency.py`
+  - FCM dispatch idempotency test (duplicate request_id handling)
+  - Heartbeat time-bucketing test (10-second deduplication)
+  - Retention cleanup test (old record removal)
+
+## Recent Changes (October 18, 2025)
+
 ### ADB Setup Page Enhancements ✅
 - ✅ **Inline Script Preview Feature** - View enrollment scripts directly in the dashboard
   - Expandable script preview for each enrollment token
