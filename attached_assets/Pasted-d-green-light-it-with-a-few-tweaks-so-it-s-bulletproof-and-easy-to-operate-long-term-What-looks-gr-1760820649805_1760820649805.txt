@@ -1,0 +1,101 @@
+d green-light it with a few tweaks so it’s bulletproof and easy to operate long-term.
+
+What looks great
+
+Fast reads via device_last_status (Task 5): massive win. O(1) reads unlock everything else.
+
+Nightly partition lifecycle (Tasks 7–8): exactly what we need for predictable storage.
+
+Observability layer (Task 9): histograms + partition health metrics = early warning system.
+
+Realistic load tests (Tasks 12–13): the ±15s jitter matters for burst behavior.
+
+Runbook (Task 14): future you will thank you.
+
+Recommended refinements (keep it simple but safe)
+
+Dual-write correctness
+
+Make device_last_status updates in the same transaction as the heartbeat insert/upsert. If the write path is async, still wrap both DB ops in a single transaction per request.
+
+Add a tiny reconciliation job (hourly) that replays the most recent partition’s rows (e.g., last 24h) to heal any drift (crashes/timeouts). Make it idempotent and capped (e.g., 5k rows/run).
+
+Backfill & rollout guard
+
+Before switching read paths, backfill device_last_status from the last N days of heartbeats, then flip a feature flag:
+
+READ_FROM_LAST_STATUS=true
+
+Keep a kill switch to fall back to legacy queries if anything looks off.
+
+Partition metadata & naming
+
+Use a metadata table (e.g., hb_partitions) to track: name, range_start, range_end, state (active|archived|dropped), row_count, bytes, checksum_manifest_url.
+
+Adopt a deterministic name format: hb_yyyy_mm or hb_yyyy_mm_dd to simplify ops and pruning logic.
+
+Archival safety
+
+Archive job must be idempotent: if rerun, it should detect already-archived partitions by manifest entry.
+
+Compute SHA-256 checksum of the exported file(s) and store in the metadata table.
+
+If archive upload fails, do not drop the partition; mark state archive_failed and alert.
+
+Encrypt at rest (most object stores give server-side encryption by default—turn it on).
+
+Replit scheduling reality
+
+Replit can “sleep”; schedule jobs via:
+
+Replit Scheduled Tasks if available, or
+
+an external ping (UptimeRobot/Cronjob.org) hitting a protected /ops/nightly endpoint that triggers the maintenance tasks server-side.
+
+Make tasks reentrant with a lock (e.g., advisory lock pg_try_advisory_lock) so a second trigger is a no-op.
+
+Connection pool tuning sanity check
+
+Confirm total max connections = workers * pool_max and still < Postgres max_connections (or put pgBouncer in front).
+
+Add pool saturation metrics: db_pool_in_use, db_pool_waits_total.
+
+Fast-read query refactor acceptance
+
+Add a quick performance diff harness: run critical queries both ways (legacy vs last_status) for a sample of devices and log p95/99 + row scans. Keep it for one week, then delete.
+
+Alert hooks for lifecycle
+
+Emit partition.create|archive.start|archive.end|drop events; add counters. If archive_failed, send a single Discord alert (rate-limited).
+
+Load test realism
+
+Cap Replit concurrency limits; if you hit ceilings, run the load tests locally or in CI (GitHub Actions self-hosted runner or a small VM) with httpx/asyncio.
+
+Record key SLIs during tests: /v1/heartbeat p95/p99, DB CPU, pool waits, and dedupe hit rate.
+
+Suggested task list (ready to execute)
+
+T5: Refactor read paths → device_last_status; add feature flag, backfill + flip.
+
+T6 (new): Hourly reconciliation job to repair device_last_status from latest partition.
+
+T7–T8: Nightly lifecycle script: create-ahead, archive (CSV + SHA-256 + manifest), VACUUM ANALYZE hot partitions, safe drop with metadata updates and advisory lock.
+
+T9: Metrics & logs: histograms for HB write/read, pool metrics, partition events, archive counters.
+
+T10 (new): Pool/worker sizing validation + alerts on saturation.
+
+T12–T13: 2,000-device jittered load test; capture SLIs; produce one-page report.
+
+T14: Runbook: partition ops, retention changes, autovacuum knobs, fallback plan, and “what to check when p99 rises.”
+
+Definition of done (quick checklist)
+
+device_last_status is the default read path; backfill complete; reconciliation job in place.
+
+Partitions auto-create, archive (with checksums), and drop on schedule; metadata table reflects reality.
+
+/metrics exposes heartbeat write/read latency histograms, pool stats, and partition counters.
+
+Load test passes targets (HB p95 <150 ms, p99 <300 ms) with CPU <70% and zero data loss.
