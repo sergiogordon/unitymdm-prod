@@ -1,7 +1,14 @@
 """
 Test suite for idempotency guarantees and migration functionality.
+
+NOTE: These tests require test devices to exist in the database due to 
+foreign key constraints. For quick schema validation, use validate_schema.py instead.
+
+To run these tests:
+1. Create test devices first, or
+2. Temporarily disable foreign key constraints, or
+3. Use this as a reference for integration tests
 """
-import pytest
 from datetime import datetime, timezone, timedelta
 from models import SessionLocal, FcmDispatch, DeviceHeartbeat, ApkDownloadEvent
 from db_utils import (

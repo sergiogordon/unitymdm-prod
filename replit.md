@@ -1,225 +1,7 @@
-# MDM System - Project Overview
+# MDM System - Compressed Overview
 
-## Current Status
-Production-ready cloud-based Mobile Device Management system with async PostgreSQL backend and Next.js frontend.
-
-## Architecture
-- **Backend**: FastAPI with async SQLAlchemy and PostgreSQL (optimized for 100+ concurrent devices)
-- **Frontend**: Next.js with shadcn/ui components (ready for Vercel deployment)
-- **Database**: PostgreSQL with connection pooling and 2-day event retention
-- **Real-time**: WebSocket support for live device updates
-- **Authentication**: JWT tokens with password reset via email
-
-## Recent Changes (October 18, 2025)
-
-### Persistence & Migration Hardening ✅
-- ✅ **Alembic Migration Framework** - Production-ready schema versioning with rollback capability
-  - Alembic initialized with automatic DATABASE_URL detection
-  - Baseline migration created and applied to existing schema
-  - Reversible migrations with tested upgrade/downgrade paths
-- ✅ **New Persistence Tables** - Time-series optimized storage for scale
-  - `fcm_dispatches` - FCM message tracking with request_id idempotency key
-  - `apk_download_events` - APK download audit trail (7-day retention)
-  - `device_heartbeats` - Time-series heartbeat storage (2-day retention)
-- ✅ **Enhanced Schemas** - Battle-tested for 100+ devices
-  - `enrollment_tokens` - Added scope (apk_download|register) and last_used_at tracking
-  - `apk_versions` - Added CI metadata (build_type, ci_run_id, git_sha, signer_fingerprint, storage_url)
-- ✅ **Idempotency Guarantees** - Zero duplicate writes under high concurrency
-  - FCM dispatch deduplication via unique request_id (prevents duplicate sends on retry)
-  - Heartbeat time-bucketing (10-second windows, max 1 heartbeat per device per bucket)
-  - APK download event logging with token/admin attribution
-- ✅ **Retention Policies** - Automated cleanup for operational data
-  - Heartbeats: 2-day retention with nightly cleanup
-  - FCM dispatches: 2-day retention
-  - APK download events: 7-day retention
-  - Cleanup script: `python server/cleanup_job.py`
-- ✅ **Database Utilities** - Production-tested helper functions
-  - `record_fcm_dispatch()` - Idempotent FCM logging
-  - `record_heartbeat_with_bucketing()` - Deduplicated heartbeat storage
-  - `record_apk_download()` - Download event tracking
-  - `run_all_retention_cleanups()` - Batch cleanup execution
-- ✅ **Structured Logging** - Operational observability
-  - DB operation logging: event, entity, keys, latency_ms
-  - Counters: db.writes.by_table, db.errors.by_table, hb.dedup.hits
-  - FCM dispatch latency distribution tracking
-- ✅ **Migration Testing** - Validated rollback and idempotency
-  - Test suite in `server/test_idempotency.py`
-  - FCM dispatch idempotency test (duplicate request_id handling)
-  - Heartbeat time-bucketing test (10-second deduplication)
-  - Retention cleanup test (old record removal)
-
-## Recent Changes (October 18, 2025)
-
-### ADB Setup Page Enhancements ✅
-- ✅ **Inline Script Preview Feature** - View enrollment scripts directly in the dashboard
-  - Expandable script preview for each enrollment token
-  - Shows both Bash (.sh) and Windows (.cmd) scripts side-by-side
-  - Copy button for each script to clipboard
-  - Lazy loading - scripts fetched only when expanded
-  - Proper loading states and error handling
-  - Fixed race condition in state management using functional setState
-- ✅ **API Routing Fix** - Fixed 404 errors on token generation
-  - All `/v1/enroll-tokens` endpoints now properly route through `/api/proxy/`
-  - Fixed script download endpoints to use proxy route
-  - Token generation now working correctly
-
-### Frontend-Backend Integration Complete ✅
-- ✅ **Next.js API Proxy** - Proxy route forwards all requests to backend port 8000
-- ✅ **Binary Data Support** - Proxy preserves APK uploads/downloads using ArrayBuffer
-- ✅ **Replit UUID Domain Fix** - Frontend works on Replit production webview (UUID domains)
-- ✅ **Zero Console Errors** - Dashboard loads cleanly with no JavaScript errors
-- ✅ **Conditional Sidebar** - Sidebar hidden on login, visible after authentication
-- ✅ **API Endpoint Migration** - Updated frontend calls from /api/* to /v1/* endpoints
-- ✅ **Device Listing Fixed** - Backend handles last_status as both dict and JSON string
-- ✅ **Protected Routes** - All dashboard pages redirect to login when not authenticated
-- ✅ **Settings Gear Visible** - Dashboard shows settings control in header
-- ✅ **Import Path Fixes** - Resolved all Python import errors (relative imports)
-- ✅ **Authentication Flow** - Login → Dashboard → ADB Setup flow working end-to-end
-
-## Recent Changes (October 17, 2025)
-
-### Dashboard Enrollment Flow Integration ✅
-- ✅ **Enhanced Enrollment Token System** - Web-based batch token generation with full management UI
-  - POST `/v1/enroll-tokens` - Generate batch enrollment tokens (supports up to 100 at once)
-  - GET `/v1/enroll-tokens` - List and filter enrollment tokens with status tracking
-  - GET `/v1/scripts/enroll.cmd` - Generate prefilled Windows ADB enrollment script per token
-  - GET `/v1/scripts/enroll.sh` - Generate prefilled Bash/Linux enrollment script per token
-- ✅ **ADB Setup Dashboard Page** - Complete token management and script generation UI
-  - Batch token generation (comma/space separated aliases)
-  - Token expiry configuration (15/30/60 minutes)
-  - Token reveal/hide with copy functionality
-  - Per-token script downloads (Windows .cmd and Bash .sh)
-  - Status tracking (active/exhausted/expired/revoked)
-  - Uses tracking (consumed/allowed)
-- ✅ **Enhanced Database Models** - Comprehensive tracking and event logging
-  - `EnrollmentToken` - Tracks token_id, alias, status, uses, expiry, notes
-  - `EnrollmentEvent` - Audit log for token creation, script generation, APK downloads
-  - Proper indexing for performance (token_id, status, expires_at)
-- ✅ **Zero-Touch Script Generation** - Server-side templated scripts with environment values
-  - All environment variables (BASE_URL, ENROLL_TOKEN, ALIAS) prefilled
-  - No manual editing required for operators
-  - 7-step enrollment process automated
-  - Cross-platform support (Windows CMD and Bash)
-
-### Milestone 3: Zero-Touch ADB Enrollment System ✅
-- ✅ **Enrollment Token System** - Single-use tokens for secure device provisioning
-  - POST `/v1/enrollment-token` - Generate enrollment tokens (admin only)
-  - POST `/v1/enroll` - Enroll device using enrollment token (idempotent)
-  - GET `/v1/apk/download/latest` - Download APK with enrollment token
-- ✅ **Production Enrollment Scripts** - Zero-touch provisioning via ADB
-  - `enroll_device.sh` (macOS/Linux) - Full enrollment with 7-step process
-  - `enroll.cmd` (Windows) - Windows-compatible enrollment script
-  - `bulk_enroll.sh` - Parallel enrollment for 20+ devices
-- ✅ **APK Caching** - Downloads cached to `/tmp/nexmdm-apk/` for speed
-- ✅ **Device Owner Provisioning** - Safe Device Owner assignment (no-op on non-factory)
-- ✅ **Comprehensive Permissions** - Runtime grants, Doze whitelist, AppOps
-- ✅ **System Optimizations** - Animations, battery adaptive, app standby disabled
-- ✅ **Structured Logging** - CSV/JSON reports in `enroll-logs/` directory
-- ✅ **Idempotency & Retry** - 1-3 automatic retries for ADB disconnections
-- ✅ **Color-Coded Progress** - Step 1/7 → 7/7 with success/error indicators
-- ✅ **Performance Targets Met** - <60s per device, ≥99% success rate
-
-### Android Agent CI/CD Pipeline
-- ✅ **Android Agent CI/CD Pipeline** - Automated build, sign, verify, and deploy workflow
-- ✅ **GitHub Actions Integration** - Builds on every push to main and version tags
-- ✅ **Secure APK Signing** - Keystore managed via GitHub Secrets, never in repo
-- ✅ **Auto APK Upload** - Debug APKs automatically uploaded to backend /v1/apk/upload
-- ✅ **Signature Verification** - All APKs verified with apksigner before distribution
-- ✅ **Reproducible Builds** - Gradle caching, deterministic versioning, SHA256 checksums
-- ✅ **Build Artifacts** - Release APK/AAB stored as GitHub artifacts (90 day retention)
-
-### V1 Production Control Loop
-- ✅ **V1 Production Control Loop** - Secure device enrollment, heartbeats, FCM commands
-- ✅ `/v1/register` - Device registration with bcrypt-hashed tokens
-- ✅ `/v1/heartbeat` - Bearer token auth, <150ms p95 latency (measured 46-70ms)
-- ✅ `/admin/command` - FCM high-priority push with HMAC signature validation
-- ✅ `/v1/action-result` - Device command result tracking
-- ✅ **Firebase FCM Integration** - Fully operational, tested with real Firebase API
-- ✅ **Command Model** - Tracks FCM request_id, status, responses, completion
-- ✅ **Security** - X-Admin header, HMAC JSON-based signatures, rate limiting
-- ✅ **Metrics** - Counters for register, heartbeat, command_send, action_result
-- ✅ **Structured Logging** - All operations logged with request/response details
-- ✅ **HMAC Format** - JSON serialization with sorted keys for consistency
-
-## Project Structure
-```
-/
-├── .github/
-│   └── workflows/
-│       └── android-ci.yml  # Android Agent CI/CD pipeline
-├── server/                 # FastAPI Backend
-│   ├── main.py            # Main application with async endpoints
-│   ├── database.py        # Async database configuration
-│   ├── models_async.py    # SQLAlchemy async models
-│   ├── auth.py            # Authentication utilities
-│   ├── email_service.py   # Email service (Replit Mail)
-│   ├── apk_manager.py     # APK storage and management
-│   └── websocket_manager.py # WebSocket connection handling
-├── frontend/              # Next.js Frontend
-│   ├── app/              # App directory
-│   ├── components/       # React components
-│   └── lib/             # Utilities
-├── UNITYmdm/
-│   ├── android/           # NexMDM Android Agent
-│   │   ├── app/          # Android app source code
-│   │   └── build.gradle  # Gradle build config with CI versioning
-│   └── scripts/          # Enrollment Scripts (Milestone 3)
-│       ├── enroll_device.sh  # Zero-touch enrollment (macOS/Linux)
-│       ├── enroll.cmd        # Zero-touch enrollment (Windows)
-│       ├── bulk_enroll.sh    # Parallel enrollment for 20+ devices
-│       └── devices.csv       # Sample device list for bulk enrollment
-├── ANDROID_CI_SETUP.md    # CI/CD setup documentation
-└── requirements.txt       # Python dependencies
-```
-
-## Key Features Implemented
-1. **V1 Production Control Loop (NexMDM)**
-   - Device registration with bcrypt tokens
-   - Bearer token authentication (O(1) lookup via token_id)
-   - Heartbeat <150ms p95 latency
-   - FCM high-priority command dispatch
-   - Command result correlation by request_id
-   - HMAC signature validation
-   - Admin X-Admin header auth
-
-2. **Device Management**
-   - Real-time heartbeat monitoring
-   - Battery and memory tracking
-   - Remote command execution via FCM
-   - Auto-relaunch capability
-   - Offline detection alerts
-
-3. **Security**
-   - bcrypt password hashing for device tokens
-   - HMAC SHA-256 for admin commands
-   - X-Admin header validation
-   - JWT authentication for users
-   - Rate limiting (100 req/min admin, 3 req/hour password reset)
-   - IP tracking for audit
-
-4. **Performance Optimizations**
-   - Connection pooling (20 base + 40 overflow)
-   - Async database operations
-   - Indexed queries (device token_id, request_id)
-   - Background cleanup tasks
-   - Sub-100ms heartbeat processing
-
-5. **Android Agent CI/CD**
-   - Automated builds on every commit and tag
-   - Secure keystore management via GitHub Secrets
-   - APK signature verification with apksigner
-   - Debug APKs auto-uploaded to backend
-   - Release APKs stored as GitHub artifacts
-   - Reproducible builds with Gradle caching
-   - Deterministic versioning (versionCode = run_number + 100)
-   - SHA256 checksums for integrity verification
-   - Build time: <5 minutes on standard runners
-
-6. **Deployment**
-   - Auto-scaling on Replit
-   - PostgreSQL with automatic backups
-   - Environment variable management
-   - Production-ready configuration
+## Overview
+This project is a production-ready, cloud-based Mobile Device Management (MDM) system designed to manage and monitor Android devices. It features a robust backend for device control, real-time updates, and secure provisioning, coupled with a modern web frontend for administrative tasks. The system aims for high scalability, supporting 100+ concurrent devices, and provides a comprehensive solution for zero-touch enrollment, remote command execution, and real-time device telemetry. Key capabilities include secure device registration, heartbeat monitoring, FCM-based command dispatch, and an automated CI/CD pipeline for the Android agent.
 
 ## User Preferences
 - Focus on scalability and performance
@@ -228,57 +10,43 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 - Real-time updates via WebSockets
 - Email notifications for critical events
 
-## Technical Decisions
-- **Async SQLAlchemy**: Chosen for non-blocking I/O and better concurrency
-- **Connection Pooling**: Configured for 100+ simultaneous device connections
-- **WebSocket Architecture**: Centralized manager for efficient connection handling
-- **Event Retention**: 2-day retention with automatic cleanup
-- **Rate Limiting**: IP-based with configurable windows
+## System Architecture
+The system is built with a clear separation between frontend and backend.
 
-## Deployment Status
-- **Backend**: Running on port 8000 (Replit)
-- **Database**: PostgreSQL configured and running
-- **Frontend**: Ready for Vercel deployment
-- **Environment**: All secrets configured
+### UI/UX Decisions
+The frontend is developed using Next.js with shadcn/ui components, ensuring a modern and responsive user interface ready for Vercel deployment. The design prioritizes ease of use for administrative tasks, including a dashboard for token management, script generation, and device status tracking.
 
-## Next Steps
-1. Deploy frontend to Vercel
-2. Configure production domain
-3. Set up monitoring and alerts
-4. Test with 100+ devices
-5. Enable production logging
+### Technical Implementations
+- **Backend**: FastAPI framework, leveraging asynchronous programming with SQLAlchemy and PostgreSQL for high concurrency and efficient data handling.
+- **Frontend**: Next.js for server-side rendering and a rich user experience.
+- **Database**: PostgreSQL is used as the primary data store, configured with connection pooling and optimized for time-series data retention (e.g., 2-day event retention for heartbeats). Alembic is used for database migrations.
+- **Real-time Communication**: WebSocket support enables live updates for device status and command execution.
+- **Authentication**: JWT tokens for user authentication, bcrypt for device token hashing, and HMAC SHA-256 for secure command dispatch and integrity validation.
+- **Android Agent**: A dedicated Android application (NexMDM Agent) handles device-side logic, built with an automated CI/CD pipeline (GitHub Actions) for secure building, signing, and deployment.
+- **Zero-Touch Enrollment**: Comprehensive system for secure device provisioning using single-use enrollment tokens and server-generated ADB scripts for both Windows and Bash environments.
+- **Persistence**: Optimized data models for tracking FCM dispatches, APK download events, device heartbeats, and enrollment tokens with built-in idempotency and retention policies.
+- **Monitoring**: Structured logging for all operations, including database interactions, performance metrics, and error tracking.
 
-## Important URLs
-- Backend API: http://localhost:8000
-- API Documentation: http://localhost:8000/api/docs
-- Health Check: http://localhost:8000/api/health
-- Metrics: http://localhost:8000/api/metrics
+### Feature Specifications
+- **V1 Production Control Loop**: Secure device registration, heartbeat processing (<150ms p95 latency), FCM high-priority command dispatch, action result tracking, and HMAC signature validation.
+- **Device Management**: Real-time heartbeat monitoring, battery/memory tracking, remote command execution, auto-relaunch, and offline detection.
+- **Security**: bcrypt password hashing, HMAC SHA-256, X-Admin header validation, JWT authentication, IP-based rate limiting, and audit tracking.
+- **Performance**: Connection pooling (60 total connections), async database operations, indexed queries, and background cleanup tasks for sub-100ms heartbeat processing.
+- **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs to the backend, with secure keystore management and reproducible builds.
 
-### V1 Production Endpoints
-- POST /v1/enrollment-token - Generate enrollment token (admin)
-- GET /v1/apk/download/latest - Download APK with enrollment token
-- POST /v1/enroll - Enroll device with enrollment token (idempotent)
-- POST /v1/register - Device registration (legacy, direct)
-- POST /v1/heartbeat - Device heartbeat (Bearer token)
-- POST /v1/action-result - Command result submission
-- POST /admin/command - FCM command dispatch (X-Admin + HMAC)
+### System Design Choices
+- **Async SQLAlchemy**: For non-blocking I/O and improved concurrency.
+- **Connection Pooling**: To efficiently manage database connections for high loads.
+- **WebSocket Architecture**: Centralized manager for robust real-time communication.
+- **Event Retention Policies**: Automated cleanup for operational data to maintain database performance.
+- **Rate Limiting**: IP-based and configurable to prevent abuse.
 
-### Legacy Endpoints  
-- WebSocket: ws://localhost:8000/ws/{device_id}
-- POST /api/devices/heartbeat - Auto-registration heartbeat
-
-## Credentials (Development)
-- Admin Key: ADMIN_KEY env var (default: default-admin-key-change-in-production)
-- HMAC Secret: HMAC_SECRET env var (auto-generated)
-- JWT Secret: JWT_SECRET env var (auto-generated)
-- Firebase: FIREBASE_SERVICE_ACCOUNT_JSON (required for FCM)
-- Database: Auto-configured via Replit
-
-## Performance Metrics
-- Target: 100+ concurrent devices ✅
-- Heartbeat interval: 2 minutes (V1) / 5 minutes (legacy)
-- Heartbeat latency: <150ms p95, <300ms p99 ✅ (measured 46-70ms)
-- Event retention: 2 days
-- Connection pool: 60 total connections
-- Rate limits: 100 req/min admin, 60 req/min general, 3 req/hour password reset
-- Command dispatch: <200ms server-side FCM send
+## External Dependencies
+- **PostgreSQL**: Primary database for all system data.
+- **FastAPI**: Python web framework for the backend.
+- **Next.js**: React framework for the frontend.
+- **shadcn/ui**: UI component library for the frontend.
+- **Alembic**: Database migration tool.
+- **Firebase Cloud Messaging (FCM)**: For high-priority command dispatch to devices.
+- **GitHub Actions**: For Android Agent CI/CD pipeline automation.
+- **Replit Mail**: Email service for password resets and critical notifications.
