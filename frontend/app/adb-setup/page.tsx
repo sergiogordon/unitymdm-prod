@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
-import { Sidebar } from "@/components/sidebar"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import {
   Select,
@@ -62,7 +61,6 @@ function ADBSetupContent() {
   const [expandedScripts, setExpandedScripts] = useState<Set<string>>(new Set())
   const [scriptContents, setScriptContents] = useState<Record<string, { bash: string, windows: string }>>({})
   const [isDark, setIsDark] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   useEffect(() => {
@@ -76,13 +74,6 @@ function ADBSetupContent() {
   useEffect(() => {
     const isDarkMode = localStorage.getItem('darkMode') === 'true'
     setIsDark(isDarkMode)
-  }, [])
-
-  useEffect(() => {
-    const sidebarOpen = localStorage.getItem('sidebarOpen')
-    if (sidebarOpen !== null) {
-      setIsSidebarOpen(sidebarOpen === 'true')
-    }
   }, [])
 
   useEffect(() => {
@@ -308,16 +299,8 @@ function ADBSetupContent() {
     localStorage.setItem('darkMode', String(newDarkMode))
   }
 
-  const handleToggleSidebar = () => {
-    const newState = !isSidebarOpen
-    setIsSidebarOpen(newState)
-    localStorage.setItem('sidebarOpen', newState.toString())
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      <Sidebar isOpen={isSidebarOpen} onToggle={handleToggleSidebar} />
-      
+    <div className="min-h-screen">
       <Header 
         lastUpdated={Date.now()} 
         alertCount={0} 
@@ -325,10 +308,9 @@ function ADBSetupContent() {
         onToggleDark={handleToggleDark}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={() => {}}
-        onToggleSidebar={handleToggleSidebar}
       />
       
-      <div className={`transition-all duration-300 mx-auto max-w-[1400px] space-y-6 px-6 py-8 pt-20 md:px-8 ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-16'}`}>
+      <main className="mx-auto max-w-[1280px] space-y-6 px-6 pb-12 pt-[84px] md:px-8">
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Terminal className="h-6 w-6" />
@@ -560,7 +542,7 @@ function ADBSetupContent() {
             <li>Device Owner set only succeeds on factory-reset devices—safe to leave enabled</li>
           </ul>
         </div>
-      </div>
+      </main>
 
       <SettingsDrawer
         isOpen={isSettingsOpen}
