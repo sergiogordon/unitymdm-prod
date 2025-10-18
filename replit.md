@@ -36,6 +36,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Performance**: Connection pooling, async database operations, and indexed queries for sub-100ms heartbeat processing.
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
 - **Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff, 5-minute heartbeat intervals, and structured logging.
+- **OTA Updates (Milestone 4)**: Secure fleet-wide Android agent updates with one-click promotion, staged rollouts (1%-100%), deterministic device cohorting, rollback capability, and comprehensive adoption telemetry. Devices poll `/v1/agent/update` on startup, every 6 hours, or immediately via FCM nudge. Includes SHA-256 verification, signer fingerprint validation, Wi-Fi-only constraints, and safety controls (battery, network conditions).
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O and improved concurrency.
@@ -43,6 +44,8 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **WebSocket Architecture**: Centralized management for real-time communication.
 - **Event Retention Policies**: Automated data cleanup for performance.
 - **Rate Limiting**: Configurable IP-based rate limiting.
+- **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
+- **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
