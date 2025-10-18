@@ -1,0 +1,140 @@
+Here’s a copy-paste Bug Bash Prompt you can drop into a fresh chat (or hand to a tester) to aggressively hunt issues across the last milestones (Backend+FCM, CI, ADB Enrollment, Persistence/Migrations, Security Baselines, Observability, Agent Runtime, Alerts subset).
+
+⸻
+
+🔎 NexMDM Bug Bash — Ruthless QA Prompt
+
+Role: You are a ruthless test engineer. Your job is to break NexMDM and surface actionable bugs with exact reproduction steps, expected vs actual behavior, and severity.
+
+Scope to test (in this order):
+	1.	Backend + FCM control loop
+	2.	Android Agent Runtime (Device Owner, 5-min heartbeats, FCM ping/launch_app)
+	3.	ADB enrollment scripts (Windows + Bash)
+	4.	Persistence & migrations (enroll_tokens, apk_builds/uploads, fcm_dispatches, device_heartbeats)
+	5.	Security baselines (token scopes/TTL/single-use, HTTPS only, HMAC on FCM, minimal rate limits, revoke)
+	6.	Observability & ops (structured logs, counters, APK download logging)
+	7.	Alerts & auto-remediation subset (offline >12m, battery <15%, Unity down, dedupe, roll-ups; remediation OFF by default)
+
+Environment assumptions (adapt as needed):
+	•	BASE_URL: <https://NEXMDM_BASE_URL>
+	•	Admin key header: X-Admin: <ADMIN_KEY>
+	•	FCM HMAC key present server & agent
+	•	Discord webhook configured (but auto-remediation disabled)
+	•	Test device(s): at least 2 in Device Owner Mode
+
+⸻
+
+What to produce
+
+For each bug or risk, report:
+	•	Title
+	•	Area (Backend | Agent | ADB | Persistence | Security | Observability | Alerts)
+	•	Severity (Blocker, High, Medium, Low)
+	•	Repro Steps (exact commands/screens)
+	•	Expected vs Actual
+	•	Logs/IDs (request_id, device_id, timestamps)
+	•	Suspected Root Cause
+	•	Fix Recommendation
+	•	Regression Test (a short test we can add)
+
+⸻
+
+Test Plan & Checklists
+
+1) Backend + Core API Contracts
+	•	✅ Happy paths:
+	•	POST /v1/enroll-tokens (batch), GET /v1/enroll-tokens, DELETE /v1/enroll-tokens/{id}
+	•	GET /v1/apk/download-latest with valid token (debug build)
+	•	POST /v1/register using that token → returns {device_id, device_token}
+	•	POST /v1/heartbeat (Bearer) → 200 with p95 <150ms
+	•	POST /admin/command (with HMAC) → returns request_id
+	•	POST /v1/action-result with same request_id → marks completed
+	•	❌ Negatives:
+	•	Expired token, revoked token, reused token (1-use), missing HTTPS, missing/invalid HMAC, rate-limit hits
+	•	🔍 Verify idempotency: same request_id twice → 1 dispatch row; same heartbeat thrice <10s → 1 row (dedupe hit counter increments)
+
+2) Android Agent Runtime (Device Owner + 5-min HB)
+	•	Confirm Device Owner: ADB dumpsys device_policy | grep com.nexmdm
+	•	Kill app process; reboot device → service/WorkManager resume and heartbeats continue at ~5 min
+	•	FCM ping and launch_app work with valid HMAC; invalid HMAC is ignored and reported
+	•	Network loss test: disable data/Wi-Fi during action-result post; ensure retries and no duplicates server-side
+
+3) ADB Enrollment Scripts
+	•	Run Windows and Bash versions against fresh & previously-enrolled devices
+	•	Ensure: APK download via Bearer token; install/update succeeds; config broadcast works; Doze/appops set; idempotent re-runs don’t duplicate devices
+	•	Edge: device not factory-reset → Device Owner attempt safely no-ops (no failure cascade)
+
+4) Persistence & Migrations
+	•	Fresh DB: alembic upgrade head → all tables present, enums correct, indexes used (EXPLAIN on hot queries)
+	•	Downgrade smoke: alembic downgrade -1 on a throwaway DB → reversible
+	•	Heartbeat dedupe: verify unique constraint per (device, 10s bucket) holds under parallel posts
+	•	Check apk_download_events logged when enrollment token used to fetch APK
+
+5) Security Baselines
+	•	HTTPS-only enforced (no HTTP except localhost health if configured)
+	•	Enrollment tokens scoped to download-latest + first register only, TTL honored, single-use enforced
+	•	Admin revoke/delete works instantly; subsequent use returns 401 with token_revoked
+	•	Minimal rate limits:
+	•	Token creation per admin (hit limit → 429 + Retry-After)
+	•	APK download per token/IP bursts capped (429)
+	•	Device tokens hashed with bcrypt (no plaintext in DB)
+
+6) Observability & Metrics
+	•	Structured JSON logs include: event, request_id, route, device_id/alias, latency_ms
+	•	/metrics shows: http_requests_total, http_request_latency_ms_bucket, fcm_dispatch_latency_ms_bucket, apk_download_total, heartbeats_ingested_total, heartbeats_dedup_hits_total
+	•	Correlate a single command’s request_id across dispatch & action-result logs
+
+7) Alerts (auto-remediation OFF)
+	•	Offline >12m: stop heartbeats → after 12m + ≤60s, one Discord alert; recovery message after heartbeat returns; no duplicates within cooldown
+	•	Battery <15%: one alert on crossing threshold; suppressed during cooldown; recovery at ≥15%
+	•	Unity down: one alert (no FCM remediation since disabled)
+	•	Roll-up: make >10 devices offline within 60s → one summary alert; individuals suppressed
+
+⸻
+
+Stress & Edge Scenarios
+	•	Clock skew: send heartbeat timestamps ±2 min; ensure server tolerance (no false “offline”)
+	•	Burst enrollments: create 100 tokens; enroll 20 concurrently; watch DB locks, p95, and dedupe
+	•	Long-running: leave 2 devices online for 6 hours; ensure heartbeats steady every ~5 min; check memory/FD leaks
+	•	Bad payloads: malformed JSON, oversized payloads → 413/422 with safe logs (no stack traces with secrets)
+	•	HMAC drift: intentionally delay FCM execution (ts old) → confirm allowed drift or rejection policy
+
+⸻
+
+Quick cURL Snippets (fill values)
+
+# Create tokens
+curl -s -X POST "$BASE_URL/v1/enroll-tokens" -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"aliases":["D01","D02"],"expires_in_sec":2700,"uses_allowed":1}'
+
+# Download APK (enrollment token)
+curl -s -H "Authorization: Bearer $ENROLL_TOKEN" -o /tmp/agent.apk "$BASE_URL/v1/apk/download-latest"
+
+# Register device
+curl -s -X POST "$BASE_URL/v1/register" -H "Authorization: Bearer $ENROLL_TOKEN" -H "Content-Type: application/json" \
+  -d '{"alias":"D01","hardware_id":"SER123"}'
+
+# Heartbeat
+curl -s -X POST "$BASE_URL/v1/heartbeat" -H "Authorization: Bearer $DEVICE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"battery_pct":87,"network_type":"wifi","unity_running":true,"uptime_s":12345}'
+
+# Admin command (server signs + sends to FCM)
+curl -s -X POST "$BASE_URL/admin/command" -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"device_id":"...","action":"ping","request_id":"REQ-123"}'
+
+# Action result
+curl -s -X POST "$BASE_URL/v1/action-result" -H "Authorization: Bearer $DEVICE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"request_id":"REQ-123","action":"ping","outcome":"ok","message":"pong"}'
+
+
+⸻
+
+Exit Criteria
+	•	All high/critical issues logged with repro & recommendations
+	•	No data-loss paths found (idempotency & dedupe hold)
+	•	p95/p99 latencies within targets under the 20-device sim
+	•	Alerts trigger correctly with dedupe; no webhook secrets leaked in logs
+
+⸻
+
+Need me to tailor this for your exact BASE_URL and add a one-liner to spin up the 20-device simulation you used in acceptance tests?
