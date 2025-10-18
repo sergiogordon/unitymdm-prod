@@ -1,0 +1,119 @@
+**Milestone Context & End Goal — Reliability Features on Device**
+
+**Purpose:**
+Reduce field flakiness and raise real-world command success by hardening the Android agent’s behavior under poor networks and aggressive power management. Confirm Doze/Adaptive Battery exemptions (prefer Device Owner), add a network change listener with exponential backoff, and persist a crash-safe queue so unsent results/heartbeats are delivered once connectivity returns.
+
+---
+
+### What “done” means
+
+**Power management hardening**
+
+* **Device Owner path preferred**: on startup, verify Device Owner; if true, confirm:
+
+  * App is **Unrestricted** in battery settings (whitelisted from Doze).
+  * Required appops/whitelists are applied (idempotent checks).
+* **Non-owner fallback**: detect and log battery restrictions; keep foreground service + WorkManager scheduling and attempt Doze whitelist via allowed APIs; surface a “suboptimal power mode” flag in heartbeat payload.
+
+**Network resilience**
+
+* **Connectivity listener** (NetworkCallback) tracks transitions (wifi/cellular/offline/MMS-only/captive portal).
+* **Exponential backoff with jitter** for all outbound calls (heartbeat and action-result):
+
+  * Base: 2s, multiplier 2×, **cap at 5 min**, **full jitter** (randomization 0–1× current delay).
+  * Retry budgets: **heartbeats** up to 3 attempts per interval; **action-results** retry until success or **24h TTL** (whichever comes first).
+* **Immediate retry on network regain**: when network becomes “validated,” drain the queue before sleeping again.
+
+**Crash-safe delivery**
+
+* **Durable queue** for unsent items (e.g., small Room DB or encrypted file):
+
+  * Stores: `type` (hb/result), `created_at`, `attempts`, `payload`, `request_id` (for results), `dedupe_key` (for hb bucket).
+  * On startup/boot and after app crash, agent resumes draining.
+  * **Ordering**: results for the **same `request_id`** are coalesced; oldest first across items.
+
+**Idempotency & dedupe**
+
+* **Action-results** always include the original `request_id`; re-posts are tolerated server-side (no duplicates).
+* **Heartbeats** respect server dedupe window (e.g., one per 10s bucket); client coalesces multiple pending hb into **one latest** if backlog >1.
+
+**Operational safeguards**
+
+* **Queue limits**: max **500 items** or **10 MB** on disk; older heartbeats pruned first; **never** prune action-results.
+* **Battery/transport constraints**:
+
+  * Defer large downloads/OTA if not on Wi-Fi (out of scope here but agent honors this if set).
+  * If battery <10% and not charging, pause nonessential retries; keep a low-rate liveness heartbeat (at most every 30 min).
+
+---
+
+### Non-goals
+
+* No new commands beyond `ping` / `launch_app`.
+* No UI screens on device.
+* No OTA changes (handled in OTA milestone).
+* No certificate pinning/mTLS changes.
+
+---
+
+### Performance & reliability targets
+
+* **Command success ≥98%** under typical cellular conditions.
+* **Zero lost action-results** (eventual delivery; duplicates acceptable server-side but should not occur).
+* **Heartbeat continuity**: at least one successful heartbeat every **≤15 min** even during extended poor connectivity (thanks to queue + backoff).
+* **Startup recovery**: pending items begin draining within **≤5 s** of app/service start.
+
+---
+
+### Security baseline
+
+* Queue contents stored with **EncryptedSharedPreferences** key material (or encrypted Room) — includes tokens only by reference (not plaintext).
+* HMAC validation unchanged; never log secrets.
+* Device Owner checks do not escalate privileges beyond allowed APIs.
+
+---
+
+### Observability
+
+* Structured agent logs:
+
+  * `reliability.power.owner_confirmed|owner_missing|suboptimal_power`
+  * `net.change` (old→new, validated=true/false)
+  * `queue.enqueue|drain.start|drain.end|prune` (counts, bytes)
+  * `retry.schedule` (type, delay_ms, attempts)
+  * `deliver.ok|deliver.fail` (status, latency_ms, request_id)
+* Heartbeat fields extended with flags: `power_ok`, `doze_whitelisted`, `net_validated`, `queue_depth`.
+
+---
+
+### Acceptance tests
+
+**Power/Doze**
+
+1. **Device Owner device**: verify Doze whitelist + Unrestricted battery are confirmed at startup; heartbeat `power_ok=true`.
+2. **Non-owner device**: agent logs `suboptimal_power`; still maintains heartbeats via foreground service.
+
+**Network resilience**
+3. Toggle **airplane mode** during an action-result post → item persists; on reconnect, it sends within **≤5 s**; server sees exactly one result for the `request_id`.
+4. Switch **Wi-Fi → LTE → offline → Wi-Fi** repeatedly; ensure backoff resets on “validated” network and queue drains without duplicates.
+
+**Crash-safe**
+5. Kill the app during a multi-item drain; restart → drain resumes from disk and completes; order preserved for items sharing a `request_id`.
+
+**Backoff & caps**
+6. Force repeated 5xx from server; verify exponential backoff grows to **≤5 min cap**, then pauses; upon server recovery, delivery succeeds; total attempts logged.
+
+**Queue discipline**
+7. Flood with heartbeats while offline for 2 hours → client prunes old heartbeats, keeping latest per bucket; **action-results are never pruned**; upon reconnect, only current hb + all results are delivered.
+
+**Battery guardrails**
+8. Set battery to 9% (not charging): retries pause except minimal heartbeat every ≤30 min; at 20% or charging, normal behavior resumes.
+
+**Observability checks**
+9. Logs show `net.change`, `queue` metrics, and `retry.schedule` lines; heartbeat payloads include `queue_depth` and `power_ok` flags as expected.
+
+---
+
+### When complete
+
+Your agent will **keep working in the real world**: it survives poor networks, power throttling, crashes, and restarts—delivering heartbeats and action-results reliably with minimal operator intervention, which raises command success and reduces field support time.
