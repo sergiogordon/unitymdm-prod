@@ -10,6 +10,15 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 - **Real-time**: WebSocket support for live device updates
 - **Authentication**: JWT tokens with password reset via email
 
+## Recent Changes (October 18, 2025)
+
+### Frontend Authentication & UI Fixes ✅
+- ✅ **Conditional Sidebar** - Sidebar now hidden on login page and only shown after authentication
+- ✅ **Backend API Connection** - Fixed Replit proxy routing for UUID-based domains
+- ✅ **Protected Routes** - All dashboard pages properly redirect to login when not authenticated
+- ✅ **Import Path Fixes** - Resolved all Python import errors (removed "server." prefixes)
+- ✅ **Workflow Stability** - Backend and frontend both running successfully
+
 ## Recent Changes (October 17, 2025)
 
 ### Dashboard Enrollment Flow Integration ✅
