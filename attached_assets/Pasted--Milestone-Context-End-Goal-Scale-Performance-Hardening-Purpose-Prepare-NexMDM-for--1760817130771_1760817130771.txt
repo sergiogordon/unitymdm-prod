@@ -1,0 +1,159 @@
+**Milestone Context & End Goal — Scale & Performance Hardening**
+
+**Purpose:**
+Prepare NexMDM for **500–2,000 devices** by optimizing storage and hot paths: partitioned heartbeats with retention/archival, tuned DB/connection pools, measured p95/p99 latencies, and a precomputed “last heartbeat” view for fast reads.
+
+---
+
+### What “done” means
+
+#### 1) Heartbeat storage: partitioning + retention + archival
+
+* **Native Postgres range partitioning** on `device_heartbeats(ts)`:
+
+  * Partition cadence: **daily** if >5M rows/month, else **monthly**.
+  * Future partitions auto-created 14 days ahead; past partitions detached and dropped per retention.
+* **Retention policy**: keep **90 days** online; older data **archived nightly** to object storage (CSV/Parquet) with manifest.
+* **Archival job** (nightly, off-peak):
+
+  * Steps: `VACUUM FREEZE` target partition → export → checksum → mark archived → `DROP PARTITION`.
+  * Generates an index of archives (date range, row count, checksum).
+* **Indexes** on each partition:
+
+  * `(device_id, ts DESC)` (covering index for hot reads).
+  * Dedupe unique key (as designed earlier) on `(device_id, ts_10s_bucket)`.
+* **Autovacuum/Analyze** tuned for partitions (more aggressive on recent partitions, relaxed on cold ones).
+
+#### 2) Fast reads: precomputed “last heartbeat / status”
+
+* **Materialized “last” store** (table, not MV): `device_last_status`
+
+  * Columns: `device_id (PK)`, `last_ts`, `battery_pct`, `network_type`, `unity_running`, `signal_dbm`, `agent_version`, `ip`, `status`.
+  * **Updated on write path** of `/v1/heartbeat` (single UPSERT) so reads are O(1).
+* Key queries must read from `device_last_status`:
+
+  * “Devices offline > X minutes”
+  * “Unity down now”
+  * “Latest metrics for device detail page”
+
+#### 3) Connection & worker tuning
+
+* **Async server** (e.g., Uvicorn/Gunicorn) sizing:
+
+  * Workers = `min(2 × CPU, 8)`; `keepalive_timeout` ≥ 5s.
+* **DB connection pool** (per-worker):
+
+  * Async SQLAlchemy/`asyncpg` pool: **min=5, max=10** per worker.
+  * Postgres `max_connections` sized accordingly; **pgBouncer** in `transaction` mode recommended for smoothing.
+* **Postgres settings** (guidelines, adjust to hardware):
+
+  * `shared_buffers` ~ 25% RAM (cap sensible).
+  * `effective_cache_size` ~ 50–75% RAM.
+  * `work_mem` moderate (4–16MB) to avoid swaps during sorts.
+  * `autovacuum_naptime=10s` on hot partitions; `autovacuum_vacuum_scale_factor=0.05` (or table-specific).
+* **HTTP timeouts**: server read/write timeouts ≥ 5s; DB statement timeout 1–2s on hot paths.
+
+#### 4) p95/p99 profiling & targets
+
+* Measure under **realistic load**:
+
+  * 500 devices @ 5-min HB → ~100 HB/min.
+  * 2,000 devices @ 5-min HB → ~400 HB/min (~6.7 HB/sec average with bursts).
+* **Targets (server-side):**
+
+  * `/v1/heartbeat` p95 **<150 ms**, p99 **<300 ms**
+  * `/admin/command` insert + log p95 **<60 ms**
+  * Reads on `device_last_status` p95 **<20 ms**
+  * CPU <70% at peak; DB iowait negligible
+
+#### 5) Operational jobs & guardrails
+
+* **Nightly maintenance window**:
+
+  * Partition creation for next period
+  * Archival + drop for expired partitions
+  * `VACUUM ANALYZE` recent partitions; reindex if needed (rare)
+* **Backpressure**:
+
+  * If queue > N heartbeats in 10s, temporarily shed low-priority work (e.g., skip secondary metrics) and log `backpressure=true`.
+* **Error budgets**:
+
+  * HB write error rate <0.5% over 1h
+  * Dispatch log write errors <0.2%
+
+---
+
+### Non-goals (for this milestone)
+
+* No HA/replication topology redesign.
+* No feature changes to endpoints.
+* No analytics dashboards beyond counters already emitted.
+
+---
+
+### Observability (what to watch)
+
+* **New counters:**
+
+  * `hb_writes_total`, `hb_writes_failed_total`
+  * `hb_partition_archived_total`, `hb_partition_dropped_total`
+  * `last_status_upserts_total`, `last_status_upserts_failed_total`
+* **Latency histograms:**
+
+  * `hb_write_latency_ms_bucket`
+  * `last_status_read_latency_ms_bucket`
+* **Partition health logs:**
+
+  * `partition.create`, `partition.archive.start|end`, `partition.drop`, with row counts & durations.
+* **Storage growth tracker:**
+
+  * Daily row counts; on-disk size per active partition; archive bytes pushed.
+
+---
+
+### Performance & reliability acceptance tests
+
+**A. Partitioning & retention**
+
+* Generate 100M synthetic heartbeats over historical dates (sped-up loader).
+* Verify partitions auto-created for next period; old partitions archived (artifact manifest present) then dropped.
+* Query planner uses partition pruning (EXPLAIN shows targeted partitions only).
+
+**B. Last-status fast path**
+
+* For 10k devices, bulk-update `device_last_status` via heartbeat posts; read “offline >12m” list in **<200 ms**.
+* Device detail page: last metrics read in **<20 ms** p95.
+
+**C. Load test (representative)**
+
+* 2,000 simulated devices posting on 5-min cadence with burstiness (±15s jitter).
+* Observe:
+
+  * HB p95 <150 ms, p99 <300 ms
+  * No pool exhaustion (no 5xx from DB timeouts)
+  * CPU <70% sustained; DB connections within limits
+  * `hb_writes_failed_total` ≈ 0; dedupe rate as expected
+
+**D. Failure & recovery**
+
+* Briefly throttle DB (simulate slow disks) → system logs backpressure; HB latency rises but stays <1s p99 for 60s; recovers without data loss.
+* Kill archival job mid-run → job marks partial + retries next night; no data corruption; partitions not dropped without archive checksum.
+
+**E. Idempotency preserved**
+
+* Parallel duplicate heartbeats (<10s window) still dedupe to a single row; `last_status` remains correct.
+
+---
+
+### Runbook notes (concise)
+
+* How to create/drop a partition manually.
+* How to adjust retention (e.g., 60/120 days) and reconfigure archival target.
+* What to check when p99 rises: pool sizes, slow query log (>250 ms), missing indexes on a new partition, autovacuum lag.
+* Safe knobs to tweak first: pool max, worker count, `work_mem`, autovacuum thresholds on hot partitions.
+
+---
+
+### When complete
+
+You’ll have a **predictable, scalable storage layer** and **fast, low-latency reads** for fleet status, with nightly archival keeping storage flat over time—making NexMDM comfortable at **2,000 devices** and ready to grow.
