@@ -33,6 +33,7 @@ The frontend is developed using Next.js with shadcn/ui components, ensuring a mo
 - **Security**: bcrypt password hashing, HMAC SHA-256, X-Admin header validation, JWT authentication, IP-based rate limiting, and audit tracking.
 - **Performance**: Connection pooling (60 total connections), async database operations, indexed queries, and background cleanup tasks for sub-100ms heartbeat processing.
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs to the backend, with secure keystore management and reproducible builds.
+- **Milestone 4 - Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff retry, 5-minute heartbeat intervals, structured logging, and 401 error handling with graceful backoff.
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O and improved concurrency.
@@ -155,3 +156,119 @@ cd server
 - `tests/test_20_device_simulation.py`: Complete 20-device enrollment simulation
 
 See `server/ACCEPTANCE_TESTS.md` for detailed test documentation and results.
+
+## Milestone 4 - Android Agent Runtime
+
+### Overview
+Milestone 4 delivers a production-ready, self-managing Android agent that runs as Device Owner, posts reliable 5-minute heartbeats, executes HMAC-signed FCM commands (ping, launch_app), and reports results back to the backend with retry/backoff.
+
+### Key Features Implemented
+
+#### 1. Device Owner Mode
+- **Device Owner Verification**: Agent checks Device Owner status at startup
+- **Logging**: 
+  - `device_owner.confirmed` when Device Owner is set
+  - `device_owner.warning` when not set
+- **Benefits**: Persistent foreground service, bypasses Doze restrictions, auto-grants permissions
+
+#### 2. HMAC Command Validation
+- **Signature Algorithm**: HMAC-SHA256
+- **Message Format**: `{request_id}|{device_id}|{action}|{timestamp}`
+- **Validation**: All FCM commands validated before execution
+- **Security**: Invalid signatures logged as `fcm.hmac_invalid` and rejected
+- **Secret Management**: HMAC_SECRET stored in environment variable (backend) and EncryptedSharedPreferences (Android)
+
+**Setup Instructions:**
+```bash
+# Generate HMAC secret
+openssl rand -base64 32
+
+# Add to Replit Secrets as HMAC_SECRET
+# Android agent receives secret during enrollment (currently uses placeholder)
+```
+
+#### 3. Heartbeat Runtime
+- **Interval**: 5 minutes (300s) via AlarmManager with `setExactAndAllowWhileIdle`
+- **Payload**: Nested structure with battery, system, memory, network telemetry
+- **Retry Logic**: Exponential backoff (max 3 retries, base 1s delay, max 30s)
+- **401 Handling**: Graceful 60-second backoff on authentication failures
+- **Structured Logging**:
+  - `heartbeat.sent`: Before sending (includes device_id, battery_pct)
+  - `heartbeat.ack`: After successful response
+  - `heartbeat.failed`: On errors
+
+#### 4. Action Result Posting
+- **Endpoint**: POST `/v1/action-result`
+- **Schema**:
+  ```json
+  {
+    "request_id": "uuid",
+    "device_id": "uuid",
+    "action": "ping|launch_app",
+    "outcome": "success|failure",
+    "message": "descriptive message",
+    "finished_at": "ISO8601 timestamp"
+  }
+  ```
+- **Retry Logic**: Exponential backoff with RetryHelper (max 3 retries)
+- **Idempotency**: Backend handles duplicate submissions gracefully
+- **Structured Logging**:
+  - `command.executed`: When command succeeds
+  - `result.posted`: After successful result posting
+  - `result.retry`: On retry attempts
+
+#### 5. Supported Commands
+- **ping**: Immediate response test
+  - Validates HMAC
+  - Triggers immediate heartbeat
+  - Posts action result with latency
+- **launch_app**: Launch specified package
+  - Validates HMAC
+  - Launches app via Intent
+  - Verifies process is running
+  - Posts action result with success/failure
+
+#### 6. Observability & Structured Logging
+All logs follow format: `[EVENT] key1=value1 key2=value2`
+
+**Agent Events**:
+- `agent.startup`: Agent initialization (includes agent_version, device_owner status)
+- `device_owner.confirmed`: Device Owner mode verified
+- `device_owner.warning`: Device Owner mode not set
+- `heartbeat.sent`: Heartbeat transmission
+- `heartbeat.ack`: Heartbeat acknowledged by server
+- `heartbeat.failed`: Heartbeat error
+- `fcm.hmac_invalid`: HMAC validation failed
+- `command.executed`: FCM command completed
+- `result.posted`: Action result posted to backend
+- `result.retry`: Result posting retry attempt
+
+#### 7. New Android Components
+- **HmacValidator.kt**: HMAC signature computation and verification
+- **RetryHelper.kt**: Exponential backoff retry logic with jitter
+- **SecurePreferences.hmacSecret**: Encrypted storage for HMAC secret
+
+#### 8. Performance Targets
+- Heartbeat RTT: < 3s typical on Wi-Fi/cellular
+- Heartbeat interval accuracy: ±30s
+- Command success rate: ≥ 98% under normal conditions
+- Foreground service uptime: ≥ 99%
+
+#### 9. Database Schema Updates
+**FcmDispatch Table** (new columns):
+- `completed_at`: Timestamp when action completed
+- `result`: Outcome (success/failure)
+- `result_message`: Detailed result message
+
+### Security Baseline
+- HTTPS only (reject plaintext)
+- HMAC-SHA256 validation on all FCM payloads
+- Device tokens in EncryptedSharedPreferences
+- Strict action allow-list (ping, launch_app only)
+- Logs redact tokens and HMAC keys
+
+### Testing
+- Updated `/v1/action-result` endpoint tests
+- HMAC signature generation validated
+- Action result idempotency verified
+- 401/404 error handling confirmed

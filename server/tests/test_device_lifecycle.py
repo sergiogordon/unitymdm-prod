@@ -270,8 +270,11 @@ class TestActionResultEndpoint:
             headers=device_auth,
             json={
                 "request_id": "req_test_001",
-                "result": "ok",
-                "data": {"ping_time_ms": 42}
+                "device_id": device.id,
+                "action": "ping",
+                "outcome": "success",
+                "message": "Ping executed successfully",
+                "finished_at": datetime.now(timezone.utc).isoformat()
             }
         )
         
@@ -279,15 +282,23 @@ class TestActionResultEndpoint:
         
         test_db.refresh(dispatch)
         assert dispatch.completed_at is not None
+        assert dispatch.result == "success"
     
-    def test_action_result_404_unknown_request_id(self, client: TestClient, device_auth: dict):
+    def test_action_result_404_unknown_request_id(self, client: TestClient, device_auth: dict, test_device: tuple):
         """404: Unknown request_id rejected"""
+        from datetime import datetime, timezone
+        device, _ = test_device
+        
         response = client.post(
             "/v1/action-result",
             headers=device_auth,
             json={
                 "request_id": "unknown_request",
-                "result": "ok"
+                "device_id": device.id,
+                "action": "ping",
+                "outcome": "success",
+                "message": "Test",
+                "finished_at": datetime.now(timezone.utc).isoformat()
             }
         )
         
@@ -295,9 +306,17 @@ class TestActionResultEndpoint:
     
     def test_action_result_401_no_auth(self, client: TestClient):
         """401: Missing Bearer token rejected"""
+        from datetime import datetime, timezone
         response = client.post(
             "/v1/action-result",
-            json={"request_id": "req_001", "result": "ok"}
+            json={
+                "request_id": "req_001",
+                "device_id": "test-device",
+                "action": "ping",
+                "outcome": "success",
+                "message": "Test",
+                "finished_at": datetime.now(timezone.utc).isoformat()
+            }
         )
         
         assert response.status_code == 403
@@ -325,10 +344,15 @@ class TestActionResultEndpoint:
                 headers=device_auth,
                 json={
                     "request_id": "req_idemp_001",
-                    "result": "ok"
+                    "device_id": device.id,
+                    "action": "ping",
+                    "outcome": "success",
+                    "message": "Idempotent test",
+                    "finished_at": datetime.now(timezone.utc).isoformat()
                 }
             )
             assert response.status_code == 200
         
         test_db.refresh(dispatch)
         assert dispatch.completed_at is not None
+        assert dispatch.result == "success"
