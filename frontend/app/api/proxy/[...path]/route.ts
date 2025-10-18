@@ -64,11 +64,11 @@ async function proxyRequest(
       }
     })
 
-    // Get request body for POST/PUT/PATCH
-    let body = undefined
+    // Get request body for POST/PUT/PATCH - use arrayBuffer to preserve binary data
+    let body: ArrayBuffer | undefined = undefined
     if (method !== 'GET' && method !== 'DELETE') {
       try {
-        body = await request.text()
+        body = await request.arrayBuffer()
       } catch (e) {
         // No body or already consumed
       }
@@ -81,14 +81,8 @@ async function proxyRequest(
       body,
     })
 
-    // Get response body
-    const responseText = await response.text()
-    let responseData
-    try {
-      responseData = JSON.parse(responseText)
-    } catch {
-      responseData = responseText
-    }
+    // Stream the response body to preserve binary data (APK files, etc.)
+    const responseBody = await response.arrayBuffer()
 
     // Forward response headers
     const responseHeaders = new Headers()
@@ -104,13 +98,10 @@ async function proxyRequest(
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS')
     responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-    return new NextResponse(
-      typeof responseData === 'string' ? responseData : JSON.stringify(responseData),
-      {
-        status: response.status,
-        headers: responseHeaders,
-      }
-    )
+    return new NextResponse(responseBody, {
+      status: response.status,
+      headers: responseHeaders,
+    })
   } catch (error) {
     console.error('[Proxy] Error:', error)
     return NextResponse.json(
