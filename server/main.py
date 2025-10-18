@@ -4051,6 +4051,96 @@ async def get_deployment_stats(
         "adoption_rate": round((stats.installs_success / stats.total_eligible * 100), 2) if stats.total_eligible > 0 else 0
     }
 
+class NudgeUpdateRequest(BaseModel):
+    device_ids: Optional[list[str]] = None
+
+@app.post("/v1/apk/nudge-update")
+async def nudge_update_check(
+    payload: NudgeUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Send FCM 'update' command to trigger immediate OTA update check on devices.
+    If device_ids is None, sends to all devices with FCM tokens.
+    """
+    from server.fcm_v1 import send_fcm_message_v1
+    from server.hmac_utils import compute_hmac_signature
+    import uuid
+    
+    if payload.device_ids:
+        devices = db.query(Device).filter(Device.id.in_(payload.device_ids)).all()
+    else:
+        devices = db.query(Device).filter(Device.fcm_token.isnot(None)).all()
+    
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices found with FCM tokens")
+    
+    success_count = 0
+    failed_devices = []
+    
+    for device in devices:
+        if not device.fcm_token:
+            failed_devices.append({
+                "device_id": device.id,
+                "alias": device.alias,
+                "reason": "No FCM token"
+            })
+            continue
+        
+        try:
+            request_id = str(uuid.uuid4())
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_sig = compute_hmac_signature(request_id, device.id, "update", timestamp)
+            
+            fcm_payload = {
+                "action": "update",
+                "request_id": request_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_sig
+            }
+            
+            result = await send_fcm_message_v1(device.fcm_token, fcm_payload, device.id, db)
+            
+            if result.get("success"):
+                success_count += 1
+                log_device_event(db, device.id, "ota_update_nudge_sent", {
+                    "request_id": request_id,
+                    "initiated_by": current_user.username
+                })
+            else:
+                failed_devices.append({
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "reason": result.get("error", "FCM send failed")
+                })
+                
+        except Exception as e:
+            failed_devices.append({
+                "device_id": device.id,
+                "alias": device.alias,
+                "reason": str(e)
+            })
+    
+    structured_logger.log_event(
+        "ota.nudge.sent",
+        total_devices=len(devices),
+        success_count=success_count,
+        failed_count=len(failed_devices),
+        initiated_by=current_user.username
+    )
+    
+    metrics.inc_counter("ota_nudge_total", {"status": "sent"}, value=success_count)
+    
+    return {
+        "success": True,
+        "total_devices": len(devices),
+        "success_count": success_count,
+        "failed_count": len(failed_devices),
+        "failed_devices": failed_devices
+    }
+
 # ==================== Battery Whitelist Management ====================
 
 @app.get("/v1/battery-whitelist")
