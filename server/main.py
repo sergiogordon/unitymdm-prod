@@ -35,6 +35,7 @@ from email_service import email_service
 from observability import structured_logger, metrics, request_id_var
 from hmac_utils import compute_hmac_signature
 import uuid
+import fast_reads
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -1431,14 +1432,33 @@ async def list_devices(
     offset = (page - 1) * limit
     devices = db.query(Device).order_by(Device.last_seen.desc()).offset(offset).limit(limit).all()
     
+    # Batch fetch device statuses if using fast reads
+    device_statuses = {}
+    if READ_FROM_LAST_STATUS:
+        device_ids = [d.id for d in devices]
+        device_statuses = fast_reads.get_all_device_statuses_fast(db, device_ids)
+    
     result = []
+    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "300"))
+    
     for device in devices:
-        status = "online"
-        if device.last_seen:
-            offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
-            heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "300"))
-            if offline_seconds > heartbeat_interval * 3:
+        # Determine online/offline status
+        if READ_FROM_LAST_STATUS and device.id in device_statuses:
+            # Fast path: O(1) lookup from device_last_status
+            fast_status = device_statuses[device.id]
+            last_seen = fast_status["last_ts"]
+            if last_seen:
+                offline_seconds = (datetime.now(timezone.utc) - ensure_utc(last_seen)).total_seconds()
+                status = "offline" if offline_seconds > heartbeat_interval * 3 else "online"
+            else:
                 status = "offline"
+        else:
+            # Legacy path: use device.last_seen
+            status = "online"
+            if device.last_seen:
+                offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
+                if offline_seconds > heartbeat_interval * 3:
+                    status = "offline"
         
         ping_status = None
         if device.last_ping_sent:
