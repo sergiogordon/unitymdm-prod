@@ -1,0 +1,120 @@
+Milestone Context & End Goal — “One-Liner ADB Enroll” (Frontend wiring + secure script)
+
+Purpose:
+Give operators a single command they can paste into Windows CMD (no files, no editors) that: downloads the latest APK, installs/updates, (best-effort) sets Device Owner, grants permissions, applies optimizations, launches the agent, sends config, and verifies—using short-lived enrollment tokens only.
+
+What “done” means
+A. Frontend changes (ADB Setup page)
+
+Add a new Actions menu per token row:
+
+Copy One-Liner (Windows CMD) → generates a single command with that row’s alias + token.
+
+Copy One-Liner (Bash) (optional toggle; ship later if you want).
+
+Keep existing actions (Download .cmd/.sh, Revoke, Copy Token).
+
+UI niceties:
+
+Small tooltip: “Paste into Command Prompt (cmd.exe). Requires ADB in PATH.”
+
+If token is not active, disable the one-liner action with a tooltip (Revoked/Expired).
+
+B. Backend support (no UI redesign)
+
+New endpoint to render one-liner safely:
+
+GET /v1/scripts/enroll.one-liner.cmd?token_id=…&alias=…
+Returns text/plain; server injects BASE_URL, APK_ENDPOINT, and fetches the token server-side, so the URL never exposes secrets.
+
+Reuse your existing server templates/logic (same steps as .cmd/.sh), but compressed to one shell line.
+
+C. The one-liner itself (sanitized, secure)
+
+Below is the shape your one-liner should have (you’ll render values server-side). Note: uses Bearer enrollment token, not admin keys.
+
+echo [NexMDM Deployment - Device: {ALIAS}] && echo. && ^
+echo [Step 1/7] Downloading latest APK... && ^
+curl --fail --silent --show-error -H "Authorization: Bearer {ENROLL_TOKEN}" "{BASE_URL}{APK_ENDPOINT}" -o "%TEMP%\nexmdm-latest.apk" && echo ✅ APK downloaded! && echo. && ^
+echo [Step 2/7] Installing APK... && ^
+adb install -r "%TEMP%\nexmdm-latest.apk" 1>nul 2>nul || (adb shell pm path {AGENT_PKG} 1>nul 2>nul || (echo [ERROR] Install failed & exit /b 1)) && echo ✅ APK installed/updated! && echo. && ^
+echo [Step 3/7] (Optional) Device Owner... && ^
+adb shell dpm set-device-owner {AGENT_PKG}/.NexDeviceAdminReceiver 1>nul 2>nul && echo ✅ Device Owner set! || echo ℹ️ Skipping (not factory-reset) && echo. && ^
+echo [Step 4/7] Permissions & Doze whitelist... && ^
+adb shell pm grant {AGENT_PKG} android.permission.POST_NOTIFICATIONS 2>nul && ^
+adb shell pm grant {AGENT_PKG} android.permission.CAMERA 2>nul && ^
+adb shell pm grant {AGENT_PKG} android.permission.ACCESS_FINE_LOCATION 2>nul && ^
+adb shell appops set {AGENT_PKG} RUN_ANY_IN_BACKGROUND allow 2>nul && ^
+adb shell appops set {AGENT_PKG} AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul && ^
+adb shell appops set {AGENT_PKG} GET_USAGE_STATS allow 2>nul && ^
+adb shell dumpsys deviceidle whitelist +{AGENT_PKG} 1>nul && echo ✅ Whitelisted! && echo. && ^
+echo [Step 5/7] Optimizations... && ^
+adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5" && ^
+adb shell dumpsys deviceidle whitelist +{UNITY_PKG} 1>nul && ^
+adb shell appops set {UNITY_PKG} RUN_ANY_IN_BACKGROUND allow 2>nul && echo ✅ Optimizations applied! && echo. && ^
+echo [Step 6/7] Launch & configure... && ^
+adb shell monkey -p {AGENT_PKG} -c android.intent.category.LAUNCHER 1 1>nul 2>nul && ^
+timeout /t 2 /nobreak >nul && ^
+adb shell am broadcast -a {AGENT_PKG}.CONFIGURE -n {AGENT_PKG}/.ConfigReceiver --es server_url "{BASE_URL}" --es token "{ENROLL_TOKEN}" --es alias "{ALIAS}" --es unity_pkg "{UNITY_PKG}" 1>nul && ^
+timeout /t 3 /nobreak >nul && echo ✅ Configuration sent! && echo. && ^
+echo [Step 7/7] Verifying... && ^
+adb shell pidof {AGENT_PKG} 1>nul && echo ✅ Service running || echo [WARN] Service starting... && echo. && ^
+echo ========================================== && echo ✅ ENROLLMENT COMPLETE && echo ========================================== && ^
+echo 📱 "{ALIAS}" should appear in the dashboard within ~60s.
+
+
+Replace {ALIAS}, {ENROLL_TOKEN}, {BASE_URL}, {APK_ENDPOINT}, {AGENT_PKG}, {UNITY_PKG} server-side.
+
+Keep Device Owner best-effort (safe no-op on non-factory-reset devices).
+
+All sensitive headers use Bearer token, not X-Admin-Key.
+
+Non-goals
+
+No UI layout overhaul.
+
+No bulk zip in this milestone (keep per-row action).
+
+No additional device commands; enrollment only.
+
+Security baseline
+
+Enrollment token is short-lived + single-use (already implemented).
+
+Token never appears in page URLs; copy action pulls from server-rendered content.
+
+HTTPS required; curl uses --fail --silent --show-error.
+
+No admin keys in scripts, ever.
+
+Observability
+
+Emit script.render_one_liner events (with token_id, alias, admin_id).
+
+Existing apk.download logs still fire when the script runs.
+
+Count copies/downloads: script_oneliner_copies_total.
+
+Acceptance tests
+
+Render & copy: For D01, click Copy One-Liner → clipboard has a single command with aliased token (masked in UI until copy).
+
+Run on Windows CMD: Paste/run → APK downloads, installs/updates, permissions/whitelist apply, app launches, config broadcast sent, service verified.
+
+Appears in Devices: Device shows in /v1/devices within ≤60 s; heartbeat starts.
+
+Idempotent re-run: Running the same one-liner again on the same device does not duplicate records and safely reconfigures if needed.
+
+Revoked/expired token: Copy action is disabled; running an older copied command yields 401 on APK/registration.
+
+No secret leaks: Browser console/network panel shows no admin keys; token visible only on copy and not persisted.
+
+“Definition of Done”
+
+ADB Setup page has Copy One-Liner per token row (Windows CMD).
+
+Operators can enroll devices with just a paste into cmd.exe—no files, no editing.
+
+Five devices enrolled end-to-end from this page using the one-liner.
+
+Logs and metrics reflect one-liner renders and APK downloads; no secret exposure.
