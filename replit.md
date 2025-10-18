@@ -13,8 +13,11 @@ Production-ready cloud-based Mobile Device Management system with async PostgreS
 ## Recent Changes (October 18, 2025)
 
 ### Frontend-Backend Integration Complete ✅
+- ✅ **Next.js API Proxy** - Proxy route forwards all requests to backend port 8000
+- ✅ **Binary Data Support** - Proxy preserves APK uploads/downloads using ArrayBuffer
+- ✅ **Replit UUID Domain Fix** - Frontend works on Replit production webview (UUID domains)
+- ✅ **Zero Console Errors** - Dashboard loads cleanly with no JavaScript errors
 - ✅ **Conditional Sidebar** - Sidebar hidden on login, visible after authentication
-- ✅ **Backend URL Detection** - Auto-detects Replit UUID domains and routes to port 8000
 - ✅ **API Endpoint Migration** - Updated frontend calls from /api/* to /v1/* endpoints
 - ✅ **Device Listing Fixed** - Backend handles last_status as both dict and JSON string
 - ✅ **Protected Routes** - All dashboard pages redirect to login when not authenticated
