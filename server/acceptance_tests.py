@@ -21,18 +21,14 @@ from datetime import datetime, timezone, timedelta, date
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from models import Base, Device, DeviceHeartbeat
-from db_utils import (
-    record_heartbeat_with_bucketing,
-    create_heartbeat_partition,
-    get_partition_metadata,
-    update_partition_metadata
-)
+from db_utils import record_heartbeat_with_bucketing, create_heartbeat_partition
 from fast_reads import get_device_status_fast, get_offline_devices_fast
 from reconciliation_job import run_reconciliation
 from nightly_maintenance import (
     create_future_partitions,
+    update_partition_stats,
     archive_old_partitions,
-    drop_old_partitions
+    drop_archived_partitions
 )
 
 
@@ -117,9 +113,11 @@ class TestPartitionPruning:
             today = date.today()
             partition_name = f"device_heartbeats_{today.strftime('%Y%m%d')}"
             
-            # Get initial row count
-            metadata_before = get_partition_metadata(db, partition_name)
-            initial_count = metadata_before['row_count'] if metadata_before else 0
+            # Get initial row count from metadata table
+            initial_metadata = db.execute(text("""
+                SELECT row_count FROM hb_partitions WHERE partition_name = :name
+            """), {"name": partition_name}).fetchone()
+            initial_count = initial_metadata.row_count if initial_metadata else 0
             
             # Insert 5 heartbeats
             device_id = "test-metadata"
@@ -138,16 +136,19 @@ class TestPartitionPruning:
             
             db.commit()
             
-            # Update metadata
-            update_partition_metadata(db, partition_name)
+            # Update partition stats
+            update_partition_stats(db, dry_run=False)
             db.commit()
             
             # Verify row count increased by 5
-            metadata_after = get_partition_metadata(db, partition_name)
-            assert metadata_after is not None
-            assert metadata_after['row_count'] == initial_count + 5
+            updated_metadata = db.execute(text("""
+                SELECT row_count FROM hb_partitions WHERE partition_name = :name
+            """), {"name": partition_name}).fetchone()
             
-            print(f"✓ Partition metadata tracking: {initial_count} → {metadata_after['row_count']} rows")
+            assert updated_metadata is not None
+            assert updated_metadata.row_count == initial_count + 5
+            
+            print(f"✓ Partition metadata tracking: {initial_count} → {updated_metadata.row_count} rows")
             
         finally:
             db.close()
@@ -339,17 +340,19 @@ class TestArchiveChecksums:
             db.commit()
             
             # Archive partition
-            archived = archive_old_partitions(retention_days=90, dry_run=False)
+            archive_old_partitions(db, retention_days=90, dry_run=False)
             
             # Check checksum was generated
-            metadata = get_partition_metadata(db, partition_name)
-            assert metadata is not None
+            metadata = db.execute(text("""
+                SELECT state, archive_checksum FROM hb_partitions 
+                WHERE partition_name = :name
+            """), {"name": partition_name}).fetchone()
             
-            if metadata.get('state') == 'archived':
-                assert metadata.get('archive_checksum') is not None
-                assert len(metadata['archive_checksum']) == 64  # SHA-256 hex
+            if metadata and metadata.state == 'archived':
+                assert metadata.archive_checksum is not None
+                assert len(metadata.archive_checksum) == 64  # SHA-256 hex
                 
-                print(f"✓ Archive checksum: {metadata['archive_checksum'][:16]}...")
+                print(f"✓ Archive checksum: {metadata.archive_checksum[:16]}...")
             else:
                 print(f"⚠ Partition not archived (may not meet retention criteria)")
             
