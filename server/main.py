@@ -3293,7 +3293,7 @@ async def get_windows_one_liner_script(
         platform="windows"
     )
     
-    metrics.increment_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
+    metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
     
     apk_endpoint = f"{server_url}/v1/apk/download/latest"
     
