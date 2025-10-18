@@ -1,401 +1,272 @@
 """
-Email Service using Replit Mail Integration
+Email service using Replit Mail for password reset functionality
+Integration: replitmail
 """
 
 import os
-import logging
-from typing import Optional
+import json
+import httpx
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 
-logger = logging.getLogger(__name__)
-
-# Check if Replit Mail is available
-try:
-    from replitmail import send_mail
-    REPLIT_MAIL_AVAILABLE = True
-except ImportError:
-    REPLIT_MAIL_AVAILABLE = False
-    logger.warning("Replit Mail not available. Email functionality disabled.")
-
-async def send_password_reset_email(
-    to_email: str, 
-    username: str, 
-    reset_token: str
-) -> bool:
-    """
-    Send password reset email using Replit Mail
-    """
-    if not REPLIT_MAIL_AVAILABLE:
-        logger.error("Cannot send email: Replit Mail not available")
-        return False
+class ReplitMailService:
+    """Service for sending emails using Replit Mail API"""
     
-    try:
-        # Get the base URL from environment or use default
-        base_url = os.getenv("FRONTEND_URL", "https://your-mdm.vercel.app")
-        reset_url = f"{base_url}/reset-password?token={reset_token}"
+    def __init__(self):
+        self.api_url = "https://connectors.replit.com/api/v2/mailer/send"
+        self.auth_token = self._get_auth_token()
+    
+    def _get_auth_token(self) -> str:
+        """Get authentication token from Replit environment"""
+        repl_identity = os.getenv("REPL_IDENTITY")
+        web_repl_renewal = os.getenv("WEB_REPL_RENEWAL")
         
-        # Create HTML email content
+        if repl_identity:
+            return f"repl {repl_identity}"
+        elif web_repl_renewal:
+            return f"depl {web_repl_renewal}"
+        else:
+            raise ValueError("No Replit authentication token found. Ensure you're running in Replit environment.")
+    
+    async def send_email(
+        self,
+        to: str | List[str],
+        subject: str,
+        text: Optional[str] = None,
+        html: Optional[str] = None,
+        cc: Optional[str | List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Send an email using Replit Mail
+        
+        Args:
+            to: Recipient email address(es)
+            subject: Email subject
+            text: Plain text body
+            html: HTML body
+            cc: CC recipient email address(es)
+        
+        Returns:
+            Response from the email service
+        """
+        payload = {
+            "to": to,
+            "subject": subject,
+            "text": text,
+            "html": html
+        }
+        
+        if cc:
+            payload["cc"] = cc
+        
+        headers = {
+            "Content-Type": "application/json",
+            "X_REPLIT_TOKEN": self.auth_token
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                error_data = response.json() if response.content else {}
+                raise Exception(f"Failed to send email: {error_data.get('message', 'Unknown error')}")
+            
+            return response.json()
+    
+    async def send_password_reset_email(
+        self,
+        to_email: str,
+        reset_token: str,
+        username: str,
+        base_url: str
+    ) -> Dict[str, Any]:
+        """
+        Send a password reset email with a formatted template
+        
+        Args:
+            to_email: Recipient email
+            reset_token: Password reset token
+            username: User's username
+            base_url: Base URL of the application
+        
+        Returns:
+            Response from the email service
+        """
+        reset_link = f"{base_url}/reset-password?token={reset_token}"
+        
+        # HTML template with modern styling
         html_content = f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .container {{
-                    background-color: #f9f9f9;
-                    border-radius: 10px;
-                    padding: 30px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }}
-                .header {{
-                    text-align: center;
-                    margin-bottom: 30px;
-                }}
-                .logo {{
-                    font-size: 28px;
-                    font-weight: bold;
-                    color: #007AFF;
-                }}
-                .content {{
-                    background-color: white;
-                    border-radius: 8px;
-                    padding: 25px;
-                    margin-bottom: 20px;
-                }}
-                .button {{
-                    display: inline-block;
-                    padding: 12px 30px;
-                    background-color: #007AFF;
-                    color: white !important;
-                    text-decoration: none;
-                    border-radius: 6px;
-                    font-weight: 600;
-                    margin: 20px 0;
-                }}
-                .button:hover {{
-                    background-color: #0056b3;
-                }}
-                .footer {{
-                    text-align: center;
-                    color: #666;
-                    font-size: 14px;
-                    margin-top: 30px;
-                }}
-                .warning {{
-                    background-color: #fff3cd;
-                    border-left: 4px solid #ffc107;
-                    padding: 10px;
-                    margin: 20px 0;
-                    border-radius: 4px;
-                }}
-                code {{
-                    background-color: #f4f4f4;
-                    padding: 2px 6px;
-                    border-radius: 3px;
-                    font-family: 'Courier New', monospace;
-                }}
-            </style>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Password Reset - UNITYmdm</title>
         </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <div class="logo">🛡️ MDM System</div>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+                     line-height: 1.6; 
+                     color: #333; 
+                     max-width: 600px; 
+                     margin: 0 auto; 
+                     padding: 20px;
+                     background-color: #f5f5f5;">
+            <div style="background-color: white; 
+                        padding: 30px; 
+                        border-radius: 10px; 
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h1 style="color: #1a1a1a; font-size: 24px; margin: 0;">UNITYmdm</h1>
+                    <p style="color: #666; font-size: 14px; margin: 5px 0;">Mobile Device Management</p>
                 </div>
                 
-                <div class="content">
-                    <h2>Password Reset Request</h2>
-                    <p>Hello <strong>{username}</strong>,</p>
-                    <p>We received a request to reset your password for your MDM System account.</p>
-                    
-                    <div style="text-align: center;">
-                        <a href="{reset_url}" class="button">Reset Password</a>
-                    </div>
-                    
-                    <p>Or copy and paste this link into your browser:</p>
-                    <p><code style="word-break: break-all;">{reset_url}</code></p>
-                    
-                    <div class="warning">
-                        <strong>⚠️ Security Notice:</strong><br>
-                        • This link will expire in 1 hour<br>
-                        • If you didn't request this, please ignore this email<br>
-                        • Never share this link with anyone
-                    </div>
+                <h2 style="color: #1a1a1a; font-size: 20px; margin-bottom: 15px;">Password Reset Request</h2>
+                
+                <p style="color: #666; margin-bottom: 20px;">
+                    Hello <strong>{username}</strong>,
+                </p>
+                
+                <p style="color: #666; margin-bottom: 25px;">
+                    We received a request to reset your password. Click the button below to create a new password:
+                </p>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="{reset_link}" 
+                       style="display: inline-block; 
+                              padding: 12px 30px; 
+                              background-color: #000; 
+                              color: white; 
+                              text-decoration: none; 
+                              border-radius: 6px; 
+                              font-weight: 500;
+                              font-size: 14px;">
+                        Reset Password
+                    </a>
                 </div>
                 
-                <div class="footer">
-                    <p>This is an automated message from MDM System.</p>
-                    <p>© 2024 MDM System. All rights reserved.</p>
-                </div>
+                <p style="color: #999; font-size: 13px; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <strong>Security Notice:</strong><br>
+                    • This link will expire in 1 hour<br>
+                    • If you didn't request this reset, please ignore this email<br>
+                    • Your password won't change until you complete the reset process
+                </p>
+                
+                <p style="color: #999; font-size: 12px; margin-top: 20px;">
+                    If the button doesn't work, copy and paste this link into your browser:<br>
+                    <span style="color: #0066cc; word-break: break-all;">{reset_link}</span>
+                </p>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
+                © {datetime.now(timezone.utc).year} UNITYmdm. All rights reserved.
             </div>
         </body>
         </html>
         """
         
-        # Plain text fallback
+        # Plain text version
         text_content = f"""
-Password Reset Request
+Password Reset Request - UNITYmdm
 
 Hello {username},
 
-We received a request to reset your password for your MDM System account.
+We received a request to reset your password for your UNITYmdm account.
 
-Click the link below to reset your password:
-{reset_url}
+To reset your password, please visit the following link:
+{reset_link}
 
 This link will expire in 1 hour.
 
 Security Notice:
-- If you didn't request this, please ignore this email
-- Never share this link with anyone
+• If you didn't request this reset, please ignore this email
+• Your password won't change until you complete the reset process
 
-This is an automated message from MDM System.
+If you're having trouble with the link, copy and paste it into your browser.
+
+Best regards,
+UNITYmdm Team
         """
         
-        # Send email using Replit Mail
-        send_mail(
-            to_email=to_email,
-            subject="MDM System - Password Reset Request",
-            content=html_content,
-            text_content=text_content
+        return await self.send_email(
+            to=to_email,
+            subject="Password Reset Request - UNITYmdm",
+            text=text_content,
+            html=html_content
         )
-        
-        logger.info(f"Password reset email sent to {to_email}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send password reset email: {e}")
-        return False
-
-async def send_password_reset_confirmation(
-    to_email: str,
-    username: str
-) -> bool:
-    """
-    Send password reset confirmation email
-    """
-    if not REPLIT_MAIL_AVAILABLE:
-        logger.error("Cannot send email: Replit Mail not available")
-        return False
     
-    try:
-        # Create HTML email content
+    async def send_password_reset_success_email(
+        self,
+        to_email: str,
+        username: str
+    ) -> Dict[str, Any]:
+        """
+        Send a confirmation email after successful password reset
+        
+        Args:
+            to_email: Recipient email
+            username: User's username
+        
+        Returns:
+            Response from the email service
+        """
         html_content = f"""
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .container {{
-                    background-color: #f9f9f9;
-                    border-radius: 10px;
-                    padding: 30px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }}
-                .header {{
-                    text-align: center;
-                    margin-bottom: 30px;
-                }}
-                .logo {{
-                    font-size: 28px;
-                    font-weight: bold;
-                    color: #28a745;
-                }}
-                .content {{
-                    background-color: white;
-                    border-radius: 8px;
-                    padding: 25px;
-                }}
-                .success {{
-                    background-color: #d4edda;
-                    border-left: 4px solid #28a745;
-                    padding: 10px;
-                    margin: 20px 0;
-                    border-radius: 4px;
-                }}
-                .footer {{
-                    text-align: center;
-                    color: #666;
-                    font-size: 14px;
-                    margin-top: 30px;
-                }}
-            </style>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <div class="logo">✅ Password Reset Successful</div>
-                </div>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                     line-height: 1.6; 
+                     color: #333; 
+                     max-width: 600px; 
+                     margin: 0 auto; 
+                     padding: 20px;">
+            <div style="background-color: white; 
+                        padding: 30px; 
+                        border-radius: 10px; 
+                        border: 1px solid #e0e0e0;">
+                <h1 style="color: #1a1a1a; font-size: 24px; margin-bottom: 20px;">Password Successfully Reset</h1>
                 
-                <div class="content">
-                    <h2>Your password has been reset</h2>
-                    <p>Hello <strong>{username}</strong>,</p>
-                    
-                    <div class="success">
-                        <strong>✅ Success!</strong><br>
-                        Your password has been successfully reset.
-                    </div>
-                    
-                    <p>You can now log in to your MDM System account with your new password.</p>
-                    
-                    <h3>Security Tips:</h3>
-                    <ul>
-                        <li>Use a strong, unique password</li>
-                        <li>Enable two-factor authentication if available</li>
-                        <li>Never share your password with anyone</li>
-                        <li>If you didn't make this change, contact support immediately</li>
-                    </ul>
-                </div>
+                <p style="color: #666;">
+                    Hello <strong>{username}</strong>,
+                </p>
                 
-                <div class="footer">
-                    <p>This is an automated security notification from MDM System.</p>
-                    <p>© 2024 MDM System. All rights reserved.</p>
-                </div>
+                <p style="color: #666;">
+                    Your password has been successfully reset. You can now log in with your new password.
+                </p>
+                
+                <p style="color: #999; font-size: 13px; margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee;">
+                    If you didn't make this change, please contact your administrator immediately.
+                </p>
             </div>
         </body>
         </html>
         """
         
-        # Plain text fallback
         text_content = f"""
-Password Reset Successful
+Password Successfully Reset - UNITYmdm
 
 Hello {username},
 
-Your password has been successfully reset.
+Your password has been successfully reset. You can now log in with your new password.
 
-You can now log in to your MDM System account with your new password.
+If you didn't make this change, please contact your administrator immediately.
 
-Security Tips:
-- Use a strong, unique password
-- Enable two-factor authentication if available
-- Never share your password with anyone
-- If you didn't make this change, contact support immediately
-
-This is an automated security notification from MDM System.
+Best regards,
+UNITYmdm Team
         """
         
-        # Send email using Replit Mail
-        send_mail(
-            to_email=to_email,
-            subject="MDM System - Password Reset Successful",
-            content=html_content,
-            text_content=text_content
+        return await self.send_email(
+            to=to_email,
+            subject="Password Reset Successful - UNITYmdm",
+            text=text_content,
+            html=html_content
         )
-        
-        logger.info(f"Password reset confirmation sent to {to_email}")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send confirmation email: {e}")
-        return False
 
-async def send_device_alert_email(
-    to_email: str,
-    device_id: str,
-    alert_type: str,
-    details: str
-) -> bool:
-    """
-    Send device alert email notification
-    """
-    if not REPLIT_MAIL_AVAILABLE:
-        logger.error("Cannot send email: Replit Mail not available")
-        return False
-    
-    try:
-        # Determine alert severity and color
-        if alert_type in ["offline", "critical"]:
-            color = "#dc3545"
-            emoji = "🔴"
-        elif alert_type == "warning":
-            color = "#ffc107"
-            emoji = "⚠️"
-        else:
-            color = "#007AFF"
-            emoji = "ℹ️"
-        
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 600px;
-                    margin: 0 auto;
-                    padding: 20px;
-                }}
-                .alert-box {{
-                    border: 2px solid {color};
-                    border-radius: 8px;
-                    padding: 20px;
-                    background-color: #f9f9f9;
-                }}
-                .alert-header {{
-                    color: {color};
-                    font-size: 24px;
-                    font-weight: bold;
-                    margin-bottom: 15px;
-                }}
-                .device-info {{
-                    background-color: white;
-                    padding: 15px;
-                    border-radius: 6px;
-                    margin: 15px 0;
-                }}
-                .footer {{
-                    text-align: center;
-                    color: #666;
-                    font-size: 14px;
-                    margin-top: 30px;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="alert-box">
-                <div class="alert-header">
-                    {emoji} Device Alert: {alert_type.upper()}
-                </div>
-                
-                <div class="device-info">
-                    <strong>Device ID:</strong> {device_id}<br>
-                    <strong>Alert Type:</strong> {alert_type}<br>
-                    <strong>Details:</strong> {details}
-                </div>
-                
-                <p>Please check the MDM dashboard for more information and to take appropriate action.</p>
-            </div>
-            
-            <div class="footer">
-                <p>MDM System Alert Notification</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        send_mail(
-            to_email=to_email,
-            subject=f"MDM Alert: {alert_type} - Device {device_id}",
-            content=html_content
-        )
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Failed to send alert email: {e}")
-        return False
+# Singleton instance
+email_service = ReplitMailService()

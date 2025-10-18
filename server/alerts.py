@@ -6,8 +6,8 @@ import uuid
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
-from server.models import Device, DeviceEvent, SessionLocal
-from server.fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
+from models import Device, DeviceEvent, SessionLocal
+from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
 
 # Helper function to ensure datetime is timezone-aware (assume UTC for naive datetimes)
 def ensure_utc(dt: Optional[datetime]) -> datetime:

@@ -1,6 +1,6 @@
 from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
-from server.models import ApkVersion
+from models import ApkVersion
 from datetime import datetime, timezone
 import os
 from pathlib import Path
