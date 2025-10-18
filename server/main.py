@@ -911,34 +911,69 @@ async def admin_generate_reset_token(
 @app.post("/v1/register", response_model=RegisterResponse)
 async def register_device(
     alias: str,
+    request: Request,
     x_admin: str = Header(None),
     db: Session = Depends(get_db)
 ):
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=401, detail="Admin key required")
-    
-    device_token = generate_device_token()
-    token_hash = hash_token(device_token)
-    token_id = compute_token_id(device_token)
-    
-    import uuid
-    device_id = str(uuid.uuid4())
-    
-    device = Device(
-        id=device_id,
+    structured_logger.log_event(
+        "register.request",
         alias=alias,
-        token_hash=token_hash,
-        token_id=token_id,
-        created_at=datetime.now(timezone.utc),
-        last_seen=datetime.now(timezone.utc)
+        route="/v1/register"
     )
     
-    db.add(device)
-    db.commit()
+    try:
+        if not verify_admin_key(x_admin or ""):
+            structured_logger.log_event(
+                "register.fail",
+                level="WARN",
+                alias=alias,
+                result="unauthorized",
+                reason="invalid_admin_key"
+            )
+            raise HTTPException(status_code=401, detail="Admin key required")
+        
+        device_token = generate_device_token()
+        token_hash = hash_token(device_token)
+        token_id = compute_token_id(device_token)
+        
+        import uuid
+        device_id = str(uuid.uuid4())
+        
+        device = Device(
+            id=device_id,
+            alias=alias,
+            token_hash=token_hash,
+            token_id=token_id,
+            created_at=datetime.now(timezone.utc),
+            last_seen=datetime.now(timezone.utc)
+        )
+        
+        db.add(device)
+        db.commit()
+        
+        log_device_event(db, device_id, "device_enrolled", {"alias": alias})
+        
+        structured_logger.log_event(
+            "register.success",
+            device_id=device_id,
+            alias=alias,
+            token_id=token_id[-4:] if token_id else None,
+            result="success"
+        )
+        
+        return RegisterResponse(device_token=device_token, device_id=device_id)
     
-    log_device_event(db, device_id, "device_enrolled", {"alias": alias})
-    
-    return RegisterResponse(device_token=device_token, device_id=device_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.log_event(
+            "register.fail",
+            level="ERROR",
+            alias=alias,
+            result="error",
+            error=str(e)
+        )
+        raise
 
 @app.post("/v1/heartbeat", response_model=HeartbeatResponse)
 async def heartbeat(
