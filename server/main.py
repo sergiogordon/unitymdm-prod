@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response, Cookie, WebSocket, WebSocketDisconnect, Query, File, UploadFile, Form
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response, Cookie, WebSocket, WebSocketDisconnect, Query, File, UploadFile, Form, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -25,7 +26,7 @@ from schemas import (
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
     hash_password, verify_password, create_session, get_current_user, get_current_user_optional,
-    compute_token_id
+    compute_token_id, verify_enrollment_token, security
 )
 from alerts import alert_scheduler, alert_manager
 from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
@@ -87,6 +88,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Request size limit middleware (BUG FIX #5): Prevent DoS attacks with large payloads
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """
+    Limit request body size to 1MB to prevent DoS attacks.
+    Uses streaming size guard to enforce limit regardless of Content-Length header,
+    chunked encoding, or other transfer methods.
+    """
+    max_size = 1 * 1024 * 1024  # 1MB
+    
+    # Wrap the receive function to track total bytes
+    total_bytes = 0
+    receive = request.receive
+    size_exceeded = False
+    
+    async def guarded_receive():
+        nonlocal total_bytes, size_exceeded
+        message = await receive()
+        
+        if message["type"] == "http.request":
+            body = message.get("body", b"")
+            total_bytes += len(body)
+            
+            if total_bytes > max_size:
+                size_exceeded = True
+                # Return empty body to prevent further processing
+                return {"type": "http.request", "body": b""}
+        
+        return message
+    
+    # Replace request's receive with our guarded version
+    request._receive = guarded_receive
+    
+    try:
+        response = await call_next(request)
+        
+        # If size was exceeded, return 413 instead
+        if size_exceeded:
+            return Response(
+                status_code=413,
+                content=json.dumps({"detail": "Request body too large (max 1MB)"}),
+                media_type="application/json"
+            )
+        
+        return response
+    except Exception as e:
+        # If size was exceeded, return 413
+        if size_exceeded:
+            return Response(
+                status_code=413,
+                content=json.dumps({"detail": "Request body too large (max 1MB)"}),
+                media_type="application/json"
+            )
+        raise
+
 # Rate limiting for APK update endpoint
 class RateLimiter:
     def __init__(self, max_requests: int = 10, window_seconds: int = 30):
@@ -110,6 +166,9 @@ class RateLimiter:
 
 # Rate limiter: 200 requests per 30 seconds per installation (very lenient for progress updates)
 apk_rate_limiter = RateLimiter(max_requests=200, window_seconds=30)
+
+# Registration rate limiter (BUG FIX #4): 3 registrations per minute per IP
+registration_rate_limiter = RateLimiter(max_requests=3, window_seconds=60)
 
 # Global error handler to prevent crashes
 @app.exception_handler(Exception)
@@ -664,6 +723,7 @@ async def viewer_stream_endpoint(
 
 @app.post("/api/auth/register")
 async def register_user(
+    req: Request,
     request: UserRegisterRequest,
     response: Response,
     admin_key: str = Header(..., alias="x-admin-key"),
@@ -671,6 +731,15 @@ async def register_user(
 ):
     if not verify_admin_key(admin_key):
         raise HTTPException(status_code=403, detail="Invalid admin key")
+    
+    # Rate limiting (BUG FIX #4): Prevent registration abuse
+    client_ip = req.client.host if req.client else "unknown"
+    if not registration_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts. Please try again later.",
+            headers={"Retry-After": "60"}
+        )
     
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
@@ -939,28 +1008,29 @@ async def admin_generate_reset_token(
 
 @app.post("/v1/register", response_model=RegisterResponse)
 async def register_device(
-    alias: str,
+    payload: dict,
     request: Request,
-    x_admin: str = Header(None),
+    enrollment_token = Depends(verify_enrollment_token),
     db: Session = Depends(get_db)
 ):
+    """Register a device using an enrollment token"""
+    from models import EnrollmentToken, EnrollmentEvent
+    
+    alias = payload.get("alias")
+    hardware_id = payload.get("hardware_id", "unknown")
+    
+    if not alias:
+        raise HTTPException(status_code=422, detail="alias is required")
+    
     structured_logger.log_event(
         "register.request",
         alias=alias,
+        token_id=enrollment_token.token_id,
         route="/v1/register"
     )
     
     try:
-        if not verify_admin_key(x_admin or ""):
-            structured_logger.log_event(
-                "register.fail",
-                level="WARN",
-                alias=alias,
-                result="unauthorized",
-                reason="invalid_admin_key"
-            )
-            raise HTTPException(status_code=401, detail="Admin key required")
-        
+        # Generate device token
         device_token = generate_device_token()
         token_hash = hash_token(device_token)
         token_id = compute_token_id(device_token)
@@ -968,6 +1038,7 @@ async def register_device(
         import uuid
         device_id = str(uuid.uuid4())
         
+        # Create device
         device = Device(
             id=device_id,
             alias=alias,
@@ -978,14 +1049,39 @@ async def register_device(
         )
         
         db.add(device)
+        
+        # Increment enrollment token usage counter (BUG FIX #2)
+        enrollment_token.uses_consumed += 1
+        enrollment_token.last_used_at = datetime.now(timezone.utc)
+        enrollment_token.device_id = device_id
+        enrollment_token.used_at = datetime.now(timezone.utc)
+        
+        # Mark as exhausted if all uses consumed
+        if enrollment_token.uses_consumed >= enrollment_token.uses_allowed:
+            enrollment_token.status = 'exhausted'
+        
+        # Log enrollment event
+        event = EnrollmentEvent(
+            event_type='device.registered',
+            token_id=enrollment_token.token_id,
+            alias=alias,
+            device_id=device_id,
+            metadata={"hardware_id": hardware_id}
+        )
+        db.add(event)
+        
         db.commit()
         
-        log_device_event(db, device_id, "device_enrolled", {"alias": alias})
+        log_device_event(db, device_id, "device_enrolled", {
+            "alias": alias,
+            "enrollment_token_id": enrollment_token.token_id
+        })
         
         structured_logger.log_event(
             "register.success",
             device_id=device_id,
             alias=alias,
+            enrollment_token_id=enrollment_token.token_id,
             token_id=token_id[-4:] if token_id else None,
             result="success"
         )
@@ -2533,8 +2629,8 @@ async def create_enrollment_tokens(
             continue
         
         raw_token = secrets.token_urlsafe(32)
-        token_id = f"tok_{secrets.token_urlsafe(8)}"
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        token_id = compute_token_id(raw_token)
+        token_hash = hash_token(raw_token)
         
         enrollment_token = EnrollmentToken(
             token_id=token_id,
@@ -2545,7 +2641,8 @@ async def create_enrollment_tokens(
             uses_allowed=request.uses_allowed,
             uses_consumed=0,
             note=request.note,
-            status='active'
+            status='active',
+            scope='register'
         )
         
         db.add(enrollment_token)
@@ -3161,15 +3258,68 @@ async def download_apk_web(
 @app.get("/v1/apk/download-latest")
 async def download_latest_apk(
     request: Request,
-    x_admin_key: str = Header(...),
+    x_admin_key: Optional[str] = Header(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
     db: Session = Depends(get_db)
 ):
-    """Download the latest APK version (requires admin key) - For ADB scripts"""
-    from models import ApkDownloadEvent
+    """Download the latest APK version (supports admin key or enrollment token) - For ADB scripts"""
+    from models import ApkDownloadEvent, EnrollmentToken
     
-    # Verify admin key
-    if not verify_admin_key(x_admin_key):
-        raise HTTPException(status_code=401, detail="Invalid admin key")
+    auth_method = "unknown"
+    token_id_for_log = "unknown"
+    
+    # Try enrollment token first (Bearer token)
+    if credentials:
+        try:
+            raw_token = credentials.credentials
+            from auth import compute_token_id, verify_token
+            token_id = compute_token_id(raw_token)
+            
+            # Look up enrollment token
+            enrollment_token = db.query(EnrollmentToken).filter(
+                EnrollmentToken.token_id == token_id
+            ).first()
+            
+            if enrollment_token and verify_token(raw_token, enrollment_token.token_hash):
+                # Validate enrollment token (expiry, usage, status)
+                now = datetime.now(timezone.utc)
+                
+                if enrollment_token.status == 'revoked':
+                    raise HTTPException(status_code=401, detail="Token has been revoked")
+                if enrollment_token.status == 'exhausted':
+                    raise HTTPException(status_code=401, detail="Token has been exhausted")
+                if enrollment_token.expires_at:
+                    # Handle timezone-naive datetimes from database
+                    expires_at = enrollment_token.expires_at
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=timezone.utc)
+                    if expires_at < now:
+                        raise HTTPException(status_code=401, detail="Token has expired")
+                if enrollment_token.uses_consumed >= enrollment_token.uses_allowed:
+                    raise HTTPException(status_code=401, detail="Token has been exhausted")
+                
+                # Token is valid - increment usage
+                enrollment_token.uses_consumed += 1
+                enrollment_token.last_used_at = now
+                if enrollment_token.uses_consumed >= enrollment_token.uses_allowed:
+                    enrollment_token.status = 'exhausted'
+                db.commit()
+                
+                auth_method = "enrollment_token"
+                token_id_for_log = enrollment_token.token_id
+            else:
+                raise HTTPException(status_code=401, detail="Invalid token")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Token validation failed: {str(e)}")
+    
+    # Fallback to admin key
+    elif x_admin_key and verify_admin_key(x_admin_key):
+        auth_method = "admin_key"
+        token_id_for_log = "admin"
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required (admin key or enrollment token)")
     
     # Get the latest active APK
     apk = db.query(ApkVersion).filter(
@@ -3198,15 +3348,16 @@ async def download_latest_apk(
         version_code=apk.version_code,
         version_name=apk.version_name,
         build_type=apk.build_type or "unknown",
-        token_id="admin",
-        source="enrollment"
+        token_id=token_id_for_log,
+        source="enrollment",
+        auth_method=auth_method
     )
     
     download_event = ApkDownloadEvent(
         build_id=apk.id,
         source="enrollment",
-        token_id="admin",
-        admin_user="admin_key",
+        token_id=token_id_for_log,
+        admin_user=auth_method,
         ip=request.client.host if request.client else None
     )
     db.add(download_event)

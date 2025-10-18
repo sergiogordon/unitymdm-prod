@@ -20,7 +20,11 @@ def hash_token(token: str) -> str:
     return bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode()
 
 def verify_token(token: str, hashed: str) -> bool:
-    return bcrypt.checkpw(token.encode(), hashed.encode())
+    try:
+        return bcrypt.checkpw(token.encode(), hashed.encode())
+    except (ValueError, AttributeError):
+        # Invalid salt or malformed hash - token doesn't match
+        return False
 
 def compute_token_id(token: str) -> str:
     """Compute SHA256 hash of token for fast database lookups"""
@@ -186,3 +190,69 @@ async def get_current_user_optional(
         return user
     except:
         return None
+
+async def verify_enrollment_token(
+    credentials: HTTPAuthorizationCredentials | None = Security(security),
+    required_scope: str = "register",
+    db: Session = Depends(get_db)
+):
+    """
+    Verify enrollment token with complete security validation:
+    - Token exists and matches hash
+    - Not expired
+    - Not exhausted (uses_consumed < uses_allowed)
+    - Correct scope
+    - Status is active
+    """
+    from models import EnrollmentToken
+    
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    
+    raw_token = credentials.credentials
+    token_id = compute_token_id(raw_token)
+    
+    # Look up token by token_id (fast indexed lookup)
+    enrollment_token = db.query(EnrollmentToken).filter(
+        EnrollmentToken.token_id == token_id
+    ).first()
+    
+    if not enrollment_token:
+        raise HTTPException(status_code=401, detail="Invalid enrollment token")
+    
+    # Verify token hash matches
+    if not verify_token(raw_token, enrollment_token.token_hash):
+        raise HTTPException(status_code=401, detail="Invalid enrollment token")
+    
+    # Check token status
+    if enrollment_token.status == 'revoked':
+        raise HTTPException(status_code=401, detail="Token has been revoked")
+    
+    if enrollment_token.status == 'exhausted':
+        raise HTTPException(status_code=401, detail="Token has been exhausted")
+    
+    # Check expiry (BUG FIX #1)
+    now = datetime.now(timezone.utc)
+    if enrollment_token.expires_at:
+        # Handle timezone-naive datetimes from database
+        expires_at = enrollment_token.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            raise HTTPException(status_code=401, detail="Token has expired")
+    
+    # Check usage limits (BUG FIX #2)
+    if enrollment_token.uses_consumed >= enrollment_token.uses_allowed:
+        # Mark as exhausted
+        enrollment_token.status = 'exhausted'
+        db.commit()
+        raise HTTPException(status_code=401, detail="Token has been exhausted")
+    
+    # Check scope (BUG FIX #3)
+    if enrollment_token.scope != required_scope:
+        raise HTTPException(
+            status_code=401, 
+            detail=f"Invalid token scope. Required: {required_scope}, got: {enrollment_token.scope}"
+        )
+    
+    return enrollment_token
