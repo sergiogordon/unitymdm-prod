@@ -35,7 +35,7 @@ export function BulkDeleteModal({
   const [isDeleting, setIsDeleting] = useState(false)
   
   const expectedText = `DELETE ${deviceCount}`
-  const canDelete = confirmText === expectedText
+  const canDelete = confirmText.trim() === expectedText
 
   const handleConfirm = async () => {
     if (!canDelete) return
