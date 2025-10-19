@@ -1,0 +1,91 @@
+**Milestone Context & End Goal — Dashboard Header Actions Alignment (Settings Gear)**
+
+**Purpose:**
+Make the **settings gear** consistently visible and aligned with the **end of the “Active Alerts” stat card row** and the **device table right edge** across viewports. No functional changes—pure layout polish + accessibility.
+
+---
+
+### What “done” means
+
+**Layout & placement**
+
+* The gear appears in the **header actions row** (same row as “Updated • X ago  ·  Alerts • N”), right-aligned to the **devices table container edge**.
+* On all breakpoints:
+
+  * **≥1280px (desktop):** gear sits to the far right of the stat cards row, vertically centered with “Updated/Alerts”.
+  * **768–1279px (tablet):** gear snaps to the right of the header row above the table; stat cards may wrap but the gear remains right-aligned to the table container.
+  * **<768px (mobile):** gear moves into an **overflow “⋯” menu** at the same alignment (or sits on its own right-aligned row if overflow not available).
+* The gear never overlaps count badges (e.g., “Alerts • 12”) and never scrolls off with the page header—**sticky within the dashboard content** if header becomes multi-line.
+
+**Visual alignment**
+
+* Right gutter matches the **device table’s right padding** (exact same container width).
+* Vertical rhythm: 8–12px spacing from the “Alerts” label; matches typography baseline grid.
+
+**Interaction & a11y**
+
+* `aria-label="Settings"`, `role="button"`, keyboard focus ring visible in light/dark.
+* Tooltip on hover/focus: “Settings”.
+* Click target ≥ 40×40 px.
+
+**Performance & resilience**
+
+* Implemented with **CSS layout (flex/grid)** only—no JS calculations for width/position.
+* No layout shift (CLS) when stat cards reflow, when alerts count changes, or on theme switch.
+
+---
+
+### Non-goals
+
+* No redesign of cards, table, or side nav.
+* No new settings functionality.
+* No changes to data fetching for “Updated/Alerts”.
+
+---
+
+### Implementation notes (front-end only; no code required here)
+
+* Wrap the header (Updated/Alerts/Actions) in a **flex container**:
+
+  * `justify-between` (or grid with 2 columns: left = meta, right = actions).
+  * Actions cell contains only the gear (or gear + overflow on mobile).
+* Ensure the **outer container width** is the **same parent** as the device table container so right edges align by construction.
+* Use a **sticky container** for the header on scroll (`position: sticky; top: <header-height>`), z-index above the table header.
+* Breakpoints:
+
+  * `lg`: stat cards row & header actions on one line.
+  * `md`: allow stat cards to wrap; keep actions on the right via its own row aligned to the same container.
+  * `sm`: move gear into “⋯” menu or keep right-aligned standalone—choose whichever already exists in your component library.
+
+---
+
+### Observability & QA hooks
+
+* Add a one-time log event: `ui.header_actions.render` with `{width, breakpoint, alertsCount}` for manual QA (dev builds only).
+* Screenshot tests (or manual checklist) at widths: **360, 768, 1024, 1280, 1440, 1920**.
+
+---
+
+### Acceptance tests
+
+**Visual/placement**
+
+1. **Desktop (≥1280px):** Gear is visible, right-aligned with device table edge; does not overlap “Alerts • N”.
+2. **Tablet (≈1024px):** Stat cards may wrap to two rows; gear remains right-aligned to table edge on the same header line or its dedicated actions row.
+3. **Mobile (≤768px):** Gear appears in overflow menu or right-aligned row; still accessible.
+
+**Behavior**
+4. Increase alerts from 0 → 50: no overlap or shift; gear remains aligned.
+5. Toggle theme (light/dark): focus ring/tooltip readable.
+6. Scroll page: header stays sticky; gear remains visible and aligned.
+7. Keyboard-only navigation: tab to gear, tooltip appears on focus; Enter/Space activates.
+
+**No regressions**
+8. Device table width changes (sidebar collapse/expand): gear re-aligns to the new right edge.
+9. Localization (longer “Alerts” string): layout holds; no wrapping collisions.
+
+---
+
+### Definition of Done
+
+* The **settings gear** is always visible and perfectly aligned with the **Active Alerts row end** and **device table right edge** on desktop/tablet, and gracefully handled on mobile—without JS positioning, layout shift, or accessibility regressions.
