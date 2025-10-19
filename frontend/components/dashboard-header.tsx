@@ -58,15 +58,16 @@ export function DashboardHeader({
         className,
       )}
     >
-      <div className="flex h-14 items-center justify-between gap-4">
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 py-2 sm:flex-nowrap sm:gap-4 sm:py-0">
         {/* Left side: Updated and Alerts metadata */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <button
             onClick={onRefresh}
             className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
             aria-label="Refresh dashboard data"
           >
-            <span>Updated</span>
+            <span className="hidden sm:inline">Updated</span>
+            <span className="sm:hidden">Updated</span>
             <span className="text-foreground">•</span>
             <span className={shouldPulse ? "animate-pulse-once" : ""}>{timeAgo}</span>
           </button>
@@ -100,11 +101,6 @@ export function DashboardHeader({
             </Tooltip>
           </TooltipProvider>
         </div>
-      </div>
-
-      {/* Mobile overflow menu - for smaller screens */}
-      <div className="sm:hidden">
-        {/* On mobile, the layout automatically wraps due to flex, keeping the gear visible */}
       </div>
     </div>
   )
