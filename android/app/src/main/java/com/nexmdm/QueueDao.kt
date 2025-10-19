@@ -32,7 +32,7 @@ interface QueueDao {
     @Query("DELETE FROM queue_items WHERE ttlExpiry < :currentTime")
     suspend fun deleteExpired(currentTime: Long): Int
     
-    @Query("DELETE FROM queue_items WHERE type = :type ORDER BY createdAt ASC LIMIT :limit")
+    @Query("WITH to_delete AS (SELECT id FROM queue_items WHERE type = :type ORDER BY createdAt ASC LIMIT :limit) DELETE FROM queue_items WHERE id IN (SELECT id FROM to_delete)")
     suspend fun deleteOldestByType(type: String, limit: Int): Int
     
     @Query("SELECT * FROM queue_items WHERE dedupeKey = :key LIMIT 1")
