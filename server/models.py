@@ -34,6 +34,7 @@ class Device(Base):
     app_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     token_hash: Mapped[str] = mapped_column(String, nullable=False)
     token_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True, unique=True)
+    token_revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     last_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -383,6 +384,24 @@ class AlertState(Base):
         Index('idx_alert_device_condition', 'device_id', 'condition'),
         Index('idx_alert_cooldown', 'cooldown_until'),
         UniqueConstraint('device_id', 'condition', name='uq_device_condition'),
+    )
+
+class DeviceSelection(Base):
+    __tablename__ = "device_selections"
+    
+    selection_id: Mapped[str] = mapped_column(String, primary_key=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    
+    filter_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_ids_json: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_selection_expires', 'expires_at'),
+        Index('idx_selection_created', 'created_at'),
     )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")

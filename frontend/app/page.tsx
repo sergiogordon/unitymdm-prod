@@ -127,7 +127,11 @@ export default function Page() {
 
         <FilterBar selected={selectedFilter} onSelect={setSelectedFilter} />
 
-        <DevicesTable devices={filteredDevices} onSelectDevice={setSelectedDevice} />
+        <DevicesTable 
+          devices={filteredDevices} 
+          onSelectDevice={setSelectedDevice}
+          onDevicesDeleted={refresh}
+        />
       </main>
 
       <DeviceDrawer device={selectedDevice} isOpen={!!selectedDevice} onClose={() => setSelectedDevice(null)} />

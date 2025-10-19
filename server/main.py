@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -29,6 +29,7 @@ from auth import (
     compute_token_id, verify_enrollment_token, security
 )
 from alerts import alert_scheduler, alert_manager
+from background_tasks import background_tasks
 from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
 from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
 from email_service import email_service
@@ -36,6 +37,9 @@ from observability import structured_logger, metrics, request_id_var
 from hmac_utils import compute_hmac_signature
 import uuid
 import fast_reads
+import bulk_delete
+from purge_jobs import purge_manager
+from rate_limiter import rate_limiter
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -466,10 +470,12 @@ async def startup_event():
     init_db()
     migrate_database()
     await alert_scheduler.start()
+    await background_tasks.start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await alert_scheduler.stop()
+    await background_tasks.stop()
 
 backend_start_time = datetime.now(timezone.utc)
 
@@ -1229,6 +1235,20 @@ async def heartbeat(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
+    # Check if device token has been revoked (device deleted)
+    if device.token_revoked_at:
+        structured_logger.log_event(
+            "heartbeat.rejected",
+            level="WARN",
+            device_id=device.id,
+            reason="device_deleted",
+            revoked_at=device.token_revoked_at.isoformat()
+        )
+        raise HTTPException(
+            status_code=410,
+            detail={"reason": "device_deleted", "message": "Device has been deleted"}
+        )
+    
     # Extract heartbeat telemetry for logging
     battery_pct = payload.battery.pct if payload.battery else None
     network_type = payload.network.transport if payload.network else None
@@ -1752,38 +1772,107 @@ async def delete_device(
     
     return {"ok": True, "message": f"Device {device_alias} deleted successfully"}
 
+@app.post("/admin/devices/selection")
+async def create_selection(
+    request: Request,
+    x_admin: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a device selection snapshot for bulk operations.
+    Returns selection_id, total_count, and expires_at.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required (scope: device_manage)")
+    
+    body = await request.json()
+    filter_criteria = body.get("filter", {})
+    
+    result = bulk_delete.create_device_selection(
+        db=db,
+        filter_criteria=filter_criteria,
+        created_by="admin"
+    )
+    
+    return result
+
+@app.post("/admin/devices/bulk-delete")
+async def bulk_delete_devices_endpoint(
+    request: Request,
+    x_admin: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk hard delete devices with optional historical data purging.
+    Supports both explicit device_ids and selection_id.
+    Rate limited to 10 operations per minute.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required (scope: device_manage)")
+    
+    # Rate limiting: 10 bulk delete operations per minute
+    rate_key = f"bulk_delete:{x_admin or 'unknown'}"
+    allowed, remaining = rate_limiter.check_rate_limit(
+        key=rate_key,
+        max_requests=10,
+        window_minutes=1
+    )
+    
+    if not allowed:
+        structured_logger.log_event(
+            "bulk_delete.rate_limited",
+            level="WARN",
+            admin_key_hash=x_admin[-4:] if x_admin else "none"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 10 bulk delete operations per minute."
+        )
+    
+    body = await request.json()
+    device_ids = body.get("device_ids")
+    selection_id = body.get("selection_id")
+    purge_history = body.get("purge_history", True)
+    
+    if not device_ids and not selection_id:
+        raise HTTPException(status_code=400, detail="Either device_ids or selection_id must be provided")
+    
+    result = bulk_delete.bulk_delete_devices(
+        db=db,
+        device_ids=device_ids,
+        selection_id=selection_id,
+        purge_history=purge_history,
+        admin_user="admin"
+    )
+    
+    return result
+
 @app.post("/v1/devices/bulk-delete")
-async def bulk_delete_devices(
+async def bulk_delete_devices_legacy(
     request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Legacy bulk delete endpoint (deprecated - use /admin/devices/bulk-delete).
+    """
     body = await request.json()
     device_ids = body.get("device_ids", [])
     
     if not device_ids:
         raise HTTPException(status_code=400, detail="No device IDs provided")
     
-    deleted_count = 0
-    for device_id in device_ids:
-        device = db.query(Device).filter(Device.id == device_id).first()
-        if device:
-            device_alias = device.alias
-            log_device_event(db, device.id, "device_deleted", {"alias": device_alias})
-            
-            # Delete all associated events
-            db.query(DeviceEvent).filter(DeviceEvent.device_id == device_id).delete()
-            
-            # Delete device
-            db.delete(device)
-            deleted_count += 1
-    
-    db.commit()
+    result = bulk_delete.bulk_delete_devices(
+        db=db,
+        device_ids=device_ids,
+        purge_history=False,  # Legacy endpoint doesn't purge history
+        admin_user=user.username if user else None
+    )
     
     return {
         "ok": True, 
-        "deleted_count": deleted_count,
-        "message": f"{deleted_count} device(s) deleted successfully"
+        "deleted_count": result["deleted"],
+        "message": f"{result['deleted']} device(s) deleted successfully"
     }
 
 @app.patch("/v1/devices/{device_id}/alias")
