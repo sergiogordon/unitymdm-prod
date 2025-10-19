@@ -1799,19 +1799,21 @@ async def create_selection(
 @app.post("/admin/devices/bulk-delete")
 async def bulk_delete_devices_endpoint(
     request: Request,
-    x_admin: str = Header(None),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Bulk hard delete devices with optional historical data purging.
+    Requires JWT authentication with admin privileges.
     Supports both explicit device_ids and selection_id.
     Rate limited to 10 operations per minute.
     """
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=403, detail="Admin key required (scope: device_manage)")
+    # Verify user is authenticated (JWT is valid)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     
-    # Rate limiting: 10 bulk delete operations per minute
-    rate_key = f"bulk_delete:{x_admin or 'unknown'}"
+    # Rate limiting: 10 bulk delete operations per minute per user
+    rate_key = f"bulk_delete:{user.username}"
     allowed, remaining = rate_limiter.check_rate_limit(
         key=rate_key,
         max_requests=10,
@@ -1822,7 +1824,7 @@ async def bulk_delete_devices_endpoint(
         structured_logger.log_event(
             "bulk_delete.rate_limited",
             level="WARN",
-            admin_key_hash=x_admin[-4:] if x_admin else "none"
+            username=user.username
         )
         raise HTTPException(
             status_code=429,
@@ -1842,7 +1844,7 @@ async def bulk_delete_devices_endpoint(
         device_ids=device_ids,
         selection_id=selection_id,
         purge_history=purge_history,
-        admin_user="admin"
+        admin_user=user.username
     )
     
     return result
