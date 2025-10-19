@@ -54,8 +54,23 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         Log.d(TAG, "FCM message received: ${message.data}")
         
-        val action = message.data["action"]
-        val requestId = message.data["request_id"]
+        val action = message.data["action"] ?: ""
+        val requestId = message.data["request_id"] ?: ""
+        val timestamp = message.data["ts"] ?: ""
+        val hmac = message.data["hmac"] ?: ""
+        
+        val prefs = SecurePreferences(this)
+        val deviceId = prefs.deviceId
+        
+        if (prefs.hmacPrimaryKey.isNotEmpty()) {
+            val validator = HmacValidator(prefs)
+            val isValid = validator.validateMessage(requestId, deviceId, action, timestamp, hmac)
+            
+            if (!isValid) {
+                Log.w(TAG, "HMAC validation failed for action=$action, rejecting message")
+                return
+            }
+        }
         
         when (action) {
             "ping" -> {
