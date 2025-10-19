@@ -1,0 +1,165 @@
+2025-10-19T13:55:26.3918630Z Current runner version: '2.328.0'
+2025-10-19T13:55:26.3941374Z ##[group]Runner Image Provisioner
+2025-10-19T13:55:26.3942188Z Hosted Compute Agent
+2025-10-19T13:55:26.3942866Z Version: 20251013.424
+2025-10-19T13:55:26.3943484Z Commit: cfdd8bfed34d71a55b72df4d2e82343c3fc2bab3
+2025-10-19T13:55:26.3944142Z Build Date: 2025-10-13T20:22:23Z
+2025-10-19T13:55:26.3944819Z ##[endgroup]
+2025-10-19T13:55:26.3945385Z ##[group]Operating System
+2025-10-19T13:55:26.3946014Z Ubuntu
+2025-10-19T13:55:26.3946545Z 24.04.3
+2025-10-19T13:55:26.3947025Z LTS
+2025-10-19T13:55:26.3947569Z ##[endgroup]
+2025-10-19T13:55:26.3948125Z ##[group]Runner Image
+2025-10-19T13:55:26.3948693Z Image: ubuntu-24.04
+2025-10-19T13:55:26.3949298Z Version: 20251014.76.1
+2025-10-19T13:55:26.3950761Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20251014.76/images/ubuntu/Ubuntu2404-Readme.md
+2025-10-19T13:55:26.3952423Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20251014.76
+2025-10-19T13:55:26.3953455Z ##[endgroup]
+2025-10-19T13:55:26.3954599Z ##[group]GITHUB_TOKEN Permissions
+2025-10-19T13:55:26.3956434Z Contents: read
+2025-10-19T13:55:26.3957156Z Metadata: read
+2025-10-19T13:55:26.3957706Z Packages: read
+2025-10-19T13:55:26.3958199Z ##[endgroup]
+2025-10-19T13:55:26.3960443Z Secret source: Actions
+2025-10-19T13:55:26.3961222Z Prepare workflow directory
+2025-10-19T13:55:26.4348438Z Prepare all required actions
+2025-10-19T13:55:26.4385620Z Getting action download info
+2025-10-19T13:55:26.8212995Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-10-19T13:55:26.9891047Z Download action repository 'actions/setup-java@v4' (SHA:c5195efecf7bdfc987ee8bae7a71cb8b11521c00)
+2025-10-19T13:55:27.5798318Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2025-10-19T13:55:27.7721034Z Complete job name: Build & Sign Android Agent
+2025-10-19T13:55:27.8470516Z ##[group]Run actions/checkout@v4
+2025-10-19T13:55:27.8471614Z with:
+2025-10-19T13:55:27.8472228Z   fetch-depth: 0
+2025-10-19T13:55:27.8472985Z   repository: sergio***/unitymdm-prod
+2025-10-19T13:55:27.8473771Z   token: ***
+2025-10-19T13:55:27.8474412Z   ssh-strict: true
+2025-10-19T13:55:27.8474965Z   ssh-user: git
+2025-10-19T13:55:27.8475565Z   persist-credentials: true
+2025-10-19T13:55:27.8476160Z   clean: true
+2025-10-19T13:55:27.8476708Z   sparse-checkout-cone-mode: true
+2025-10-19T13:55:27.8477395Z   fetch-tags: false
+2025-10-19T13:55:27.8478007Z   show-progress: true
+2025-10-19T13:55:27.8478569Z   lfs: false
+2025-10-19T13:55:27.8479131Z   submodules: false
+2025-10-19T13:55:27.8479693Z   set-safe-directory: true
+2025-10-19T13:55:27.8480786Z env:
+2025-10-19T13:55:27.8481422Z   JAVA_VERSION: 17
+2025-10-19T13:55:27.8481980Z   GRADLE_VERSION: wrapper
+2025-10-19T13:55:27.8482593Z ##[endgroup]
+2025-10-19T13:55:27.9549215Z Syncing repository: sergio***/unitymdm-prod
+2025-10-19T13:55:27.9551675Z ##[group]Getting Git version info
+2025-10-19T13:55:27.9552634Z Working directory is '/home/runner/work/unitymdm-prod/unitymdm-prod'
+2025-10-19T13:55:27.9553970Z [command]/usr/bin/git version
+2025-10-19T13:55:27.9627557Z git version 2.51.0
+2025-10-19T13:55:27.9653322Z ##[endgroup]
+2025-10-19T13:55:27.9667260Z Temporarily overriding HOME='/home/runner/work/_temp/a4918393-5497-4f17-aa5f-8eb4332411e2' before making global git config changes
+2025-10-19T13:55:27.9669946Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-19T13:55:27.9672188Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-19T13:55:27.9706653Z Deleting the contents of '/home/runner/work/unitymdm-prod/unitymdm-prod'
+2025-10-19T13:55:27.9710742Z ##[group]Initializing the repository
+2025-10-19T13:55:27.9714551Z [command]/usr/bin/git init /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-19T13:55:27.9813917Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-10-19T13:55:27.9815782Z hint: is subject to change. To configure the initial branch name to use in all
+2025-10-19T13:55:27.9817070Z hint: of your new repositories, which will suppress this warning, call:
+2025-10-19T13:55:27.9818439Z hint:
+2025-10-19T13:55:27.9819570Z hint: 	git config --global init.defaultBranch <name>
+2025-10-19T13:55:27.9821414Z hint:
+2025-10-19T13:55:27.9822951Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-10-19T13:55:27.9825250Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-10-19T13:55:27.9827283Z hint:
+2025-10-19T13:55:27.9828420Z hint: 	git branch -m <name>
+2025-10-19T13:55:27.9829600Z hint:
+2025-10-19T13:55:27.9831404Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-10-19T13:55:27.9833853Z Initialized empty Git repository in /home/runner/work/unitymdm-prod/unitymdm-prod/.git/
+2025-10-19T13:55:27.9837632Z [command]/usr/bin/git remote add origin https://github.com/sergio***/unitymdm-prod
+2025-10-19T13:55:27.9871282Z ##[endgroup]
+2025-10-19T13:55:27.9872978Z ##[group]Disabling automatic garbage collection
+2025-10-19T13:55:27.9875563Z [command]/usr/bin/git config --local gc.auto 0
+2025-10-19T13:55:27.9908057Z ##[endgroup]
+2025-10-19T13:55:27.9910065Z ##[group]Setting up auth
+2025-10-19T13:55:27.9915832Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-19T13:55:27.9947659Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-19T13:55:28.0329217Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-19T13:55:28.0335444Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-19T13:55:28.0529344Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-10-19T13:55:28.0571908Z ##[endgroup]
+2025-10-19T13:55:28.0572779Z ##[group]Fetching the repository
+2025-10-19T13:55:28.0580829Z [command]/usr/bin/git -c protocol.version=2 fetch --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/*
+2025-10-19T13:55:29.4783429Z From https://github.com/sergio***/unitymdm-prod
+2025-10-19T13:55:29.4785936Z  * [new branch]      main       -> origin/main
+2025-10-19T13:55:29.4822326Z [command]/usr/bin/git branch --list --remote origin/main
+2025-10-19T13:55:29.4845001Z   origin/main
+2025-10-19T13:55:29.4854681Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2025-10-19T13:55:29.4875145Z 4f1e02c5bcb9013be0fbc55d37454de110da2c7e
+2025-10-19T13:55:29.4882011Z ##[endgroup]
+2025-10-19T13:55:29.4883408Z ##[group]Determining the checkout info
+2025-10-19T13:55:29.4884959Z ##[endgroup]
+2025-10-19T13:55:29.4886181Z [command]/usr/bin/git sparse-checkout disable
+2025-10-19T13:55:29.4924499Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-10-19T13:55:29.4950771Z ##[group]Checking out the ref
+2025-10-19T13:55:29.4953616Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2025-10-19T13:55:29.5290723Z Switched to a new branch 'main'
+2025-10-19T13:55:29.5293414Z branch 'main' set up to track 'origin/main'.
+2025-10-19T13:55:29.5305039Z ##[endgroup]
+2025-10-19T13:55:29.5338489Z [command]/usr/bin/git log -1 --format=%H
+2025-10-19T13:55:29.5360615Z 4f1e02c5bcb9013be0fbc55d37454de110da2c7e
+2025-10-19T13:55:29.5724940Z ##[group]Run actions/setup-java@v4
+2025-10-19T13:55:29.5726117Z with:
+2025-10-19T13:55:29.5726943Z   java-version: 17
+2025-10-19T13:55:29.5727867Z   distribution: temurin
+2025-10-19T13:55:29.5728820Z   cache: gradle
+2025-10-19T13:55:29.5729701Z   java-package: jdk
+2025-10-19T13:55:29.5730850Z   check-latest: false
+2025-10-19T13:55:29.5731796Z   server-id: github
+2025-10-19T13:55:29.5732950Z   server-username: GITHUB_ACTOR
+2025-10-19T13:55:29.5734050Z   server-password: GITHUB_TOKEN
+2025-10-19T13:55:29.5735150Z   overwrite-settings: true
+2025-10-19T13:55:29.5736146Z   job-status: success
+2025-10-19T13:55:29.5737341Z   token: ***
+2025-10-19T13:55:29.5738145Z env:
+2025-10-19T13:55:29.5738912Z   JAVA_VERSION: 17
+2025-10-19T13:55:29.5739939Z   GRADLE_VERSION: wrapper
+2025-10-19T13:55:29.5740917Z ##[endgroup]
+2025-10-19T13:55:29.7648894Z ##[group]Installed distributions
+2025-10-19T13:55:29.8027723Z Resolved Java 17.0.16+8 from tool-cache
+2025-10-19T13:55:29.8030362Z Setting Java 17.0.16+8 as the default
+2025-10-19T13:55:29.8043072Z Creating toolchains.xml for JDK version 17 from temurin
+2025-10-19T13:55:29.8118916Z Writing to /home/runner/.m2/toolchains.xml
+2025-10-19T13:55:29.8120576Z 
+2025-10-19T13:55:29.8121209Z Java configuration:
+2025-10-19T13:55:29.8122836Z   Distribution: temurin
+2025-10-19T13:55:29.8124420Z   Version: 17.0.16+8
+2025-10-19T13:55:29.8126622Z   Path: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-19T13:55:29.8128537Z 
+2025-10-19T13:55:29.8130266Z ##[endgroup]
+2025-10-19T13:55:29.8148758Z Creating settings.xml with server-id: github
+2025-10-19T13:55:29.8151224Z Writing to /home/runner/.m2/settings.xml
+2025-10-19T13:55:29.8766107Z ##[error]No file in /home/runner/work/unitymdm-prod/unitymdm-prod matched to [**/*.gradle*,**/gradle-wrapper.properties,buildSrc/**/Versions.kt,buildSrc/**/Dependencies.kt,gradle/*.versions.toml,**/versions.properties], make sure you have checked out the target repository
+2025-10-19T13:55:29.9036068Z ##[group]Run if [ -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore" ]; then
+2025-10-19T13:55:29.9038488Z [36;1mif [ -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore" ]; then[0m
+2025-10-19T13:55:29.9040845Z [36;1m  rm -f "/home/runner/work/unitymdm-prod/unitymdm-prod/release.keystore"[0m
+2025-10-19T13:55:29.9042479Z [36;1m  echo "🧹 Keystore cleaned up"[0m
+2025-10-19T13:55:29.9043564Z [36;1mfi[0m
+2025-10-19T13:55:29.9080848Z shell: /usr/bin/bash -e {0}
+2025-10-19T13:55:29.9081796Z env:
+2025-10-19T13:55:29.9082533Z   JAVA_VERSION: 17
+2025-10-19T13:55:29.9083439Z   GRADLE_VERSION: wrapper
+2025-10-19T13:55:29.9084771Z   JAVA_HOME: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-19T13:55:29.9086690Z   JAVA_HOME_17_X64: /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/17.0.16-8/x64
+2025-10-19T13:55:29.9088193Z ##[endgroup]
+2025-10-19T13:55:29.9330592Z Post job cleanup.
+2025-10-19T13:55:30.1135606Z Post job cleanup.
+2025-10-19T13:55:30.2082648Z [command]/usr/bin/git version
+2025-10-19T13:55:30.2118363Z git version 2.51.0
+2025-10-19T13:55:30.2168224Z Temporarily overriding HOME='/home/runner/work/_temp/657e3ea0-2878-4492-980d-4d53df1929bb' before making global git config changes
+2025-10-19T13:55:30.2171414Z Adding repository directory to the temporary git global config as a safe directory
+2025-10-19T13:55:30.2174249Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/unitymdm-prod/unitymdm-prod
+2025-10-19T13:55:30.2206163Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-10-19T13:55:30.2239340Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-10-19T13:55:30.2465893Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-10-19T13:55:30.2486208Z http.https://github.com/.extraheader
+2025-10-19T13:55:30.2499613Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-10-19T13:55:30.2530604Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-10-19T13:55:30.2864447Z Cleaning up orphan processes
