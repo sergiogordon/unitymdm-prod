@@ -13,7 +13,12 @@ import android.os.SystemClock
 import android.telephony.TelephonyManager
 import java.net.NetworkInterface
 
-class TelemetryCollector(private val context: Context) {
+class TelemetryCollector(
+    private val context: Context,
+    private val powerMonitor: PowerManagementMonitor? = null,
+    private val networkMonitor: NetworkMonitor? = null,
+    private val queueManager: QueueManager? = null
+) {
 
     fun getBatteryInfo(): BatteryInfo {
         val batteryStatus = context.registerReceiver(
@@ -91,6 +96,22 @@ class TelemetryCollector(private val context: Context) {
             ip = ip
         )
     }
+    
+    fun getReliabilityFlags(): ReliabilityFlags {
+        val powerOk = powerMonitor?.isPowerOk() ?: true
+        val dozeWhitelisted = powerMonitor?.isDozeWhitelisted() ?: false
+        val netValidated = networkMonitor?.isNetworkValidated() ?: false
+        
+        return ReliabilityFlags(
+            power_ok = powerOk,
+            doze_whitelisted = dozeWhitelisted,
+            net_validated = netValidated
+        )
+    }
+    
+    suspend fun getQueueDepth(): Int {
+        return queueManager?.getQueueDepth() ?: 0
+    }
 
     private fun getWifiSsid(): String? {
         try {
@@ -155,4 +176,10 @@ data class NetworkInfo(
     val ssid: String?,
     val carrier: String?,
     val ip: String?
+)
+
+data class ReliabilityFlags(
+    val power_ok: Boolean,
+    val doze_whitelisted: Boolean,
+    val net_validated: Boolean
 )
