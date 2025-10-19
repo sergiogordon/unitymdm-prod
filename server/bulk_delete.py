@@ -9,7 +9,7 @@ import json
 import uuid
 from fastapi import HTTPException
 from observability import structured_logger, metrics
-from models import Device, DeviceEvent, DeviceSelection, DeviceLastStatus
+from models import Device, DeviceEvent, DeviceSelection, DeviceLastStatus, AlertState, ApkInstallation, Command, FcmDispatch
 from purge_jobs import purge_manager
 
 # Constants
@@ -217,17 +217,91 @@ def bulk_delete_devices(
             device.token_revoked_at = datetime.now(timezone.utc)
             db.flush()
             
-            # Delete from device_last_status
-            db.query(DeviceLastStatus).filter(
+            structured_logger.log_event(
+                "device.delete.cascade.start",
+                request_id=request_id,
+                device_id=device_id,
+                level="DEBUG"
+            )
+            
+            # Delete in correct order to respect foreign key constraints
+            
+            # 1. Delete heartbeats (must happen before device deletion, handled by purge_jobs later)
+            # Note: Heartbeats are in partitioned tables, deleted later by purge job
+            
+            # 2. Delete alert states
+            deleted_alerts = db.query(AlertState).filter(
+                AlertState.device_id == device_id
+            ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.alert_states",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_alerts,
+                level="DEBUG"
+            )
+            
+            # 3. Delete APK installations
+            deleted_apks = db.query(ApkInstallation).filter(
+                ApkInstallation.device_id == device_id
+            ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.apk_installations",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_apks,
+                level="DEBUG"
+            )
+            
+            # 4. Delete commands
+            deleted_commands = db.query(Command).filter(
+                Command.device_id == device_id
+            ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.commands",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_commands,
+                level="DEBUG"
+            )
+            
+            # 5. Delete FCM dispatches
+            deleted_fcm = db.query(FcmDispatch).filter(
+                FcmDispatch.device_id == device_id
+            ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.fcm_dispatches",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_fcm,
+                level="DEBUG"
+            )
+            
+            # 6. Delete from device_last_status
+            deleted_status = db.query(DeviceLastStatus).filter(
                 DeviceLastStatus.device_id == device_id
             ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.device_last_status",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_status,
+                level="DEBUG"
+            )
             
-            # Delete device events
-            db.query(DeviceEvent).filter(
+            # 7. Delete device events
+            deleted_events = db.query(DeviceEvent).filter(
                 DeviceEvent.device_id == device_id
             ).delete()
+            structured_logger.log_event(
+                "device.delete.cascade.device_events",
+                request_id=request_id,
+                device_id=device_id,
+                count=deleted_events,
+                level="DEBUG"
+            )
             
-            # Delete device record
+            # 8. Finally, delete device record
             db.delete(device)
             deleted_count += 1
             
@@ -245,8 +319,13 @@ def bulk_delete_devices(
                 level="ERROR",
                 request_id=request_id,
                 device_id=device_id,
-                error=str(e)
+                error=str(e),
+                error_type=type(e).__name__
             )
+            # Rollback this device's changes
+            db.rollback()
+            # Start fresh transaction for next device
+            db.begin()
             skipped_count += 1
     
     # Commit immediate deletes
