@@ -58,4 +58,12 @@ class SecurePreferences(context: Context) {
     var pendingInstallationId: Int
         get() = prefs.getInt("pending_installation_id", -1)
         set(value) = prefs.edit().putInt("pending_installation_id", value).apply()
+    
+    var hmacPrimaryKey: String
+        get() = prefs.getString("hmac_primary_key", "") ?: ""
+        set(value) = prefs.edit().putString("hmac_primary_key", value).apply()
+    
+    var hmacRotationKey: String
+        get() = prefs.getString("hmac_rotation_key", "") ?: ""
+        set(value) = prefs.edit().putString("hmac_rotation_key", value).apply()
 }
