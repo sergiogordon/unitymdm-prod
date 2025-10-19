@@ -32,6 +32,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 ### Feature Specifications
 - **Core Control Loop**: Secure device registration, heartbeat processing, FCM command dispatch, action result tracking, and HMAC signature validation.
 - **Device Management**: Real-time heartbeat monitoring, battery/memory tracking, remote command execution, auto-relaunch, and offline detection.
+- **Bulk Device Deletion**: Comprehensive hard delete system with multi-select UI, device selection snapshots (15-min TTL), token revocation (410 Gone on heartbeat), async historical data purging with advisory locks, rate limiting (10 ops/min), type-to-confirm safety modal, and optional purge history checkbox. Background workers execute purge jobs every 30 seconds with automatic partition support.
 - **Alert System**: Automated alerting for offline devices (>12m), low battery (<15%), and Unity app down with Discord webhook integration, deduplication, rate limiting, and optional auto-remediation via FCM.
 - **Security**: bcrypt hashing, HMAC SHA-256, JWT, IP-based rate limiting, and audit tracking.
 - **Performance Optimization**: Database partitioning, dual-write fast reads, connection pool monitoring, deduplication bucketing. Target SLIs: p95 <150ms, p99 <300ms for 2,000 devices.
@@ -49,9 +50,10 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **WebSocket Architecture**: Centralized management for real-time communication.
 - **Event Retention Policies**: 90-day heartbeat retention, automated archival with SHA-256 integrity checks.
 - **Performance Metrics**: Comprehensive latency tracking (p95/p99), pool utilization gauges, Prometheus-compatible exposition.
-- **Rate Limiting**: Configurable IP-based rate limiting.
+- **Rate Limiting**: Configurable IP-based rate limiting (10 bulk delete ops/min, sliding window).
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
+- **Bulk Delete Architecture**: Device selection snapshots prevent race conditions, background purge workers use PostgreSQL advisory locks for safe concurrent execution, hard deletes cascade to device_last_status and device_events tables.
 
 ### Reliability Features (Milestone 5)
 The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:

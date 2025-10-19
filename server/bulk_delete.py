@@ -174,7 +174,7 @@ def bulk_delete_devices(
             "device.bulk_delete.using_selection",
             request_id=request_id,
             selection_id=selection_id,
-            device_count=len(device_ids)
+            device_count=len(device_ids) if device_ids else 0
         )
     
     if not device_ids or len(device_ids) == 0:
