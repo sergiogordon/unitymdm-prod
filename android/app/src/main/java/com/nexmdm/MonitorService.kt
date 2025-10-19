@@ -207,14 +207,11 @@ class MonitorService : Service() {
         return gson.fromJson(json, object : TypeToken<Map<String, Any?>>() {}.type)
     }
 
-    private fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
+    private suspend fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
         val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
-        
-        val queueDepth = serviceScope.async {
-            telemetry.getQueueDepth()
-        }
+        val queueDepth = telemetry.getQueueDepth()
         
         return HeartbeatPayload(
             device_id = prefs.deviceId,
@@ -244,7 +241,7 @@ class MonitorService : Service() {
             power_ok = reliabilityFlags.power_ok,
             doze_whitelisted = reliabilityFlags.doze_whitelisted,
             net_validated = reliabilityFlags.net_validated,
-            queue_depth = kotlinx.coroutines.runBlocking { queueDepth.await() }
+            queue_depth = queueDepth
         )
     }
     
