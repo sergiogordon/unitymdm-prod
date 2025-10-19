@@ -1,0 +1,137 @@
+Got it ✅ — here’s how I’d phrase that milestone for your build agent and workflow clarity:
+
+---
+
+## **Milestone Context & End Goal — Android Agent Restoration & Refactor**
+
+**Purpose:**
+Recreate the missing **`/android`** directory in the GitHub repo using the **uploaded legacy Android folder** as a base.
+This milestone ensures the Android agent compiles, signs, and aligns with the new NexMDM backend (FastAPI + FCM architecture), preparing it for CI/CD and feature parity with your milestones (heartbeats, commands, OTA, alerts, etc.).
+
+---
+
+### What “done” means
+
+#### 🧩 Source restoration
+
+* The uploaded `android/` folder is unpacked into the project root (`/android`).
+* Project builds successfully in **Android Studio** and via **Gradle CLI** (`./gradlew assembleDebug`).
+* Package name and namespaces updated from legacy (e.g., `com.oldmdm` or `com.agent`) → **`com.nexmdm`**.
+* Legacy service names aligned:
+
+  * `MainService` → `HeartbeatService`
+  * `FcmReceiver` → `NexFcmReceiver`
+  * `DeviceAdminReceiver` → `NexDeviceAdminReceiver`
+* Manifest rebuilt with required permissions (from milestone specs):
+
+  ```xml
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.GET_USAGE_STATS" />
+  <uses-permission android:name="android.permission.CAMERA" />
+  ```
+* Gradle upgraded to stable plugin + SDK 34 target.
+* SigningConfig points to your CI signing creds (GitHub Secrets).
+
+---
+
+### 🔧 Code modifications
+
+Refactor the restored codebase to meet **current agent runtime** requirements:
+
+1. **Heartbeat Worker**
+
+   * Interval: **5 minutes**
+   * Sends `battery`, `network`, `uptime`, `unity_running`, `version`, `queue_depth` → `POST /v1/heartbeat`
+   * Runs under WorkManager + Foreground Service (Device Owner aware).
+
+2. **FCM Receiver**
+
+   * Receives `ping`, `launch_app`, and `update` commands.
+   * Validates via HMAC (dual-key window).
+   * Posts results to `/v1/action-result`.
+
+3. **ConfigReceiver (Broadcast)**
+
+   * Handles ADB broadcast `am broadcast -a com.nexmdm.CONFIGURE …`.
+   * Stores `{server_url, token, alias, unity_pkg}` in EncryptedSharedPreferences.
+   * Starts HeartbeatService immediately.
+
+4. **OTA Support (optional)**
+
+   * Handles `update` FCM event: downloads new APK via `/v1/apk/download-latest` (Bearer token).
+   * Triggers silent install (`pm install -r`) if permissions allow.
+
+5. **Auto-remediation hooks** (stubbed)
+
+   * `checkBatteryOptimizations()` & `attemptWhitelist()` log warnings when restricted.
+   * Disabled by default (feature flag).
+
+6. **Crash-safe queue**
+
+   * Reimplement `ActionQueue` (Room or JSON file).
+   * Persists unsent heartbeats/results and retries with backoff.
+
+---
+
+### 🧱 Build system setup
+
+* Add back `android/build.gradle`, `app/build.gradle`, and `gradle/wrapper` files.
+* Verify dependencies:
+
+  ```gradle
+  implementation "com.google.firebase:firebase-messaging:23.+"
+  implementation "androidx.work:work-runtime-ktx:2.+"
+  implementation "androidx.security:security-crypto:1.+"
+  implementation "com.squareup.okhttp3:okhttp:5.+"
+  ```
+* Add `google-services.json` placeholder (Firebase config to be replaced by valid project one).
+* Ensure CI picks up `/android` path for GitHub Actions (from milestone 2).
+
+---
+
+### 🧠 Verification
+
+* `./gradlew clean assembleDebug` produces `app-debug.apk`.
+* APK installs on test device and starts heartbeat loop with valid logs:
+
+  ```
+  [NexMDM] Heartbeat sent: 200 OK (battery=95%, net=wifi, uptime=2h)
+  [NexMDM] FCM ping received → result: success
+  ```
+* Commands `ping` and `launch_app` execute successfully via `/admin/command`.
+* Device appears in `/v1/devices` within 60s of first run.
+* Logcat shows no uncaught exceptions or unhandled intents.
+
+---
+
+### 📊 Acceptance tests
+
+1. Build APK from GitHub Action → downloadable artifact → verified signature.
+2. Install manually via ADB → launch agent → device registers and heartbeats.
+3. Send `ping` → `pong` logged in backend (`action-result` received).
+4. Modify config via ADB broadcast → re-registers with new alias.
+5. Verify OTA update FCM event triggers background APK install.
+6. Confirm crash persistence: kill app → reopen → unsent heartbeats drain successfully.
+
+---
+
+### 🧩 Non-goals
+
+* No UI/visual elements added.
+* No new FCM commands beyond `ping`, `launch_app`, `update`.
+* No analytics SDKs or Play Store integration yet.
+
+---
+
+### ✅ Definition of Done
+
+* Android folder fully restored, refactored to `com.nexmdm`, and builds without errors.
+* Agent runs end-to-end with backend (register → heartbeat → FCM → result).
+* GitHub Actions builds signed artifacts.
+* Old unused/legacy components removed or marked deprecated.
+
+---
+
+If you’d like, I can **inspect your uploaded `/android` folder structure** (manifest, build.gradle, package layout, etc.) and give you a **line-by-line modification plan** to adapt it to the new NexMDM agent spec. Would you like me to do that next?
