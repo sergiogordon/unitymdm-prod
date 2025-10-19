@@ -44,6 +44,9 @@ class MonitorService : Service() {
     private lateinit var prefs: SecurePreferences
     private lateinit var telemetry: TelemetryCollector
     private lateinit var speedtestDetector: SpeedtestDetector
+    private lateinit var queueManager: QueueManager
+    private lateinit var networkMonitor: NetworkMonitor
+    private lateinit var powerMonitor: PowerManagementMonitor
     private val gson = Gson()
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var alarmManager: AlarmManager
@@ -66,7 +69,19 @@ class MonitorService : Service() {
         setupCrashRecovery()
         
         prefs = SecurePreferences(this)
-        telemetry = TelemetryCollector(this)
+        queueManager = QueueManager(this, prefs, client)
+        powerMonitor = PowerManagementMonitor(this)
+        
+        networkMonitor = NetworkMonitor(this) {
+            serviceScope.launch {
+                Log.d(TAG, "Network regained, draining queue")
+                val result = queueManager.drainQueue(networkMonitor)
+                Log.d(TAG, "Queue drain result: success=${result.successCount}, fail=${result.failCount}")
+            }
+        }
+        networkMonitor.start()
+        
+        telemetry = TelemetryCollector(this, powerMonitor, networkMonitor, queueManager)
         speedtestDetector = SpeedtestDetector(this)
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         
@@ -79,6 +94,14 @@ class MonitorService : Service() {
         
         scheduleNextHeartbeat(5000)
         handler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
+        
+        handler.postDelayed({
+            serviceScope.launch {
+                Log.d(TAG, "Startup queue drain after 5s delay")
+                val result = queueManager.drainQueue(networkMonitor)
+                Log.d(TAG, "Startup drain result: success=${result.successCount}, fail=${result.failCount}")
+            }
+        }, 5000)
     }
     
     private fun setupCrashRecovery() {
@@ -144,6 +167,7 @@ class MonitorService : Service() {
         super.onDestroy()
         cancelScheduledHeartbeat()
         handler.removeCallbacks(watchdogRunnable)
+        networkMonitor.stop()
         releaseWakeLock()
         serviceJob.cancel()
     }
@@ -162,19 +186,15 @@ class MonitorService : Service() {
                 val payload = buildHeartbeatPayload(isPingResponse, pingRequestId)
                 val json = gson.toJson(payload)
                 
-                val request = Request.Builder()
-                    .url("${prefs.serverUrl}/v1/heartbeat")
-                    .post(json.toRequestBody("application/json".toMediaType()))
-                    .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
-                    .build()
+                queueManager.enqueueHeartbeat(json)
+                Log.d(TAG, "Heartbeat enqueued (ping=${isPingResponse})")
                 
-                val response = client.newCall(request).execute()
-                
-                if (response.isSuccessful) {
+                val result = queueManager.drainQueue(networkMonitor)
+                if (result.successCount > 0) {
                     prefs.lastHeartbeatTime = System.currentTimeMillis()
-                    Log.d(TAG, "Heartbeat sent successfully (ping=${isPingResponse})")
+                    Log.d(TAG, "Heartbeat delivered successfully")
                 } else {
-                    Log.e(TAG, "Heartbeat failed: ${response.code}")
+                    Log.d(TAG, "Heartbeat queued for later delivery")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending heartbeat", e)
@@ -190,6 +210,11 @@ class MonitorService : Service() {
     private fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
         val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
         val apkInstaller = ApkInstaller(applicationContext)
+        val reliabilityFlags = telemetry.getReliabilityFlags()
+        
+        val queueDepth = serviceScope.async {
+            telemetry.getQueueDepth()
+        }
         
         return HeartbeatPayload(
             device_id = prefs.deviceId,
@@ -215,7 +240,11 @@ class MonitorService : Service() {
             is_ping_response = if (isPingResponse) true else null,
             ping_request_id = pingRequestId,
             self_heal_hints = null,
-            is_device_owner = apkInstaller.isDeviceOwner()
+            is_device_owner = apkInstaller.isDeviceOwner(),
+            power_ok = reliabilityFlags.power_ok,
+            doze_whitelisted = reliabilityFlags.doze_whitelisted,
+            net_validated = reliabilityFlags.net_validated,
+            queue_depth = kotlinx.coroutines.runBlocking { queueDepth.await() }
         )
     }
     
