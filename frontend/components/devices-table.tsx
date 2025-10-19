@@ -50,8 +50,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
     }
   }
 
-  const toggleSelectDevice = (deviceId: string, event: React.MouseEvent) => {
-    event.stopPropagation()
+  const toggleSelectDevice = (deviceId: string) => {
     setSelectedIds(prev => {
       const newSet = new Set(prev)
       if (newSet.has(deviceId)) {
@@ -179,7 +178,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
                     <td className="px-4 py-3">
                       <Checkbox
                         checked={selectedIds.has(device.id)}
-                        onCheckedChange={(e) => toggleSelectDevice(device.id, e as any)}
+                        onCheckedChange={() => toggleSelectDevice(device.id)}
                         onClick={(e) => e.stopPropagation()}
                         aria-label={`Select ${device.alias}`}
                       />
