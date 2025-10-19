@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
+import { DashboardHeader } from "@/components/dashboard-header"
 import { KpiTiles } from "@/components/kpi-tiles"
 import { FilterBar } from "@/components/filter-bar"
 import { DevicesTable } from "@/components/devices-table"
@@ -98,12 +99,8 @@ export default function Page() {
   return (
     <div className="min-h-screen">
       <Header
-        lastUpdated={lastUpdated}
-        alertCount={activeAlerts}
         isDark={isDark}
         onToggleDark={() => setIsDark(!isDark)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={handleRefresh}
       />
       
       {/* Show WebSocket status indicator */}
@@ -117,6 +114,13 @@ export default function Page() {
       )}
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
+        <DashboardHeader
+          lastUpdated={lastUpdated}
+          alertCount={activeAlerts}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onRefresh={handleRefresh}
+        />
+
         <KpiTiles
           total={totalDevices}
           online={onlineDevices}
