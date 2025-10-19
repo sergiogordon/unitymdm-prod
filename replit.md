@@ -55,15 +55,17 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 - **Bulk Delete Architecture**: Device selection snapshots prevent race conditions, background purge workers use PostgreSQL advisory locks for safe concurrent execution, hard deletes cascade to device_last_status and device_events tables.
 
-### Reliability Features (Milestone 5)
+### Reliability Features (Milestone 5) ✅ COMPLETED
 The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:
 
-- **Persistent Queue**: Room database-backed queue for unsent heartbeats and action-results that survives crashes and reboots. Queued items are retained until successfully delivered or expired (24h TTL for action-results).
-- **Network Resilience**: NetworkCallback monitors connectivity state changes (wifi/cellular/offline) and triggers immediate queue drain when network becomes validated. Exponential backoff with full jitter (2s base, 5min cap) prevents overwhelming the server during network instability.
-- **Power Management**: On startup, verifies Device Owner status and battery whitelist. In Device Owner mode, confirms Doze exemption and unrestricted battery access. Pauses non-essential retries when battery drops below 10% and not charging.
-- **Queue Management**: Implements size limits (500 items, 10MB), prunes old heartbeats first (never prunes action-results), and coalesces duplicate heartbeats within the same 10s dedupe bucket.
-- **Enhanced Observability**: Heartbeat payloads include `power_ok`, `doze_whitelisted`, and `net_validated` flags. Structured logs track queue operations (`queue.enqueue`, `queue.drain`, `queue.prune`), network changes (`net.change`, `net.regain`), retry scheduling (`retry.schedule`), and delivery outcomes (`deliver.ok`, `deliver.fail`).
-- **Startup Recovery**: On service start or boot, automatically drains pending queue items within 5 seconds, ensuring no data loss from crashes or restarts.
+- **Persistent Queue**: Room database-backed queue (`QueueDatabase.kt`, `QueueItem.kt`, `QueueDao.kt`) for unsent heartbeats and action-results that survives crashes and reboots. Queued items are retained until successfully delivered or expired (24h TTL for action-results).
+- **Network Resilience**: NetworkCallback (`NetworkMonitor.kt`) monitors connectivity state changes (wifi/cellular/offline) and triggers immediate queue drain when network becomes validated. Exponential backoff with full jitter (2s base, 5min cap) in `QueueManager.kt` prevents overwhelming the server during network instability.
+- **Power Management**: PowerManagementMonitor (`PowerManagementMonitor.kt`) verifies Device Owner status, Doze whitelist, and battery optimization status. Confirms Doze exemption and unrestricted battery access. Pauses non-essential retries when battery drops below 10% and not charging.
+- **Queue Management**: `QueueManager.kt` implements size limits (500 items, 10MB), prunes old heartbeats first (never prunes action-results), and coalesces duplicate heartbeats within the same 10s dedupe bucket.
+- **HMAC Validation**: Dual-key HMAC SHA-256 signature validation (`HmacValidator.kt`) for all incoming FCM commands with 5-minute timestamp window and constant-time comparison. HMAC keys stored in `SecurePreferences.kt` during enrollment via `ConfigReceiver.kt`.
+- **Enhanced Observability**: Heartbeat payloads include `power_ok`, `doze_whitelisted`, `net_validated`, and `queue_depth` fields via updated `TelemetryCollector.kt`. Structured logs track queue operations (`queue.enqueue`, `queue.drain`, `queue.prune`), network changes (`net.change`, `net.regain`), retry scheduling (`retry.schedule`), and delivery outcomes (`deliver.ok`, `deliver.fail`).
+- **Startup Recovery**: On service start or boot, `MonitorService.kt` automatically drains pending queue items within 5 seconds, ensuring no data loss from crashes or restarts.
+- **FCM Security**: All FCM messages validated via HMAC before execution in `FcmMessagingService.kt`, rejecting tampered or expired commands.
 
 ## External Dependencies
 - **PostgreSQL**: Primary database.
