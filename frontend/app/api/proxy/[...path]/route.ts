@@ -63,8 +63,9 @@ async function proxyRequest(
     // Forward headers
     const headers = new Headers()
     request.headers.forEach((value, key) => {
-      // Skip Next.js internal headers and host header
-      if (!key.startsWith('x-') && key !== 'host' && key !== 'connection') {
+      // Skip Next.js internal headers (but allow X-Admin and other custom headers)
+      const isNextJsHeader = key.startsWith('x-nextjs-') || key.startsWith('x-middleware-')
+      if (!isNextJsHeader && key !== 'host' && key !== 'connection') {
         headers.set(key, value)
       }
     })
