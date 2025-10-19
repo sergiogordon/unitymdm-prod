@@ -21,6 +21,8 @@ class ConfigReceiver : BroadcastReceiver() {
             val adminKey = intent.getStringExtra("token") ?: return
             val alias = intent.getStringExtra("alias") ?: "Device"
             val speedtestPackage = intent.getStringExtra("speedtest_package") ?: "org.zwanoo.android.speedtest"
+            val hmacPrimaryKey = intent.getStringExtra("hmac_primary_key") ?: ""
+            val hmacRotationKey = intent.getStringExtra("hmac_rotation_key") ?: ""
             
             val pendingResult = goAsync()
             
@@ -34,6 +36,15 @@ class ConfigReceiver : BroadcastReceiver() {
                         prefs.deviceToken = deviceToken
                         prefs.deviceAlias = alias
                         prefs.speedtestPackage = speedtestPackage
+                        
+                        if (hmacPrimaryKey.isNotEmpty()) {
+                            prefs.hmacPrimaryKey = hmacPrimaryKey
+                            Log.d("ConfigReceiver", "HMAC primary key configured")
+                        }
+                        if (hmacRotationKey.isNotEmpty()) {
+                            prefs.hmacRotationKey = hmacRotationKey
+                            Log.d("ConfigReceiver", "HMAC rotation key configured")
+                        }
                         
                         val serviceIntent = Intent(context, MonitorService::class.java)
                         context.startForegroundService(serviceIntent)
