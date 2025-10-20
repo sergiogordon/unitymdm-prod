@@ -47,53 +47,58 @@ jobs:
           SHA256=$(sha256sum "$APK_PATH" | awk '{print $1}')
           echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
           
-          # Get signer fingerprint (if signed)
-          # For debug builds, this is typically the debug keystore
-          # For production, you'd extract from your release keystore
-          echo "SIGNER_FINGERPRINT=DEBUG_KEY" >> $GITHUB_OUTPUT
-      
-      - name: Upload APK to storage
-        id: upload_apk
-        run: |
-          # Upload to your storage solution
-          # Example for local storage (copy to backend server):
-          # scp ${{ steps.apk_metadata.outputs.APK_PATH }} user@server:/path/to/apk_storage/
-          
-          # For now, we'll use the APK path as storage_url
-          # In production, this would be an S3 URL or similar
-          APK_FILENAME="nexmdm-debug-${{ steps.apk_metadata.outputs.VERSION_NAME }}-${{ github.sha }}.apk"
-          STORAGE_URL="./apk_storage/$APK_FILENAME"
-          echo "STORAGE_URL=$STORAGE_URL" >> $GITHUB_OUTPUT
-          
-          # Copy APK to backend server (example using scp)
-          # Uncomment and configure for your setup:
-          # scp ${{ steps.apk_metadata.outputs.APK_PATH }} backend:$STORAGE_URL
+          # Get signer fingerprint from debug keystore
+          # Extract the SHA256 fingerprint of the debug signing certificate
+          SIGNER_FP=$(keytool -list -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey 2>/dev/null | grep "SHA256:" | awk '{print $2}' || echo "DEBUG_KEY")
+          echo "SIGNER_FINGERPRINT=$SIGNER_FP" >> $GITHUB_OUTPUT
       
       - name: Register build with NexMDM backend
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
-          curl -X POST "$BACKEND_URL/admin/apk/register" \
+          # Generate unique build_id from CI metadata
+          BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
+          
+          # Note: storage_url is a placeholder for now
+          # APKs are uploaded as GitHub artifacts and can be downloaded from there
+          # In production, you would upload to S3/GCS and use that URL
+          STORAGE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          echo "Registering APK build with backend..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BACKEND_URL/admin/apk/register" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Content-Type: application/json" \
-            -d '{
-              "build_id": "gh_${{ github.run_id }}_${{ github.run_number }}",
-              "version_code": ${{ steps.apk_metadata.outputs.VERSION_CODE }},
-              "version_name": "${{ steps.apk_metadata.outputs.VERSION_NAME }}",
-              "build_type": "debug",
-              "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
-              "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
-              "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
-              "storage_url": "${{ steps.upload_apk.outputs.STORAGE_URL }}",
-              "ci_run_id": "${{ github.run_id }}",
-              "git_sha": "${{ github.sha }}",
-              "package_name": "com.nexmdm.agent"
-            }'
+            -d "{
+              \"build_id\": \"$BUILD_ID\",
+              \"version_code\": ${{ steps.apk_metadata.outputs.VERSION_CODE }},
+              \"version_name\": \"${{ steps.apk_metadata.outputs.VERSION_NAME }}\",
+              \"build_type\": \"debug\",
+              \"file_size_bytes\": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
+              \"sha256\": \"${{ steps.apk_metadata.outputs.SHA256 }}\",
+              \"signer_fingerprint\": \"${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}\",
+              \"storage_url\": \"$STORAGE_URL\",
+              \"ci_run_id\": \"${{ github.run_id }}\",
+              \"git_sha\": \"${{ github.sha }}\",
+              \"package_name\": \"com.nexmdm.agent\"
+            }")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Successfully registered APK build with backend"
+          else
+            echo "❌ Failed to register APK build (HTTP $HTTP_CODE)"
+            exit 1
+          fi
       
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk
+          name: nexmdm-debug-${{ steps.apk_metadata.outputs.VERSION_NAME }}-${{ github.sha }}
           path: ${{ steps.apk_metadata.outputs.APK_PATH }}
           retention-days: 30
