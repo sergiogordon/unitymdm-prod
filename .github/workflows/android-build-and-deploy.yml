@@ -1,0 +1,356 @@
+name: Android Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+
+jobs:
+  build:
+    name: Build, Sign & Deploy Android APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Decode and prepare keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "🔐 Decoding keystore from GitHub Secrets..."
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > ${{ github.workspace }}/release.keystore
+          ls -lh ${{ github.workspace }}/release.keystore
+          echo "✅ Keystore prepared successfully"
+
+      - name: Set versioning metadata
+        id: version
+        run: |
+          # Calculate version code from GitHub run number
+          VERSION_CODE=$((GITHUB_RUN_NUMBER + 100))
+          
+          # Determine version name based on tag or commit
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            COMMIT_SHORT="${GITHUB_SHA:0:7}"
+            VERSION_NAME="1.0.${VERSION_CODE}-${COMMIT_SHORT}"
+          fi
+          
+          echo "version_code=${VERSION_CODE}" >> $GITHUB_OUTPUT
+          echo "version_name=${VERSION_NAME}" >> $GITHUB_OUTPUT
+          echo "commit_short=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+          
+          echo "📦 Version Code: ${VERSION_CODE}"
+          echo "📦 Version Name: ${VERSION_NAME}"
+          echo "📦 Commit: ${GITHUB_SHA:0:7}"
+
+      - name: Build Debug APK
+        working-directory: android
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+          KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
+        run: |
+          echo "🔨 Building debug APK with release signing..."
+          ./gradlew assembleDebug --no-daemon --stacktrace
+          
+          # Find the built APK
+          DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          echo "DEBUG_APK_PATH=${DEBUG_APK}" >> $GITHUB_ENV
+          
+          if [ -f "$DEBUG_APK" ]; then
+            ls -lh "$DEBUG_APK"
+            echo "✅ Debug APK built successfully: $DEBUG_APK"
+          else
+            echo "❌ Debug APK not found!"
+            exit 1
+          fi
+
+      - name: Build Release APK and AAB
+        working-directory: android
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_SHA: ${{ github.sha }}
+          KEYSTORE_FILE: ${{ github.workspace }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
+        run: |
+          echo "🔨 Building release APK and AAB..."
+          ./gradlew assembleRelease bundleRelease --no-daemon --stacktrace
+          
+          # Find the built artifacts
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          RELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" | head -1)
+          
+          echo "RELEASE_APK_PATH=${RELEASE_APK}" >> $GITHUB_ENV
+          echo "RELEASE_AAB_PATH=${RELEASE_AAB}" >> $GITHUB_ENV
+          
+          if [ -f "$RELEASE_APK" ]; then
+            ls -lh "$RELEASE_APK"
+            echo "✅ Release APK built successfully: $RELEASE_APK"
+          else
+            echo "❌ Release APK not found!"
+            exit 1
+          fi
+          
+          if [ -f "$RELEASE_AAB" ]; then
+            ls -lh "$RELEASE_AAB"
+            echo "✅ Release AAB built successfully: $RELEASE_AAB"
+          else
+            echo "⚠️ Release AAB not found (optional)"
+          fi
+
+      - name: Verify APK signatures
+        working-directory: android
+        run: |
+          echo "🔍 Verifying APK signatures with apksigner..."
+          
+          # Install build tools if needed
+          sdkmanager "build-tools;34.0.0" > /dev/null 2>&1 || true
+          APKSIGNER="${ANDROID_HOME}/build-tools/34.0.0/apksigner"
+          
+          # Verify debug APK
+          echo "Verifying debug APK..."
+          $APKSIGNER verify --verbose "$DEBUG_APK_PATH" > debug_verify.txt 2>&1
+          cat debug_verify.txt
+          
+          if grep -q "Verifies" debug_verify.txt; then
+            echo "✅ Debug APK signature verified"
+          else
+            echo "❌ Debug APK signature verification failed!"
+            exit 1
+          fi
+          
+          # Verify release APK
+          echo "Verifying release APK..."
+          $APKSIGNER verify --verbose "$RELEASE_APK_PATH" > release_verify.txt 2>&1
+          cat release_verify.txt
+          
+          if grep -q "Verifies" release_verify.txt; then
+            echo "✅ Release APK signature verified"
+          else
+            echo "❌ Release APK signature verification failed!"
+            exit 1
+          fi
+
+      - name: Extract APK metadata
+        id: apk_metadata
+        run: |
+          # Extract metadata from debug APK using aapt
+          APK_PATH="android/$DEBUG_APK_PATH"
+          
+          # Get file size
+          FILE_SIZE=$(stat -c%s "$APK_PATH")
+          echo "FILE_SIZE=$FILE_SIZE" >> $GITHUB_OUTPUT
+          
+          # Calculate SHA256
+          SHA256=$(sha256sum "$APK_PATH" | awk '{print $1}')
+          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+          
+          # Get signer fingerprint
+          SIGNER_FP=$(keytool -printcert -jarfile "$APK_PATH" 2>/dev/null | grep "SHA256:" | head -1 | awk '{print $2}' || echo "RELEASE_KEY")
+          echo "SIGNER_FINGERPRINT=$SIGNER_FP" >> $GITHUB_OUTPUT
+          
+          echo "📊 Metadata extracted:"
+          echo "  File size: $FILE_SIZE bytes"
+          echo "  SHA256: $SHA256"
+          echo "  Signer: $SIGNER_FP"
+
+      - name: Check backend connectivity
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+        run: |
+          echo "🔍 Testing backend connectivity..."
+          echo "Backend URL: $BACKEND_URL"
+          
+          # Test if frontend (public URL) is reachable
+          if curl -f -s -o /dev/null -w "%{http_code}" "$BACKEND_URL" > /dev/null 2>&1; then
+            echo "✅ Frontend is reachable"
+          else
+            echo "⚠️  Frontend might not be reachable, but continuing..."
+          fi
+
+      - name: Register build with NexMDM backend
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
+        run: |
+          # Verify secrets are set
+          if [ -z "$BACKEND_URL" ]; then
+            echo "❌ ERROR: NEXMDM_BACKEND_URL secret is not set!"
+            exit 1
+          fi
+          
+          if [ -z "$ADMIN_KEY" ]; then
+            echo "❌ ERROR: NEXMDM_ADMIN_KEY secret is not set!"
+            exit 1
+          fi
+          
+          # Generate unique build_id from CI metadata
+          BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
+          STORAGE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          echo "================================================"
+          echo "🚀 Registering debug APK with NexMDM backend"
+          echo "================================================"
+          echo "Build ID: $BUILD_ID"
+          echo "Backend URL: $BACKEND_URL"
+          echo "Version: ${{ steps.version.outputs.version_name }} (code: ${{ steps.version.outputs.version_code }})"
+          echo "File size: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes"
+          echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
+          echo "================================================"
+          
+          # Create JSON payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "build_id": "$BUILD_ID",
+            "version_code": ${{ steps.version.outputs.version_code }},
+            "version_name": "${{ steps.version.outputs.version_name }}",
+            "build_type": "debug",
+            "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
+            "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
+            "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
+            "storage_url": "$STORAGE_URL",
+            "ci_run_id": "${{ github.run_id }}",
+            "git_sha": "${{ github.sha }}",
+            "package_name": "com.nexmdm"
+          }
+          EOF
+          )
+          
+          echo "📤 Sending registration request..."
+          echo "Endpoint: $BACKEND_URL/api/proxy/admin/apk/register"
+          echo "Note: Using frontend proxy to reach backend API (Replit routing)"
+          
+          # Make the request with verbose output
+          # Use /api/proxy/ prefix since Replit routes public domain to frontend (port 5000)
+          HTTP_CODE=$(curl -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
+            -H "X-Admin: $ADMIN_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            -w "\n%{http_code}" \
+            -o /tmp/response_body.txt \
+            2>&1 | tee /tmp/curl_verbose.txt | tail -n1)
+          
+          # Get response body
+          RESPONSE_BODY=$(cat /tmp/response_body.txt 2>/dev/null || echo "No response body")
+          
+          echo ""
+          echo "📥 Response received:"
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $RESPONSE_BODY"
+          
+          # Validate response
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo ""
+            echo "✅ SUCCESS: Debug APK registered with backend!"
+            echo "View build at: $BACKEND_URL/apk-management"
+          else
+            echo ""
+            echo "❌ FAILED: Registration returned HTTP $HTTP_CODE"
+            echo "Response: $RESPONSE_BODY"
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Check that both Backend and Frontend workflows are running"
+            echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
+            echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
+            echo "4. Check backend logs at $BACKEND_URL"
+            exit 1
+          fi
+      
+      - name: Upload Release APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexmdm-release-apk-${{ steps.version.outputs.version_code }}
+          path: android/${{ env.RELEASE_APK_PATH }}
+          retention-days: 90
+
+      - name: Upload Release AAB as artifact
+        if: env.RELEASE_AAB_PATH != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexmdm-release-aab-${{ steps.version.outputs.version_code }}
+          path: android/${{ env.RELEASE_AAB_PATH }}
+          retention-days: 90
+
+      - name: Upload Debug APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexmdm-debug-apk-${{ steps.version.outputs.version_code }}
+          path: android/${{ env.DEBUG_APK_PATH }}
+          retention-days: 30
+
+      - name: Generate build summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🤖 Android Build & Deploy Summary
+          
+          ### 📦 Build Information
+          - **Version Code**: ${{ steps.version.outputs.version_code }}
+          - **Version Name**: ${{ steps.version.outputs.version_name }}
+          - **Commit**: ${{ steps.version.outputs.commit_short }}
+          - **Build Time**: ${{ steps.version.outputs.build_time }}
+          - **Workflow Run**: #${{ github.run_number }}
+          
+          ### ✅ Artifacts Built
+          
+          #### Debug APK
+          - **SHA256**: \`${{ steps.apk_metadata.outputs.SHA256 }}\`
+          - **Size**: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes
+          - **Signature**: Verified ✅
+          - **Backend**: Registered ✅
+          - **Dashboard**: [${{ secrets.NEXMDM_BACKEND_URL }}/apk-management](${{ secrets.NEXMDM_BACKEND_URL }}/apk-management)
+          
+          #### Release APK
+          - **Signature**: Verified ✅
+          - **Available**: GitHub Artifacts (90 days)
+          
+          #### Release AAB
+          - **Available**: GitHub Artifacts (90 days)
+          
+          ### 🔐 Security
+          - All APKs signed with production keystore
+          - Signatures verified with apksigner
+          - Debug APK registered in APK Management system
+          
+          ### 📥 Download
+          - [Debug APK (30 days retention)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [Release APK (90 days retention)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [Release AAB (90 days retention)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+          
+          echo "📊 Build summary generated successfully"
+
+      - name: Clean up keystore
+        if: always()
+        run: |
+          if [ -f "${{ github.workspace }}/release.keystore" ]; then
+            rm -f "${{ github.workspace }}/release.keystore"
+            echo "🧹 Keystore cleaned up"
+          fi
