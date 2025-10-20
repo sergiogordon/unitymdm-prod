@@ -137,10 +137,12 @@ jobs:
           )
           
           echo "📤 Sending request..."
-          echo "Endpoint: $BACKEND_URL/admin/apk/register"
+          echo "Endpoint: $BACKEND_URL/api/proxy/admin/apk/register"
+          echo "Note: Using frontend proxy to reach backend API"
           
           # Make the request with verbose output
-          HTTP_CODE=$(curl -v -X POST "$BACKEND_URL/admin/apk/register" \
+          # Use /api/proxy/ prefix since Replit routes public domain to frontend (port 5000)
+          HTTP_CODE=$(curl -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
