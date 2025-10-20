@@ -7,6 +7,8 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 import { Package, Upload, Download, Trash2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { format } from "date-fns"
+import { toZonedTime } from "date-fns-tz"
 
 interface ApkBuild {
   build_id: number
@@ -111,16 +113,8 @@ export default function ApkManagementPage() {
 
   const formatUploadedTime = (isoString: string): string => {
     const date = new Date(isoString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffMins = Math.floor(diffMs / 60000)
-    const diffHours = Math.floor(diffMins / 60)
-    const diffDays = Math.floor(diffHours / 24)
-
-    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`
-    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`
-    if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
-    return date.toLocaleDateString()
+    const cstDate = toZonedTime(date, 'America/Chicago')
+    return format(cstDate, "MMM d, yyyy 'at' h:mm a 'CST'")
   }
 
   return (
