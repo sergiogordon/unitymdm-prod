@@ -65,11 +65,41 @@ jobs:
           echo "SIGNER_FINGERPRINT=$SIGNER_FP" >> $GITHUB_OUTPUT
           echo "Signer fingerprint: $SIGNER_FP"
       
+      - name: Check backend connectivity
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+        run: |
+          echo "🔍 Testing backend connectivity..."
+          echo "Backend URL: $BACKEND_URL"
+          
+          # Test if backend is reachable
+          if curl -f -s -o /dev/null -w "%{http_code}" "$BACKEND_URL" > /dev/null 2>&1; then
+            echo "✅ Backend is reachable"
+          else
+            echo "⚠️  Backend might not be reachable, but continuing..."
+          fi
+          
+          # Test admin endpoint specifically
+          echo "Testing admin endpoint: $BACKEND_URL/admin/apk/builds"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/admin/apk/builds" || echo "FAILED")
+          echo "Admin endpoint status: $STATUS"
+      
       - name: Register build with NexMDM backend
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
+          # Verify secrets are set
+          if [ -z "$BACKEND_URL" ]; then
+            echo "❌ ERROR: NEXMDM_BACKEND_URL secret is not set!"
+            exit 1
+          fi
+          
+          if [ -z "$ADMIN_KEY" ]; then
+            echo "❌ ERROR: NEXMDM_ADMIN_KEY secret is not set!"
+            exit 1
+          fi
+          
           # Generate unique build_id from CI metadata
           BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
           
@@ -78,37 +108,73 @@ jobs:
           # In production, you would upload to S3/GCS and use that URL
           STORAGE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           
-          echo "Registering APK build with backend..."
+          echo "================================================"
+          echo "🚀 Registering APK build with backend"
+          echo "================================================"
           echo "Build ID: $BUILD_ID"
           echo "Backend URL: $BACKEND_URL"
+          echo "Version: ${{ steps.apk_metadata.outputs.VERSION_NAME }} (code: ${{ steps.apk_metadata.outputs.VERSION_CODE }})"
+          echo "File size: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes"
+          echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
+          echo "================================================"
           
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$BACKEND_URL/admin/apk/register" \
+          # Create JSON payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "build_id": "$BUILD_ID",
+            "version_code": ${{ steps.apk_metadata.outputs.VERSION_CODE }},
+            "version_name": "${{ steps.apk_metadata.outputs.VERSION_NAME }}",
+            "build_type": "debug",
+            "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
+            "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
+            "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
+            "storage_url": "$STORAGE_URL",
+            "ci_run_id": "${{ github.run_id }}",
+            "git_sha": "${{ github.sha }}",
+            "package_name": "com.nexmdm"
+          }
+          EOF
+          )
+          
+          echo "📤 Sending request..."
+          echo "Endpoint: $BACKEND_URL/admin/apk/register"
+          
+          # Make the request with verbose output
+          HTTP_CODE=$(curl -v -X POST "$BACKEND_URL/admin/apk/register" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"build_id\": \"$BUILD_ID\",
-              \"version_code\": ${{ steps.apk_metadata.outputs.VERSION_CODE }},
-              \"version_name\": \"${{ steps.apk_metadata.outputs.VERSION_NAME }}\",
-              \"build_type\": \"debug\",
-              \"file_size_bytes\": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
-              \"sha256\": \"${{ steps.apk_metadata.outputs.SHA256 }}\",
-              \"signer_fingerprint\": \"${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}\",
-              \"storage_url\": \"$STORAGE_URL\",
-              \"ci_run_id\": \"${{ github.run_id }}\",
-              \"git_sha\": \"${{ github.sha }}\",
-              \"package_name\": \"com.nexmdm\"
-            }")
+            -d "$PAYLOAD" \
+            -w "\n%{http_code}" \
+            -o /tmp/response_body.txt \
+            2>&1 | tee /tmp/curl_verbose.txt | tail -n1)
           
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
+          # Show verbose curl output (with auth redacted)
+          echo ""
+          echo "📋 Curl verbose output:"
+          cat /tmp/curl_verbose.txt | grep -v "X-Admin:" || true
           
-          echo "Response: $BODY"
+          # Get response body
+          RESPONSE_BODY=$(cat /tmp/response_body.txt 2>/dev/null || echo "No response body")
+          
+          echo ""
+          echo "📥 Response received:"
           echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $RESPONSE_BODY"
           
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "✅ Successfully registered APK build with backend"
+          # Validate response
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo ""
+            echo "✅ SUCCESS: APK build registered with backend!"
+            echo "Build can be viewed at: $BACKEND_URL/apk-management"
           else
-            echo "❌ Failed to register APK build (HTTP $HTTP_CODE)"
+            echo ""
+            echo "❌ FAILED: Registration returned HTTP $HTTP_CODE"
+            echo "Response: $RESPONSE_BODY"
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Check that backend is running: $BACKEND_URL"
+            echo "2. Verify ADMIN_KEY is correct"
+            echo "3. Check backend logs for errors"
             exit 1
           fi
       
