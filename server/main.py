@@ -4567,6 +4567,90 @@ async def register_apk_build(
         "uploaded_at": apk_version.uploaded_at.isoformat()
     }
 
+@app.post("/admin/apk/upload")
+async def upload_apk_file(
+    file: UploadFile = File(...),
+    build_id: str = Form(...),
+    version_code: int = Form(...),
+    version_name: str = Form(...),
+    build_type: str = Form(...),
+    package_name: str = Form("com.nexmdm.agent"),
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload APK file binary to server storage.
+    This endpoint is called after /admin/apk/register to upload the actual file.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    if not file.filename or not file.filename.endswith('.apk'):
+        raise HTTPException(status_code=400, detail="Invalid file type. Must be .apk")
+    
+    existing = db.query(ApkVersion).filter(
+        ApkVersion.package_name == package_name,
+        ApkVersion.version_code == version_code,
+        ApkVersion.build_type == build_type
+    ).first()
+    
+    if not existing:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"APK build not found. Please call /admin/apk/register first to register metadata."
+        )
+    
+    storage_dir = ensure_apk_storage_dir()
+    final_filename = f"{package_name}_{version_code}_{build_type}.apk"
+    final_path = os.path.join(storage_dir, final_filename)
+    temp_path = f"{final_path}.tmp"
+    
+    try:
+        with open(temp_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        import os as _os
+        _os.rename(temp_path, final_path)
+        
+        file_size = _os.path.getsize(final_path)
+        
+        existing.file_path = final_path
+        existing.file_size = file_size
+        db.commit()
+        db.refresh(existing)
+        
+        structured_logger.log_event(
+            "apk.upload",
+            build_id=existing.id,
+            version_code=version_code,
+            version_name=version_name,
+            build_type=build_type,
+            file_size=file_size,
+            file_path=final_path
+        )
+        
+        metrics.inc_counter("apk_uploads_total", {"build_type": build_type})
+        
+        return {
+            "success": True,
+            "build_id": existing.id,
+            "file_path": final_path,
+            "file_size": file_size,
+            "message": "APK file uploaded successfully"
+        }
+    except Exception as e:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        structured_logger.log_event(
+            "apk.upload.error",
+            error=str(e),
+            package_name=package_name,
+            version_code=version_code
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to save APK file: {str(e)}")
+
 @app.get("/admin/apk/builds")
 async def list_apk_builds(
     build_type: Optional[str] = Query(None),

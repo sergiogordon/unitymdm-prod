@@ -271,7 +271,7 @@ jobs:
           # Validate response
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
             echo ""
-            echo "✅ SUCCESS: Debug APK registered with backend!"
+            echo "✅ SUCCESS: Debug APK metadata registered with backend!"
             echo "View build at: $BACKEND_URL/apk-management"
           else
             echo ""
@@ -284,6 +284,43 @@ jobs:
             echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
             echo "4. Check backend logs at $BACKEND_URL"
             exit 1
+          fi
+      
+      - name: Upload APK file to backend
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
+        run: |
+          echo "📤 Uploading APK binary to backend..."
+          APK_PATH="android/${{ env.DEBUG_APK_PATH }}"
+          
+          # Upload the actual APK file
+          # Use multipart/form-data with the file and metadata
+          HTTP_CODE=$(curl -L --post301 -v -X POST "$BACKEND_URL/api/proxy/admin/apk/upload" \
+            -H "X-Admin: $ADMIN_KEY" \
+            -F "file=@$APK_PATH" \
+            -F "build_id=gh_${{ github.run_id }}_${{ github.run_number }}" \
+            -F "version_code=${{ steps.version.outputs.version_code }}" \
+            -F "version_name=${{ steps.version.outputs.version_name }}" \
+            -F "build_type=debug" \
+            -F "package_name=com.nexmdm" \
+            -w "\n%{http_code}" \
+            -o /tmp/upload_response.txt \
+            2>&1 | tee /tmp/upload_verbose.txt | tail -n1)
+          
+          UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "No response")
+          
+          echo ""
+          echo "📥 Upload response:"
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $UPLOAD_RESPONSE"
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ SUCCESS: APK file uploaded to backend!"
+          else
+            echo "⚠️  WARNING: File upload failed with HTTP $HTTP_CODE"
+            echo "Build is registered but file download may not work"
+            echo "You can still download the APK from GitHub Actions artifacts"
           fi
       
       - name: Upload Release APK as artifact

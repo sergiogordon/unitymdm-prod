@@ -55,7 +55,13 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 - **Bulk Delete Architecture**: Device selection snapshots prevent race conditions, background purge workers use PostgreSQL advisory locks for safe concurrent execution, hard deletes cascade to device_last_status and device_events tables.
-- **APK Build Registry**: Admin-scoped API endpoints (`POST /admin/apk/register`, `GET /admin/apk/builds`, `GET /admin/apk/download/{build_id}`, `DELETE /admin/apk/builds/{build_id}`) for CI integration. All endpoints require admin key authentication. Download events tracked in `apk_download_events` table with source attribution.
+- **APK Build Registry**: Admin-scoped API endpoints for CI integration with file upload support:
+  - `POST /admin/apk/register`: Register APK metadata (version, SHA256, CI info)
+  - `POST /admin/apk/upload`: Upload actual APK binary file (multipart/form-data)
+  - `GET /admin/apk/builds`: List registered builds with filtering
+  - `GET /admin/apk/download/{build_id}`: Download APK file from server storage
+  - `DELETE /admin/apk/builds/{build_id}`: Delete build and file
+  All endpoints require admin key authentication. Download events tracked in `apk_download_events` table with source attribution. CI workflow performs two-step registration: metadata → file upload.
 
 ### Reliability Features (Milestone 5) ✅ COMPLETED
 The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:
