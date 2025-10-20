@@ -23,7 +23,6 @@ interface ApkBuild {
 
 export default function ApkManagementPage() {
   const [isDark, setIsDark] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [apkBuilds, setApkBuilds] = useState<ApkBuild[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -60,7 +59,6 @@ export default function ApkManagementPage() {
   }, [])
 
   const handleRefresh = () => {
-    setLastUpdated(Date.now())
     fetchApkBuilds()
   }
 
@@ -128,12 +126,8 @@ export default function ApkManagementPage() {
   return (
     <div className="min-h-screen">
       <Header
-        lastUpdated={lastUpdated}
-        alertCount={0}
         isDark={isDark}
         onToggleDark={() => setIsDark(!isDark)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={handleRefresh}
       />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">

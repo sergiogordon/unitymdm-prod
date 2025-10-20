@@ -1,0 +1,99 @@
+name: Build and Register Debug APK
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+      
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+      
+      - name: Get APK metadata
+        id: apk_metadata
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+          
+          # Extract version info from gradle
+          VERSION_NAME=$(grep "versionName" app/build.gradle | awk '{print $2}' | tr -d '"')
+          VERSION_CODE=$(grep "versionCode" app/build.gradle | awk '{print $2}')
+          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
+          
+          # Calculate file size
+          FILE_SIZE=$(stat -f%z "$APK_PATH" 2>/dev/null || stat -c%s "$APK_PATH")
+          echo "FILE_SIZE=$FILE_SIZE" >> $GITHUB_OUTPUT
+          
+          # Calculate SHA256
+          SHA256=$(sha256sum "$APK_PATH" | awk '{print $1}')
+          echo "SHA256=$SHA256" >> $GITHUB_OUTPUT
+          
+          # Get signer fingerprint (if signed)
+          # For debug builds, this is typically the debug keystore
+          # For production, you'd extract from your release keystore
+          echo "SIGNER_FINGERPRINT=DEBUG_KEY" >> $GITHUB_OUTPUT
+      
+      - name: Upload APK to storage
+        id: upload_apk
+        run: |
+          # Upload to your storage solution
+          # Example for local storage (copy to backend server):
+          # scp ${{ steps.apk_metadata.outputs.APK_PATH }} user@server:/path/to/apk_storage/
+          
+          # For now, we'll use the APK path as storage_url
+          # In production, this would be an S3 URL or similar
+          APK_FILENAME="nexmdm-debug-${{ steps.apk_metadata.outputs.VERSION_NAME }}-${{ github.sha }}.apk"
+          STORAGE_URL="./apk_storage/$APK_FILENAME"
+          echo "STORAGE_URL=$STORAGE_URL" >> $GITHUB_OUTPUT
+          
+          # Copy APK to backend server (example using scp)
+          # Uncomment and configure for your setup:
+          # scp ${{ steps.apk_metadata.outputs.APK_PATH }} backend:$STORAGE_URL
+      
+      - name: Register build with NexMDM backend
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+          ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
+        run: |
+          curl -X POST "$BACKEND_URL/admin/apk/register" \
+            -H "X-Admin: $ADMIN_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "build_id": "gh_${{ github.run_id }}_${{ github.run_number }}",
+              "version_code": ${{ steps.apk_metadata.outputs.VERSION_CODE }},
+              "version_name": "${{ steps.apk_metadata.outputs.VERSION_NAME }}",
+              "build_type": "debug",
+              "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
+              "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
+              "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
+              "storage_url": "${{ steps.upload_apk.outputs.STORAGE_URL }}",
+              "ci_run_id": "${{ github.run_id }}",
+              "git_sha": "${{ github.sha }}",
+              "package_name": "com.nexmdm.agent"
+            }'
+      
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: ${{ steps.apk_metadata.outputs.APK_PATH }}
+          retention-days: 30
