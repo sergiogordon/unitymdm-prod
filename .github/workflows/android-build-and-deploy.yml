@@ -250,7 +250,8 @@ jobs:
           
           # Make the request with verbose output
           # Use /api/proxy/ prefix since Replit routes public domain to frontend (port 5000)
-          HTTP_CODE=$(curl -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
+          # -L flag follows redirects (HTTP 301/302)
+          HTTP_CODE=$(curl -L -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
