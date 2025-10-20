@@ -24,7 +24,11 @@ Your Replit app URL is available in the environment as `REPLIT_DOMAINS`. For thi
 https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
 ```
 
-**Important**: Make sure your backend workflow is running before setting up GitHub Actions.
+**Important Notes**:
+- Make sure both Backend and Frontend workflows are running before setting up GitHub Actions
+- The public Replit URL routes to port 5000 (frontend), not port 8000 (backend)
+- The workflow uses `/api/proxy/` to route through the frontend proxy to reach the backend
+- This is the correct architecture for Replit's firewall/networking setup
 
 ## Step 2: Configure GitHub Secrets
 
