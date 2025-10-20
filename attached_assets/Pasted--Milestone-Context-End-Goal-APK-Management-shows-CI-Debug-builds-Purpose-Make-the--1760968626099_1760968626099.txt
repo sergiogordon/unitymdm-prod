@@ -1,0 +1,150 @@
+**Milestone Context & End Goal — APK Management shows CI “Debug” builds**
+
+**Purpose:**
+Make the **APK Management** page list and download the debug APKs produced by your GitHub Actions. Wire CI → backend → storage → frontend so every new build appears automatically.
+
+---
+
+### What “done” means
+
+**End-user behavior**
+
+* The **APK Management** table auto-lists recent **debug** builds (filename, version, size, uploaded time).
+* Clicking **Download** fetches the exact artifact built by CI.
+* (Optional) **Delete** removes a build from the list and storage.
+* No page edits needed beyond wiring; design stays as in your screenshot.
+
+---
+
+### Backend (APIs & storage)
+
+1. **Register build (CI callback)**
+
+* `POST /admin/apk/register`
+
+  ```json
+  {
+    "build_id":"b_2025-10-20_123456",
+    "version_code": 37,
+    "version_name": "1.2.0",
+    "build_type": "debug",
+    "file_size_bytes": 25789432,
+    "sha256": "…",
+    "signer_fingerprint": "AA:BB:…",
+    "storage_url": "s3://…/nexmdm-debug-1.2.0.apk",
+    "ci_run_id": "gh_…",
+    "git_sha": "abcdef1"
+  }
+  ```
+* Auth: `X-Admin` key (scoped `apk_manage`).
+* Side effects: insert into `apk_builds`; emit `apk.register` log; return 200.
+
+2. **List builds (frontend uses)**
+
+* `GET /admin/apk/builds?build_type=debug&limit=50&order=desc`
+
+  ```json
+  {
+    "builds":[
+      {"build_id":"…","filename":"Unity-v1.2.0.apk","version_name":"1.2.0","version_code":37,"file_size_bytes":25789432,"uploaded_at":"…"}
+    ]
+  }
+  ```
+
+3. **Download build (admin UI)**
+
+* `GET /admin/apk/download/{build_id}` → 302 to signed URL (or stream).
+* Logs `apk.download {source:"admin"}` and creates `apk_download_events`.
+
+4. **Delete build (optional)**
+
+* `DELETE /admin/apk/builds/{build_id}` → removes DB row and object from storage; logs `apk.delete`.
+
+5. **Latest for agents (already exists)**
+
+* `GET /v1/apk/download-latest?build_type=debug` → used by enrollment scripts.
+
+> Notes
+> • If you already have `apk_builds` table, reuse it; else add it with indexes `(build_type, uploaded_at desc)` and `(version_code desc, build_type)`.
+
+---
+
+### CI (GitHub Actions) — add “publish to NexMDM” step
+
+After signing and uploading the APK to storage:
+
+1. **Parse metadata**
+
+* Extract `versionName`, `versionCode`, compute `sha256`, derive `signer_fingerprint`.
+
+2. **Upload artifact to object storage**
+
+* e.g., S3/Backblaze/Replit Storage. Keep a predictable key (e.g., `apk/debug/nexmdm-{versionName}-{gitSha}.apk`).
+
+3. **Call backend register API**
+
+```bash
+curl -sS -X POST "$BASE_URL/admin/apk/register" \
+ -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
+ -d @metadata.json
+```
+
+**Secrets required in CI:** `BASE_URL`, `ADMIN_KEY`, storage creds.
+
+---
+
+### Frontend (APK Management page)
+
+* On load → `GET /admin/apk/builds?build_type=debug` and render:
+
+  * **File Name**, **Version**, **Size** (MB), **Uploaded** (relative).
+  * **Actions**: Download → `/admin/apk/download/{build_id}`; Delete (optional) → `DELETE /admin/apk/builds/{build_id}` with confirm.
+* Poll or “Refresh” button (every 30–60s or manual).
+* Show empty state when no builds; show toasts for 401/403/5xx.
+
+---
+
+### Security
+
+* Only admin keys with `apk_manage` scope can call register/list/download/delete.
+* Agents and scripts still use `GET /v1/apk/download-latest` with enrollment token (no UI exposure).
+* Signed URLs expire (e.g., 5–15 min). Never show raw storage URLs in the FE.
+
+---
+
+### Observability
+
+* Logs: `apk.register`, `apk.list`, `apk.download {source:admin}`, `apk.delete`.
+* Metrics: `apk_builds_total{type}`, `apk_download_total{source}`, `apk_delete_total`.
+* On register, verify duplicate‐build handling: upsert on `(build_type, version_code)` or allow multiple with different `git_sha`.
+
+---
+
+### Acceptance tests
+
+1. **CI → Backend → FE**
+
+   * Trigger CI: build debug APK, CI calls `/admin/apk/register`.
+   * Page shows the new build with correct metadata within seconds.
+
+2. **Download**
+
+   * Click download → file starts; `apk_download_events` row exists with `source="admin"`.
+
+3. **Delete (optional)**
+
+   * Delete a build → row disappears; storage object no longer fetchable.
+
+4. **Auth & errors**
+
+   * Call list/register without scope → 403 on API, toast on FE.
+   * Register same `(build_type, version_code)` twice → defined behavior (reject 409 or upsert) is honored.
+
+---
+
+### Definition of Done
+
+* CI publishes every new debug APK to storage **and** registers it with backend.
+* APK Management page lists and downloads those builds reliably.
+* Events and metrics record register/download/delete activity.
+* No secrets leak; agents’ enrollment path continues to use token-protected `download-latest`.
