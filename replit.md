@@ -40,6 +40,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
 - **Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff, 5-minute heartbeat intervals, structured logging, and reliability features (persistent queue, network monitoring, power-aware retries).
 - **OTA Updates (Milestone 4)**: Secure fleet-wide Android agent updates with one-click promotion, staged rollouts (1%-100%), deterministic device cohorting, rollback capability, and comprehensive adoption telemetry. Devices poll `/v1/agent/update` on startup, every 6 hours, or immediately via FCM nudge. Includes SHA-256 verification, signer fingerprint validation, Wi-Fi-only constraints, and safety controls (battery, network conditions).
+- **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs. GitHub Actions workflow automatically registers builds with metadata (version, SHA256, signer fingerprint, Git SHA) via admin-authenticated API. Frontend displays builds with download/delete capabilities. Supports local file storage with extensible design for cloud object storage (S3/GCS). Comprehensive observability with structured logging (`apk.register`, `apk.download`, `apk.delete`) and Prometheus metrics. See `.github/workflows/build-and-register-apk.yml` and `docs/ci-integration-guide.md` for implementation details.
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O and improved concurrency.
@@ -54,6 +55,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 - **Bulk Delete Architecture**: Device selection snapshots prevent race conditions, background purge workers use PostgreSQL advisory locks for safe concurrent execution, hard deletes cascade to device_last_status and device_events tables.
+- **APK Build Registry**: Admin-scoped API endpoints (`POST /admin/apk/register`, `GET /admin/apk/builds`, `GET /admin/apk/download/{build_id}`, `DELETE /admin/apk/builds/{build_id}`) for CI integration. All endpoints require admin key authentication. Download events tracked in `apk_download_events` table with source attribution.
 
 ### Reliability Features (Milestone 5) ✅ COMPLETED
 The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:
