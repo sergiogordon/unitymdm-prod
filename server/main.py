@@ -4473,6 +4473,269 @@ async def nudge_update_check(
         "failed_devices": failed_devices
     }
 
+# ==================== Admin APK Management (CI Integration) ====================
+
+class RegisterApkBuildRequest(BaseModel):
+    build_id: str
+    version_code: int
+    version_name: str
+    build_type: str
+    file_size_bytes: int
+    sha256: Optional[str] = None
+    signer_fingerprint: Optional[str] = None
+    storage_url: Optional[str] = None
+    ci_run_id: Optional[str] = None
+    git_sha: Optional[str] = None
+    package_name: str = "com.nexmdm.agent"
+
+@app.post("/admin/apk/register")
+async def register_apk_build(
+    payload: RegisterApkBuildRequest,
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Register a new APK build from CI without uploading the file.
+    Used by GitHub Actions to register debug builds after uploading to storage.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    existing = db.query(ApkVersion).filter(
+        ApkVersion.package_name == payload.package_name,
+        ApkVersion.version_code == payload.version_code,
+        ApkVersion.build_type == payload.build_type
+    ).first()
+    
+    if existing:
+        existing.version_name = payload.version_name
+        existing.file_size = payload.file_size_bytes
+        existing.signer_fingerprint = payload.signer_fingerprint
+        existing.storage_url = payload.storage_url
+        existing.ci_run_id = payload.ci_run_id
+        existing.git_sha = payload.git_sha
+        existing.uploaded_at = datetime.now(timezone.utc)
+        existing.uploaded_by = "ci-github-actions"
+        db.commit()
+        db.refresh(existing)
+        apk_version = existing
+        action = "updated"
+    else:
+        apk_version = ApkVersion(
+            version_name=payload.version_name,
+            version_code=payload.version_code,
+            file_path=payload.storage_url or f"./apk_storage/{payload.package_name}_{payload.version_code}.apk",
+            file_size=payload.file_size_bytes,
+            package_name=payload.package_name,
+            uploaded_at=datetime.now(timezone.utc),
+            uploaded_by="ci-github-actions",
+            is_active=True,
+            build_type=payload.build_type,
+            ci_run_id=payload.ci_run_id,
+            git_sha=payload.git_sha,
+            signer_fingerprint=payload.signer_fingerprint,
+            storage_url=payload.storage_url
+        )
+        db.add(apk_version)
+        db.commit()
+        db.refresh(apk_version)
+        action = "registered"
+    
+    structured_logger.log_event(
+        "apk.register",
+        build_id=apk_version.id,
+        version_code=payload.version_code,
+        version_name=payload.version_name,
+        build_type=payload.build_type,
+        ci_run_id=payload.ci_run_id,
+        git_sha=payload.git_sha,
+        action=action
+    )
+    
+    metrics.inc_counter("apk_builds_total", {
+        "build_type": payload.build_type,
+        "action": action
+    })
+    
+    return {
+        "success": True,
+        "action": action,
+        "build_id": apk_version.id,
+        "version_code": apk_version.version_code,
+        "version_name": apk_version.version_name,
+        "uploaded_at": apk_version.uploaded_at.isoformat()
+    }
+
+@app.get("/admin/apk/builds")
+async def list_apk_builds(
+    build_type: Optional[str] = Query(None),
+    limit: int = Query(50, le=200),
+    order: str = Query("desc"),
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    List APK builds with optional filtering by build_type.
+    Used by the APK Management frontend to show available builds.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    query = db.query(ApkVersion).filter(ApkVersion.is_active == True)
+    
+    if build_type:
+        query = query.filter(ApkVersion.build_type == build_type)
+    
+    if order == "asc":
+        query = query.order_by(ApkVersion.uploaded_at.asc())
+    else:
+        query = query.order_by(ApkVersion.uploaded_at.desc())
+    
+    apks = query.limit(limit).all()
+    
+    builds = []
+    for apk in apks:
+        builds.append({
+            "build_id": apk.id,
+            "filename": f"{apk.package_name}-{apk.version_name}.apk",
+            "version_name": apk.version_name,
+            "version_code": apk.version_code,
+            "file_size_bytes": apk.file_size,
+            "uploaded_at": apk.uploaded_at.isoformat(),
+            "uploaded_by": apk.uploaded_by,
+            "build_type": apk.build_type,
+            "ci_run_id": apk.ci_run_id,
+            "git_sha": apk.git_sha,
+            "signer_fingerprint": apk.signer_fingerprint,
+            "package_name": apk.package_name
+        })
+    
+    structured_logger.log_event(
+        "apk.list",
+        build_type=build_type,
+        count=len(builds),
+        limit=limit
+    )
+    
+    return {"builds": builds}
+
+@app.get("/admin/apk/download/{build_id}")
+async def download_apk_build_admin(
+    build_id: int,
+    request: Request,
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Download a specific APK build by ID.
+    Used by APK Management frontend for admin downloads.
+    Requires admin authentication and logs the download event.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK build not found")
+    
+    ensure_apk_storage_dir()
+    abs_apk_path = os.path.abspath(apk.file_path)
+    abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
+    
+    if not abs_apk_path.startswith(abs_storage_dir):
+        raise HTTPException(status_code=403, detail="Invalid file path")
+    
+    if not os.path.exists(apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
+    
+    structured_logger.log_event(
+        "apk.download",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        source="admin"
+    )
+    
+    download_event = ApkDownloadEvent(
+        build_id=apk.id,
+        source="admin",
+        token_id=None,
+        admin_user="admin",
+        ip=request.client.host if request.client else None
+    )
+    db.add(download_event)
+    db.commit()
+    
+    metrics.inc_counter("apk_download_total", {
+        "build_type": apk.build_type or "unknown",
+        "source": "admin"
+    })
+    
+    return FileResponse(
+        apk.file_path,
+        media_type="application/vnd.android.package-archive",
+        filename=f"{apk.package_name}_{apk.version_code}.apk",
+        headers={
+            "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
+        }
+    )
+
+@app.delete("/admin/apk/builds/{build_id}")
+async def delete_apk_build(
+    build_id: int,
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an APK build by ID.
+    Removes the database record and optionally the file.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK build not found")
+    
+    file_path = apk.file_path
+    file_existed = os.path.exists(file_path) if file_path else False
+    
+    apk.is_active = False
+    db.commit()
+    
+    if file_existed:
+        try:
+            os.remove(file_path)
+            file_deleted = True
+        except Exception as e:
+            print(f"[APK DELETE] Failed to delete file {file_path}: {e}")
+            file_deleted = False
+    else:
+        file_deleted = False
+    
+    structured_logger.log_event(
+        "apk.delete",
+        build_id=build_id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        file_deleted=file_deleted
+    )
+    
+    metrics.inc_counter("apk_delete_total", {
+        "build_type": apk.build_type or "unknown"
+    })
+    
+    return {
+        "success": True,
+        "build_id": build_id,
+        "file_deleted": file_deleted
+    }
+
 # ==================== Battery Whitelist Management ====================
 
 @app.get("/v1/battery-whitelist")
