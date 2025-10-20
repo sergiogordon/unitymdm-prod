@@ -4,14 +4,30 @@ import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
-import { Package, Upload, Download, Trash2 } from "lucide-react"
+import { Package, Upload, Download, Trash2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+
+interface ApkBuild {
+  build_id: number
+  filename: string
+  version_name: string
+  version_code: number
+  file_size_bytes: number
+  uploaded_at: string
+  uploaded_by: string
+  build_type: string
+  ci_run_id?: string
+  git_sha?: string
+}
 
 export default function ApkManagementPage() {
   const [isDark, setIsDark] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [apkBuilds, setApkBuilds] = useState<ApkBuild[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (isDark) {
@@ -21,14 +37,93 @@ export default function ApkManagementPage() {
     }
   }, [isDark])
 
-  const handleRefresh = () => {
-    setLastUpdated(Date.now())
+  const fetchApkBuilds = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/admin/apk/builds?build_type=debug&limit=50')
+      if (!response.ok) {
+        throw new Error('Failed to fetch APK builds')
+      }
+      const data = await response.json()
+      setApkBuilds(data.builds || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load APK builds')
+      console.error('Error fetching APK builds:', err)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const apkFiles = [
-    { name: "Unity-v1.2.0.apk", version: "1.2.0", size: "24.5 MB", uploaded: "2 days ago" },
-    { name: "Unity-v1.1.5.apk", version: "1.1.5", size: "23.8 MB", uploaded: "1 week ago" },
-  ]
+  useEffect(() => {
+    fetchApkBuilds()
+  }, [])
+
+  const handleRefresh = () => {
+    setLastUpdated(Date.now())
+    fetchApkBuilds()
+  }
+
+  const handleDownload = async (buildId: number, filename: string) => {
+    try {
+      const response = await fetch(`/admin/apk/download/${buildId}`)
+      if (!response.ok) {
+        throw new Error('Download failed')
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (err) {
+      console.error('Download error:', err)
+      alert('Failed to download APK')
+    }
+  }
+
+  const handleDelete = async (buildId: number, filename: string) => {
+    if (!confirm(`Are you sure you want to delete ${filename}?`)) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/admin/apk/builds?build_id=${buildId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new Error('Delete failed')
+      }
+      
+      fetchApkBuilds()
+    } catch (err) {
+      console.error('Delete error:', err)
+      alert('Failed to delete APK build')
+    }
+  }
+
+  const formatFileSize = (bytes: number): string => {
+    const mb = bytes / (1024 * 1024)
+    return `${mb.toFixed(1)} MB`
+  }
+
+  const formatUploadedTime = (isoString: string): string => {
+    const date = new Date(isoString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMins / 60)
+    const diffDays = Math.floor(diffHours / 24)
+
+    if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`
+    if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`
+    if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
+    return date.toLocaleDateString()
+  }
 
   return (
     <div className="min-h-screen">
@@ -52,45 +147,81 @@ export default function ApkManagementPage() {
           <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
             <div className="mb-6 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-card-foreground">Available APK Files</h2>
-              <Button className="gap-2">
-                <Upload className="h-4 w-4" />
-                Upload APK
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={handleRefresh} variant="outline" className="gap-2" disabled={isLoading}>
+                  <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+                <Button className="gap-2">
+                  <Upload className="h-4 w-4" />
+                  Upload APK
+                </Button>
+              </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-border">
-              <table className="w-full">
-                <thead className="border-b border-border bg-muted/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">File Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Version</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Size</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Uploaded</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {apkFiles.map((apk, index) => (
-                    <tr key={index} className="border-b border-border last:border-0">
-                      <td className="px-4 py-3 font-mono text-sm text-card-foreground">{apk.name}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{apk.version}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{apk.size}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{apk.uploaded}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="sm">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
+            {error && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+                {error}
+              </div>
+            )}
+
+            {isLoading ? (
+              <div className="py-12 text-center text-muted-foreground">
+                Loading APK builds...
+              </div>
+            ) : apkBuilds.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">
+                No APK builds found. Builds from CI will appear here automatically.
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full">
+                  <thead className="border-b border-border bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">File Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Version</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Size</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Uploaded</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {apkBuilds.map((apk) => (
+                      <tr key={apk.build_id} className="border-b border-border last:border-0">
+                        <td className="px-4 py-3 font-mono text-sm text-card-foreground">{apk.filename}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">{apk.version_name}</td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {formatFileSize(apk.file_size_bytes)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {formatUploadedTime(apk.uploaded_at)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDownload(apk.build_id, apk.filename)}
+                              title="Download APK"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(apk.build_id, apk.filename)}
+                              title="Delete APK"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </div>
       </main>
