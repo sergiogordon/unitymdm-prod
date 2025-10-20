@@ -1,0 +1,177 @@
+NexMDM — Android Debug APK Build Triage Prompt
+
+Role: You are a senior Android build engineer. Your job is to read the attached CI logs (GitHub Actions) for NexMDM’s debug APK build, identify the first failing error and any latent issues that will fail right after fixing the first one. Then give exact, minimal fixes.
+
+Project context to assume
+
+Kotlin Android app, package com.nexmdm.
+
+Uses: Firebase Cloud Messaging, WorkManager, EncryptedSharedPreferences, OkHttp.
+
+Targets compileSdk = 34, minSdk ≥ 26.
+
+Built on GitHub Actions with JDK 17 and AGP 8.x (preferred).
+
+Signed in CI with a debug keystore (env secrets already set).
+
+google-services.json present (or a CI placeholder for debug).
+
+Gradle wrapper checked in.
+
+What to do with my logs
+
+Parse the logs and quote only the smallest failing snippet (5–15 lines) that proves the failure.
+
+Name the root cause precisely (e.g., “AGP/Gradle version mismatch,” “Missing namespace in module,” “Kotlin stdlib version conflict,” “Duplicate class due to mixed Firebase versions,” “No matching variant for work-runtime”).
+
+Give the fix in the smallest possible patch:
+
+exact Gradle/AGP/Kotlin versions,
+
+dependencies with versions,
+
+any build.gradle/settings.gradle or gradle.properties edits,
+
+any AndroidManifest.xml or google-services.json placement,
+
+CI YAML step changes (Java version, cache, SDK install, signing).
+
+Pre-validate: list next likely failures that the current logs didn’t reach (e.g., dex limit, missing proguard rules, duplicate resources), and provide fixes now so the next run passes.
+
+Output a single “Patch Plan” with file-by-file edits and final commands to verify locally and in CI.
+
+Environment (fill from logs if you can)
+
+AGP: (from logs)
+
+Gradle: (from logs)
+
+Kotlin: (from logs)
+
+Build tools: (from logs)
+
+JDK: (from logs)
+If versions are inconsistent, propose a known-good matrix.
+
+Known-good matrix (use this unless logs show a better match)
+
+Gradle Wrapper: 8.7
+
+Android Gradle Plugin (AGP): 8.5.2
+
+Kotlin: 1.9.24
+
+compileSdk: 34
+
+targetSdk: 34
+
+buildToolsVersion: 34.0.0
+
+Firebase BOM: 33.3.0 (manage versions with BOM)
+
+WorkManager: 2.9.1
+
+OkHttp: 5.0.0-alpha.14 (or stable 4.12.0 if alpha conflicts)
+
+Checklist the assistant must apply to my project
+
+Gradle / AGP / Kotlin
+
+Ensure gradle/wrapper/gradle-wrapper.properties → distributionUrl=.../gradle-8.7-bin.zip.
+
+Ensure build.gradle (top-level) uses classpath "com.android.tools.build:gradle:8.5.2" and kotlin("android") plugin 1.9.24.
+
+Add org.gradle.jvmargs=-Xmx3g -Dkotlin.daemon.jvm.options=-Xmx2g in gradle.properties.
+
+Module app/build.gradle.kts (or .gradle)
+
+android { namespace = "com.nexmdm"; compileSdk = 34; defaultConfig { minSdk = 26; targetSdk = 34 } }
+
+If AGP 8+: namespace is required; remove applicationId from manifest and keep it in defaultConfig.
+
+Use Firebase BOM:
+
+implementation(platform("com.google.firebase:firebase-bom:33.3.0"))
+implementation("com.google.firebase:firebase-messaging")
+
+
+Keep AndroidX versions aligned:
+
+implementation("androidx.work:work-runtime-ktx:2.9.1")
+implementation("androidx.security:security-crypto:1.1.0-alpha06")
+implementation("androidx.core:core-ktx:1.13.1")
+implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+
+If you see “duplicate class” errors, enforce BOM + remove explicit firebase versions.
+
+Manifest & google-services
+
+applicationId = "com.nexmdm" in defaultConfig.
+
+google-services.json located at app/google-services.json.
+
+Apply plugin: id("com.google.gms.google-services") at module bottom.
+
+Signing (debug)
+
+If build fails with signing config, set debug config:
+
+signingConfigs { getByName("debug") { storeFile = file(System.getenv("DEBUG_KEYSTORE") ?: "debug.keystore"); storePassword = System.getenv("DEBUG_KEYSTORE_PASSWORD") ?: "android"; keyAlias = System.getenv("DEBUG_KEY_ALIAS") ?: "androiddebugkey"; keyPassword = System.getenv("DEBUG_KEY_PASSWORD") ?: "android" } }
+buildTypes { getByName("debug") { signingConfig = signingConfigs.getByName("debug") } }
+
+
+CI (GitHub Actions)
+
+Use Java 17, set up Android SDK, then:
+
+- uses: actions/setup-java@v4
+  with: { distribution: 'temurin', java-version: '17' }
+- uses: android-actions/setup-android@v3
+- run: ./gradlew clean :app:assembleDebug --stacktrace --no-daemon
+
+
+If crash at cache resolve: add Gradle cache, disable parallel if OOM.
+
+ProGuard / R8
+
+If minify enabled for debug (rare), disable: minifyEnabled false.
+
+If keep rules needed (WorkManager/Firebase), add:
+
+-keep class androidx.work.impl.background.systemjob.** { *; }
+-keep class com.google.firebase.** { *; }
+
+Expected Output Format
+
+1) Root Cause
+One sentence + 5–15 line quote from logs.
+
+2) Why it failed
+Short technical explanation tied to AGP/Kotlin/Deps/Signing/Manifest/etc.
+
+3) Minimal Fix Patch
+
+File: gradle/wrapper/gradle-wrapper.properties
+
+- distributionUrl=.../gradle-8.0.2-bin.zip
++ distributionUrl=.../gradle-8.7-bin.zip
+
+
+File: build.gradle / settings.gradle edits
+
+File: app/build.gradle(.kts) dependency block (with versions)
+
+File: AndroidManifest.xml / namespace
+
+CI YAML step(s) if needed
+
+4) Re-run Steps (Local & CI)
+Commands to verify locally (./gradlew ...) and in Actions.
+
+5) Next-Up Pre-Validation
+Bullet list of the next likely failures + proactive fixes (e.g., missing namespace, missing google-services.json, dex errors, duplicate classes from mixed AndroidX/Firebase versions, Java 11 vs 17 mismatch, NDK misconfiguration).
+
+Paste your logs below this line
+
+(Attach the full failing block from ./gradlew assembleDebug --stacktrace or GitHub Actions raw logs.)
