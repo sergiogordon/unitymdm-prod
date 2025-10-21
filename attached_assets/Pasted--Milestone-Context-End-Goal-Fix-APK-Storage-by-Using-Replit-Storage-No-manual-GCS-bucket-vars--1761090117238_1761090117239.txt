@@ -1,0 +1,94 @@
+**Milestone Context & End Goal — Fix APK Storage by Using Replit Storage (No manual GCS bucket vars)**
+
+**Purpose:**
+Resolve the `401 Invalid Credentials` on APK uploads/downloads by **stopping direct GCS access** and using **Replit’s Storage sidecar** (`from replit import storage`). Remove any `BUCKET_ID/BUCKET_NAME` env usage, re-provision Storage in Replit so the sidecar issues real creds, and wire the backend to this adapter. Result: CI uploads and devices download APKs reliably.
+
+---
+
+### What “done” means
+
+* CI → `POST /admin/apk/upload` succeeds; file is visible in **Replit App Storage** (no 401s).
+* `/admin/apk/download/{build_id}` and `/v1/apk/download-latest` return valid bytes/signed URLs.
+* Backend **does not** reference `BUCKET_ID`, `BUCKET_NAME`, or `google.cloud.storage` directly when on Replit.
+* Replit Storage sidecar returns **real signed tokens** (not `eyJhbGciOiJub25l…e30.` dummy).
+
+---
+
+### Plan
+
+#### 1) Unblock the sidecar (one-time Replit fix)
+
+* In your Replit project: **Tools → Storage**
+
+  1. Disable/Remove App Storage.
+  2. Re-enable App Storage (forces re-provisioning of the service account + sidecar).
+  3. Stop/Start the repl (restart deployment) so the sidecar adopts new creds.
+* Verify in shell:
+
+  ```bash
+  python - <<'PY'
+  ```
+
+from replit import storage
+storage["_healthcheck.txt"] = b"ok"
+print("keys:", list(storage.keys())[:3])
+print("ok:", storage["_healthcheck.txt"])
+PY
+
+```
+Expect no auth error.
+
+#### 2) Remove manual bucket configuration (was causing 401s)
+- **Delete/ignore** any env vars: `BUCKET_ID`, `BUCKET_NAME`, `GCS_*`, `GOOGLE_APPLICATION_CREDENTIALS`.  
+- Grep repo to ensure nothing references `google.cloud.storage.Client()` on the request path when `REPLIT_DEPLOYMENT=true`.
+
+#### 3) Introduce a storage adapter with environment detection
+- Add a tiny abstraction (Replit-first; S3 later if you ever migrate):
+- If `REPLIT_DEPLOYMENT=true` → use `from replit import storage`.  
+- Else → (no-op/s3 placeholder; not used in this milestone).
+- Map URLs as `storage://<key>` internally; translate at runtime.
+
+*(You already asked to avoid code in milestones; keep this to a 1-file change in implementation.)*
+
+#### 4) Update APK endpoints to use adapter
+- `/admin/apk/upload`: write bytes to `storage["apk/debug/<filename>"]`.  
+- `/admin/apk/register`: store `storage://apk/debug/<filename>` in DB.  
+- `/admin/apk/download/{build_id}`: stream bytes from `replit.storage` or return a short-lived signed link if you expose one.  
+- `/v1/apk/download-latest`: devices fetch via the same adapter; keep Bearer token checks.
+
+#### 5) CI step (GitHub Actions) stays the same except: no bucket vars
+- Ensure CI does **not** send any bucket name to backend; it only calls:
+1) `/admin/apk/register` (metadata)  
+2) `/admin/apk/upload` (file multipart)
+
+#### 6) Observability & safety
+- Logs: `storage.upload.start|success|error`, `storage.download.start|success|error` (include build_id, key, request_id; never include tokens).  
+- Limits: accept only `.apk`, max size (e.g., 60 MB).  
+- Retries: 3× with small backoff on 5xx from sidecar.
+
+---
+
+### Non-goals
+- No S3 migration in this milestone.  
+- No CDN/caching layer.  
+- No schema changes beyond storing `storage://…` path.
+
+---
+
+### Acceptance tests
+1) **Sidecar healthcheck:** the inline Python snippet above succeeds (no 401).  
+2) **CI → register + upload:**  
+ - CI calls `/admin/apk/register` then `/admin/apk/upload` with the file.  
+ - Backend logs `storage.upload.success` with a `storage://apk/debug/...` key.  
+3) **Admin UI download:** Clicking **Download** on APK Management downloads the file; size matches.  
+4) **Device download:** `/v1/apk/download-latest` returns 200 and devices can install.  
+5) **No forbidden env usage:** grep shows **no** references to `BUCKET_ID|BUCKET_NAME|google.cloud.storage` on the Replit codepath.  
+6) **Regression:** Temporarily disable Storage in Tools → expect 5xx with clear `storage_unavailable` error; re-enable → success.
+
+---
+
+### Definition of Done
+- Backend uses **Replit Storage SDK** (sidecar) in Replit; **no direct GCS** calls or bucket envs.  
+- CI uploads and UI/device downloads work end-to-end.  
+- Logs/metrics confirm successful storage ops; 401 error eliminated.
+```

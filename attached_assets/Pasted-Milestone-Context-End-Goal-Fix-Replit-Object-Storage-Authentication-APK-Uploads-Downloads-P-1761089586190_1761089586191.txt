@@ -1,0 +1,180 @@
+Milestone Context & End Goal — Fix Replit Object Storage Authentication (APK Uploads & Downloads)
+
+Purpose:
+Restore functional, authenticated uploads and downloads to Replit Object Storage (App Storage) so your CI pipeline can register and upload APKs, and your devices can fetch them via /v1/apk/download-latest.
+This milestone fixes the 401 Invalid Credentials error by re-establishing proper service authentication between your NexMDM backend and Replit’s Google Cloud-backed storage layer.
+
+🧩 Why it’s failing (summary)
+
+Replit’s get_storage_service() relies on the Replit sidecar to issue short-lived signed credentials for Google Cloud Storage.
+Your current deployment is returning a dummy unsigned JWT (eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.e30.) — meaning the sidecar isn’t actually connected to a provisioned service account or token exchange.
+So, your backend can’t authenticate when calling storage.upload_file() or storage.download_file().
+
+✅ What “done” means
+
+APK uploads from GitHub Actions → POST /admin/apk/upload → store successfully in Replit App Storage (no 401).
+
+GET /v1/apk/download-latest for devices returns a valid signed download URL.
+
+GET /admin/apk/download/{build_id} works in the UI (admin download).
+
+Auth chain verified: backend ↔ Replit sidecar ↔ GCS bucket (replit-objstore-...).
+
+CI job completes full artifact publishing (register + upload).
+
+🔧 Implementation plan
+1. Diagnose sidecar auth scope
+
+Inspect current Replit environment:
+
+Run inside your Replit shell:
+
+echo $REPL_ID
+echo $REPL_SLUG
+cat /home/runner/.config/replit/replit.yaml | grep storage
+env | grep REPLIT
+
+
+Confirm your app has “App Storage” enabled in Replit → Tools → Storage.
+
+Test credential fetch manually:
+
+from replit import storage
+storage.upload("test.txt", "hello world")
+
+
+If it fails with the same 401 Invalid Credentials, the issue is global (sidecar misprovisioned).
+
+✅ Outcome: Confirm that the problem is infrastructure, not code.
+
+2. Rebind storage credentials (Replit sidecar patch)
+
+Delete and re-add the App Storage integration in the Replit UI:
+
+Open your Replit project → “Tools” → “Storage”.
+
+Disable or remove existing object storage.
+
+Re-enable it — this triggers Replit to re-provision a service account and connect your sidecar to the correct GCS bucket.
+
+Redeploy the Replit environment (stop/start) so /run_sidecar picks up new credentials.
+
+Verify by running:
+
+from replit import storage
+for key in storage.keys():
+    print(key)
+
+
+→ should list or return empty (not error).
+
+✅ Outcome: Replit regenerates valid signed tokens for GCS.
+
+3. Update backend storage adapter
+
+Create a thin wrapper storage_client.py to abstract backend storage calls:
+
+from replit import storage
+from io import BytesIO
+
+class StorageClient:
+    def upload(self, filename: str, data: bytes):
+        storage[filename] = data
+        return f"storage://{filename}"
+
+    def download(self, filename: str) -> BytesIO:
+        return BytesIO(storage[filename])
+
+    def delete(self, filename: str):
+        del storage[filename]
+
+
+In get_storage_service(), replace direct GCS calls with this wrapper for the Replit environment.
+
+Add an environment check:
+
+if os.getenv("REPLIT_DEPLOYMENT") == "true":
+    return StorageClient()  # uses replit.storage
+else:
+    return S3Client()  # fallback path for later
+
+
+✅ Outcome: Backend always uses Replit’s native SDK when on Replit.
+
+4. CI upload validation
+
+In your GitHub Action, after the APK is built and registered, test upload:
+
+curl -sS -X POST "$BASE_URL/admin/apk/upload" \
+  -H "X-Admin: $ADMIN_KEY" \
+  -F "file=@app-debug.apk"
+
+
+Backend should return 200 { "url": "storage://Unity-v1.2.1.apk" }.
+
+✅ Outcome: Upload confirmed from CI → Replit storage.
+
+5. End-to-end OTA validation
+
+Device calls GET /v1/apk/download-latest → backend resolves storage://… → calls Replit storage.get() → returns signed download URL or stream.
+
+Device successfully downloads and installs.
+
+Confirm backend logs show:
+
+apk.download {source=device, build_id=b_..., url=storage://...}
+
+
+✅ Outcome: OTA updates work again.
+
+🧱 Non-goals
+
+No S3 migration or cross-cloud setup in this milestone.
+
+No caching/CDN layer yet (handled later once storage stable).
+
+No build versioning changes (handled via /admin/apk/register milestone).
+
+🔒 Security & reliability
+
+Replit storage tokens are short-lived and auto-refreshed by the sidecar — no manual keys.
+
+Limit upload file types (.apk) and max size (e.g., 50 MB).
+
+Add retry/backoff on transient 5xx errors from GCS.
+
+Maintain local in-memory cache of last signed download URL (expires after 5 min).
+
+📊 Observability
+
+Add structured logs:
+
+storage.upload.start|success|error
+
+storage.download.start|success|error
+
+Metrics:
+
+storage_uploads_total, storage_upload_errors_total, storage_latency_ms_bucket
+
+✅ Acceptance tests
+
+POST /admin/apk/upload with 20 MB APK → returns 200; file visible in Replit “App Storage.”
+
+GET /admin/apk/download/{id} → 200; downloads same size file.
+
+CI job completes end-to-end without 401.
+
+Device fetches /v1/apk/download-latest → receives 200 + valid APK bytes.
+
+If Replit sidecar restarts, uploads still work (credentials auto-refresh).
+
+🚀 Definition of Done
+
+Replit sidecar properly issues signed GCS credentials.
+
+NexMDM backend uploads/downloads APKs with no 401s.
+
+CI pipeline publishes APKs end-to-end into App Storage.
+
+OTA delivery restored across all enrolled devices.
