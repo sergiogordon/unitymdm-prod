@@ -288,15 +288,25 @@ jobs:
       
       - name: Upload APK file to backend
         env:
-          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
           echo "📤 Uploading APK binary to backend..."
           APK_PATH="android/${{ env.DEBUG_APK_PATH }}"
           
-          # Upload the actual APK file
+          # Extract the backend URL on port 8000 from the frontend URL
+          # BACKEND_URL is something like https://xxx.repl.co
+          # We need to upload directly to the backend on port 8000
+          REPLIT_DOMAIN="${{ secrets.NEXMDM_BACKEND_URL }}"
+          REPLIT_DOMAIN=$(echo "$REPLIT_DOMAIN" | sed 's|https://||' | sed 's|http://||')
+          
+          # Upload directly to backend on port 8000 (bypass Next.js proxy)
+          BACKEND_DIRECT_URL="https://${REPLIT_DOMAIN}:8000"
+          
+          echo "📍 Backend URL: $BACKEND_DIRECT_URL"
+          
+          # Upload the actual APK file directly to backend
           # Use multipart/form-data with the file and metadata
-          HTTP_CODE=$(curl -L --post301 -v -X POST "$BACKEND_URL/api/proxy/admin/apk/upload" \
+          HTTP_CODE=$(curl -L --post301 -v -X POST "$BACKEND_DIRECT_URL/admin/apk/upload" \
             -H "X-Admin: $ADMIN_KEY" \
             -F "file=@$APK_PATH" \
             -F "build_id=gh_${{ github.run_id }}_${{ github.run_number }}" \
