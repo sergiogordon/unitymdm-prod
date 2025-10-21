@@ -31,3 +31,4 @@ alembic
 pytest
 pytest-asyncio
 replit-object-storage
+google-cloud-storage
