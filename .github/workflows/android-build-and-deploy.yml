@@ -214,7 +214,6 @@ jobs:
           
           # Generate unique build_id from CI metadata
           BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
-          STORAGE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           
           echo "================================================"
           echo "🚀 Registering debug APK with NexMDM backend"
@@ -227,6 +226,7 @@ jobs:
           echo "================================================"
           
           # Create JSON payload
+          # Note: storage_url is set to null - file will be uploaded to local storage
           PAYLOAD=$(cat <<EOF
           {
             "build_id": "$BUILD_ID",
@@ -236,7 +236,7 @@ jobs:
             "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
             "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
             "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
-            "storage_url": "$STORAGE_URL",
+            "storage_url": null,
             "ci_run_id": "${{ github.run_id }}",
             "git_sha": "${{ github.sha }}",
             "package_name": "com.nexmdm"

@@ -4725,11 +4725,27 @@ async def download_apk_build_admin(
         raise HTTPException(status_code=404, detail="APK build not found")
     
     ensure_apk_storage_dir()
+    
+    # Debug logging
+    structured_logger.log_event(
+        "apk.download.debug",
+        build_id=build_id,
+        file_path=apk.file_path,
+        file_exists=os.path.exists(apk.file_path) if apk.file_path else False
+    )
+    
     abs_apk_path = os.path.abspath(apk.file_path)
     abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
     
+    structured_logger.log_event(
+        "apk.download.paths",
+        abs_apk_path=abs_apk_path,
+        abs_storage_dir=abs_storage_dir,
+        startswith_check=abs_apk_path.startswith(abs_storage_dir)
+    )
+    
     if not abs_apk_path.startswith(abs_storage_dir):
-        raise HTTPException(status_code=403, detail="Invalid file path")
+        raise HTTPException(status_code=403, detail=f"Invalid file path: {abs_apk_path} not in {abs_storage_dir}")
     
     if not os.path.exists(apk.file_path):
         raise HTTPException(status_code=404, detail="APK file not found on server")
