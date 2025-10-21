@@ -4553,7 +4553,7 @@ async def register_apk_build(
         apk_version = ApkVersion(
             version_name=payload.version_name,
             version_code=payload.version_code,
-            file_path=payload.storage_url or f"./apk_storage/{payload.package_name}_{payload.version_code}.apk",
+            file_path="",
             file_size=payload.file_size_bytes,
             package_name=payload.package_name,
             uploaded_at=datetime.now(timezone.utc),
