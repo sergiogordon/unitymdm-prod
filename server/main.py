@@ -4741,29 +4741,127 @@ async def download_apk_build_admin(
     Used by APK Management frontend for admin downloads.
     Requires admin authentication and logs the download event.
     """
+    structured_logger.log_event(
+        "apk.download.request",
+        build_id=build_id,
+        source="admin",
+        ip=request.client.host if request.client else None
+    )
+    
     if not verify_admin_key(x_admin or ""):
+        structured_logger.log_event(
+            "apk.download.auth_failed",
+            build_id=build_id,
+            reason="missing_or_invalid_admin_key"
+        )
         raise HTTPException(status_code=403, detail="Admin key required")
     
     apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
     if not apk:
+        structured_logger.log_event(
+            "apk.download.not_found",
+            build_id=build_id,
+            reason="apk_record_not_in_database"
+        )
         raise HTTPException(status_code=404, detail="APK build not found")
     
-    # Download from App Storage
-    try:
-        storage = get_storage_service()
-        file_data, content_type, file_size = storage.download_file(apk.file_path)
-    except ObjectNotFoundError:
-        raise HTTPException(status_code=404, detail="APK file not found in storage")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
+    structured_logger.log_event(
+        "apk.download.found",
+        build_id=build_id,
+        file_path=apk.file_path,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        package_name=apk.package_name
+    )
+    
+    # Determine if file is in local storage or object storage
+    file_data = None
+    file_size = 0
+    is_local_file = apk.file_path and (
+        apk.file_path.startswith("./") or 
+        apk.file_path.startswith("/") and not apk.file_path.startswith("/nexmdm-apks")
+    )
+    
+    if is_local_file:
+        # Handle local file storage (legacy)
+        structured_logger.log_event(
+            "apk.download.local_file",
+            build_id=build_id,
+            file_path=apk.file_path
+        )
+        try:
+            import os
+            if not os.path.exists(apk.file_path):
+                structured_logger.log_event(
+                    "apk.download.error",
+                    build_id=build_id,
+                    error="local_file_not_found",
+                    file_path=apk.file_path
+                )
+                raise HTTPException(status_code=404, detail=f"APK file not found at {apk.file_path}")
+            
+            with open(apk.file_path, 'rb') as f:
+                file_data = f.read()
+            file_size = len(file_data)
+            
+            structured_logger.log_event(
+                "apk.download.local_success",
+                build_id=build_id,
+                file_size=file_size
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            structured_logger.log_event(
+                "apk.download.error",
+                build_id=build_id,
+                error="local_file_read_failed",
+                error_message=str(e),
+                file_path=apk.file_path
+            )
+            raise HTTPException(status_code=500, detail=f"Failed to read local APK file: {str(e)}")
+    else:
+        # Handle object storage (new)
+        structured_logger.log_event(
+            "apk.download.object_storage",
+            build_id=build_id,
+            file_path=apk.file_path
+        )
+        try:
+            storage = get_storage_service()
+            file_data, content_type, file_size = storage.download_file(apk.file_path)
+            
+            structured_logger.log_event(
+                "apk.download.object_storage_success",
+                build_id=build_id,
+                file_size=file_size
+            )
+        except ObjectNotFoundError:
+            structured_logger.log_event(
+                "apk.download.error",
+                build_id=build_id,
+                error="object_not_found_in_storage",
+                file_path=apk.file_path
+            )
+            raise HTTPException(status_code=404, detail="APK file not found in storage")
+        except Exception as e:
+            structured_logger.log_event(
+                "apk.download.error",
+                build_id=build_id,
+                error="object_storage_download_failed",
+                error_message=str(e),
+                file_path=apk.file_path
+            )
+            raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
     
     structured_logger.log_event(
-        "apk.download",
+        "apk.download.success",
         build_id=apk.id,
         version_code=apk.version_code,
         version_name=apk.version_name,
         build_type=apk.build_type or "unknown",
-        source="admin"
+        source="admin",
+        file_size=file_size
     )
     
     download_event = ApkDownloadEvent(
