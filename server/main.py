@@ -31,7 +31,7 @@ from auth import (
 from alerts import alert_scheduler, alert_manager
 from background_tasks import background_tasks
 from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
-from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url, download_apk_from_storage
+from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
 from email_service import email_service
 from observability import structured_logger, metrics, request_id_var
 from hmac_utils import compute_hmac_signature
@@ -3540,7 +3540,8 @@ async def download_apk_version(
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
     
-    apk_bytes = download_apk_from_storage(apk.file_path)
+    if not os.path.exists(apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
     
     token_id_last4 = device.token_id[-4:] if device.token_id else "none"
     
@@ -3572,12 +3573,10 @@ async def download_apk_version(
     
     print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
     
-    return Response(
-        content=apk_bytes,
+    return FileResponse(
+        apk.file_path,
         media_type="application/vnd.android.package-archive",
-        headers={
-            "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
-        }
+        filename=f"{apk.package_name}_{apk.version_code}.apk"
     )
 
 @app.get("/v1/apk/download-web/{apk_id}")
@@ -3591,13 +3590,15 @@ async def download_apk_web(
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
     
-    apk_bytes = download_apk_from_storage(apk.file_path)
+    if not os.path.exists(apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
     
     print(f"[APK WEB DOWNLOAD] User {current_user.username} downloading APK {apk.package_name} v{apk.version_code}")
     
-    return Response(
-        content=apk_bytes,
+    return FileResponse(
+        apk.file_path,
         media_type="application/vnd.android.package-archive",
+        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }
@@ -3679,7 +3680,8 @@ async def download_latest_apk(
     if not apk:
         raise HTTPException(status_code=404, detail="No APK versions available")
     
-    apk_bytes = download_apk_from_storage(apk.file_path)
+    if not os.path.exists(apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
     
     structured_logger.log_event(
         "apk.download",
@@ -3709,9 +3711,10 @@ async def download_latest_apk(
     
     print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key")
     
-    return Response(
-        content=apk_bytes,
+    return FileResponse(
+        apk.file_path,
         media_type="application/vnd.android.package-archive",
+        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }
@@ -4698,7 +4701,8 @@ async def download_apk_build_admin(
     if not apk:
         raise HTTPException(status_code=404, detail="APK build not found")
     
-    apk_bytes = download_apk_from_storage(apk.file_path)
+    if not os.path.exists(apk.file_path):
+        raise HTTPException(status_code=404, detail="APK file not found on server")
     
     structured_logger.log_event(
         "apk.download",
@@ -4724,9 +4728,10 @@ async def download_apk_build_admin(
         "source": "admin"
     })
     
-    return Response(
-        content=apk_bytes,
+    return FileResponse(
+        apk.file_path,
         media_type="application/vnd.android.package-archive",
+        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }
