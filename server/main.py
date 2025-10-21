@@ -101,9 +101,14 @@ app.add_middleware(
 async def limit_request_size(request: Request, call_next):
     """
     Limit request body size to 1MB to prevent DoS attacks.
+    Exempts APK upload endpoints which need to handle 18MB+ files.
     Uses streaming size guard to enforce limit regardless of Content-Length header,
     chunked encoding, or other transfer methods.
     """
+    # Exempt APK upload endpoint from size limit (needs to handle 18MB+ APK files)
+    if request.url.path == "/admin/apk/upload":
+        return await call_next(request)
+    
     max_size = 1 * 1024 * 1024  # 1MB
     
     # Wrap the receive function to track total bytes
