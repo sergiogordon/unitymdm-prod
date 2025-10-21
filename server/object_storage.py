@@ -55,7 +55,7 @@ class AppStorageService:
     def _get_logger(self):
         """Get structured logger"""
         try:
-            from structured_logger import structured_logger
+            from structured_logger import structured_logger  # type: ignore
             return structured_logger
         except ImportError:
             return None
@@ -194,6 +194,9 @@ class AppStorageService:
                 self.client.download_as_bytes,
                 storage_key
             )
+            
+            if file_data is None:
+                raise ObjectNotFoundError(f"Downloaded data is empty: {storage_path}")
             
             file_size = len(file_data)
             content_type = "application/vnd.android.package-archive"
