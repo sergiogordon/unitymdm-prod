@@ -40,7 +40,7 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
 - **Android Agent Runtime**: Device Owner Mode support, HMAC-validated FCM command execution, action result posting with exponential backoff, 5-minute heartbeat intervals, structured logging, and reliability features (persistent queue, network monitoring, power-aware retries).
 - **OTA Updates (Milestone 4)**: Secure fleet-wide Android agent updates with one-click promotion, staged rollouts (1%-100%), deterministic device cohorting, rollback capability, and comprehensive adoption telemetry. Devices poll `/v1/agent/update` on startup, every 6 hours, or immediately via FCM nudge. Includes SHA-256 verification, signer fingerprint validation, Wi-Fi-only constraints, and safety controls (battery, network conditions).
-- **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs. GitHub Actions workflow automatically registers builds with metadata (version, SHA256, signer fingerprint, Git SHA) via admin-authenticated API, then uploads the 18MB APK binary to `/api/apk/upload` (Next.js proxy). Frontend displays builds with download/delete capabilities. **Uses Replit App Storage** (Google Cloud Storage backed) for persistent, scalable file storage that survives deployments and server restarts. Comprehensive observability with structured logging (`apk.register`, `apk.download`, `apk.delete`) and Prometheus metrics. See `.github/workflows/android-build-and-deploy.yml` for implementation details.
+- **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs. GitHub Actions workflow automatically registers builds with metadata (version, SHA256, signer fingerprint, Git SHA) via admin-authenticated API, then uploads the 18MB APK binary to `/admin/apk/upload`. Frontend displays builds with download/delete capabilities. **Uses Replit Object Storage SDK** (native Python SDK with automatic sidecar authentication) for persistent, scalable file storage that survives deployments and server restarts. Files stored with `storage://apk/debug/{uuid}_{filename}` paths (max 60MB per file). Comprehensive observability with structured logging (`storage.upload.start/success/error`, `storage.download.start/success/error`, `apk.register`, `apk.download`, `apk.delete`) and Prometheus metrics. Includes retry logic (3× with backoff) and file validation. See `.github/workflows/android-build-and-deploy.yml` for CI implementation.
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O and improved concurrency.
@@ -55,13 +55,13 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting ensures stable, reproducible rollout percentages without per-device state.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, and call-state checking prevent disruptive updates during critical device usage.
 - **Bulk Delete Architecture**: Device selection snapshots prevent race conditions, background purge workers use PostgreSQL advisory locks for safe concurrent execution, hard deletes cascade to device_last_status and device_events tables.
-- **APK Build Registry**: Admin-scoped API endpoints for CI integration with Replit App Storage:
+- **APK Build Registry**: Admin-scoped API endpoints for CI integration with Replit Object Storage:
   - `POST /admin/apk/register`: Register APK metadata (version, SHA256, CI info)
-  - `POST /admin/apk/upload`: Upload actual APK binary file to App Storage (multipart/form-data)
+  - `POST /admin/apk/upload`: Upload actual APK binary file to Object Storage (multipart/form-data, max 60MB)
   - `GET /admin/apk/builds`: List registered builds with filtering
-  - `GET /admin/apk/download/{build_id}`: Download APK file from App Storage (streams from GCS)
-  - `DELETE /admin/apk/builds/{build_id}`: Delete build and file from App Storage
-  All endpoints require admin key authentication. Download events tracked in `apk_download_events` table with source attribution. CI workflow performs two-step registration: metadata → file upload. Files stored as `/bucket_name/path/{uuid}_{filename}.apk` with persistent cloud storage.
+  - `GET /admin/apk/download/{build_id}`: Download APK file from Object Storage
+  - `DELETE /admin/apk/builds/{build_id}`: Delete build and file from Object Storage
+  All endpoints require admin key authentication. Download events tracked in `apk_download_events` table with source attribution. CI workflow performs two-step registration: metadata → file upload. Files stored with keys `apk/debug/{uuid}_{filename}.apk`, database paths use `storage://` prefix. Native `replit.object_storage.Client` handles authentication automatically via sidecar (127.0.0.1:1106).
 
 ### Reliability Features (Milestone 5) ✅ COMPLETED
 The Android agent includes comprehensive reliability hardening to ensure field operation under poor network conditions and aggressive power management:
@@ -84,5 +84,5 @@ The Android agent includes comprehensive reliability hardening to ensure field o
 - **Firebase Cloud Messaging (FCM)**: For command dispatch to devices.
 - **GitHub Actions**: For Android Agent CI/CD.
 - **Replit Mail**: Email service for notifications.
-- **Replit App Storage**: Google Cloud Storage-backed object storage for APK files (persistent, scalable).
+- **Replit Object Storage**: Native Python SDK (`replit.object_storage`) for persistent APK file storage with automatic sidecar authentication.
 - **Room Database**: SQLite-based persistent storage for Android agent queue.
