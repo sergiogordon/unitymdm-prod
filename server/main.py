@@ -4400,9 +4400,7 @@ async def nudge_update_check(
     Send FCM 'update' command to trigger immediate OTA update check on devices.
     If device_ids is None, sends to all devices with FCM tokens.
     """
-    from fcm_v1 import send_fcm_message_v1
-    from hmac_utils import compute_hmac_signature
-    import uuid
+    import httpx
     
     if payload.device_ids:
         devices = db.query(Device).filter(Device.id.in_(payload.device_ids)).all()
@@ -4411,6 +4409,14 @@ async def nudge_update_check(
     
     if not devices:
         raise HTTPException(status_code=404, detail="No devices found with FCM tokens")
+    
+    # Get FCM credentials
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FCM configuration error: {str(e)}")
     
     success_count = 0
     failed_devices = []
@@ -4429,15 +4435,33 @@ async def nudge_update_check(
             timestamp = datetime.now(timezone.utc).isoformat()
             hmac_sig = compute_hmac_signature(request_id, device.id, "update", timestamp)
             
-            fcm_payload = {
-                "action": "update",
-                "request_id": request_id,
-                "device_id": device.id,
-                "ts": timestamp,
-                "hmac": hmac_sig
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "update",
+                        "request_id": request_id,
+                        "device_id": device.id,
+                        "ts": timestamp,
+                        "hmac": hmac_sig
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
             }
             
-            result = await send_fcm_message_v1(device.fcm_token, fcm_payload, device.id, db)
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    fcm_url,
+                    json=message,
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10.0
+                )
+                result = {"success": response.status_code == 200}
             
             if result.get("success"):
                 success_count += 1
@@ -4605,22 +4629,20 @@ async def upload_apk_file(
             detail=f"APK build not found. Please call /admin/apk/register first to register metadata."
         )
     
-    storage_dir = ensure_apk_storage_dir()
-    final_filename = f"{package_name}_{version_code}_{build_type}.apk"
-    final_path = os.path.join(storage_dir, final_filename)
-    temp_path = f"{final_path}.tmp"
-    
+    # Upload to App Storage
     try:
-        with open(temp_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        content = await file.read()
+        file_size = len(content)
         
-        import os as _os
-        _os.rename(temp_path, final_path)
+        storage = get_storage_service()
+        final_filename = f"{package_name}_{version_code}_{build_type}.apk"
+        object_path = storage.upload_file(
+            file_data=content,
+            filename=final_filename,
+            content_type="application/vnd.android.package-archive"
+        )
         
-        file_size = _os.path.getsize(final_path)
-        
-        existing.file_path = final_path
+        existing.file_path = object_path
         existing.file_size = file_size
         db.commit()
         db.refresh(existing)
@@ -4632,7 +4654,7 @@ async def upload_apk_file(
             version_name=version_name,
             build_type=build_type,
             file_size=file_size,
-            file_path=final_path
+            file_path=object_path
         )
         
         metrics.inc_counter("apk_uploads_total", {"build_type": build_type})
@@ -4640,13 +4662,11 @@ async def upload_apk_file(
         return {
             "success": True,
             "build_id": existing.id,
-            "file_path": final_path,
+            "file_path": object_path,
             "file_size": file_size,
             "message": "APK file uploaded successfully"
         }
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
         structured_logger.log_event(
             "apk.upload.error",
             error=str(e),
