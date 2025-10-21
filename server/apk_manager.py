@@ -5,8 +5,13 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 from typing import Optional
+from replit.object_storage import Client as ObjectStorageClient
 
 APK_STORAGE_DIR = os.getenv("APK_STORAGE_DIR", "./apk_storage")
+
+def get_object_storage_client() -> ObjectStorageClient:
+    """Get Replit Object Storage client"""
+    return ObjectStorageClient()
 
 def ensure_apk_storage_dir() -> str:
     """Ensure APK storage directory exists and return its path"""
@@ -23,10 +28,9 @@ async def save_apk_file(
     notes: Optional[str] = None
 ) -> ApkVersion:
     """
-    Save uploaded APK file and create database record
+    Save uploaded APK file to Replit Object Storage and create database record.
+    Stores object storage path in file_path field for later retrieval.
     """
-    ensure_apk_storage_dir()
-    
     if not file.filename or not file.filename.endswith('.apk'):
         raise HTTPException(status_code=400, detail="File must be an APK")
     
@@ -42,22 +46,19 @@ async def save_apk_file(
         )
     
     final_filename = f"{package_name}_{version_code}.apk"
-    final_path = os.path.join(APK_STORAGE_DIR, final_filename)
-    temp_path = f"{final_path}.tmp"
+    storage_path = f"apks/{final_filename}"
     
     try:
-        with open(temp_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
+        content = await file.read()
+        file_size = len(content)
         
-        os.rename(temp_path, final_path)
-        
-        file_size = os.path.getsize(final_path)
+        storage_client = get_object_storage_client()
+        storage_client.upload_from_bytes(storage_path, content)
         
         apk_version = ApkVersion(
             version_name=version_name,
             version_code=version_code,
-            file_path=final_path,
+            file_path=storage_path,
             file_size=file_size,
             package_name=package_name,
             uploaded_at=datetime.now(timezone.utc),
@@ -75,12 +76,16 @@ async def save_apk_file(
     except HTTPException:
         raise
     except Exception as e:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        if os.path.exists(final_path):
-            os.remove(final_path)
-        raise HTTPException(status_code=500, detail=f"Failed to save APK: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save APK to object storage: {str(e)}")
 
 def get_apk_download_url(apk_version: ApkVersion, base_url: str) -> str:
     """Generate download URL for APK"""
     return f"{base_url}/v1/apk/download/{apk_version.id}"
+
+def download_apk_from_storage(storage_path: str) -> bytes:
+    """Download APK file from object storage"""
+    try:
+        storage_client = get_object_storage_client()
+        return storage_client.download_as_bytes(storage_path)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"APK file not found in storage: {str(e)}")

@@ -31,7 +31,7 @@ from auth import (
 from alerts import alert_scheduler, alert_manager
 from background_tasks import background_tasks
 from fcm_v1 import get_access_token, get_firebase_project_id, build_fcm_v1_url
-from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url
+from apk_manager import save_apk_file, ensure_apk_storage_dir, get_apk_download_url, download_apk_from_storage
 from email_service import email_service
 from observability import structured_logger, metrics, request_id_var
 from hmac_utils import compute_hmac_signature
@@ -3540,15 +3540,7 @@ async def download_apk_version(
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
     
-    ensure_apk_storage_dir()
-    abs_apk_path = os.path.abspath(apk.file_path)
-    abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
-    
-    if not abs_apk_path.startswith(abs_storage_dir):
-        raise HTTPException(status_code=403, detail="Invalid file path")
-    
-    if not os.path.exists(apk.file_path):
-        raise HTTPException(status_code=404, detail="APK file not found on server")
+    apk_bytes = download_apk_from_storage(apk.file_path)
     
     token_id_last4 = device.token_id[-4:] if device.token_id else "none"
     
@@ -3580,10 +3572,12 @@ async def download_apk_version(
     
     print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
     
-    return FileResponse(
-        apk.file_path,
+    return Response(
+        content=apk_bytes,
         media_type="application/vnd.android.package-archive",
-        filename=f"{apk.package_name}_{apk.version_code}.apk"
+        headers={
+            "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
+        }
     )
 
 @app.get("/v1/apk/download-web/{apk_id}")
@@ -3597,23 +3591,13 @@ async def download_apk_web(
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
     
-    ensure_apk_storage_dir()
-    abs_apk_path = os.path.abspath(apk.file_path)
-    abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
-    
-    # Security check: ensure file is within storage directory
-    if not abs_apk_path.startswith(abs_storage_dir):
-        raise HTTPException(status_code=403, detail="Invalid file path")
-    
-    if not os.path.exists(apk.file_path):
-        raise HTTPException(status_code=404, detail="APK file not found on server")
+    apk_bytes = download_apk_from_storage(apk.file_path)
     
     print(f"[APK WEB DOWNLOAD] User {current_user.username} downloading APK {apk.package_name} v{apk.version_code}")
     
-    return FileResponse(
-        apk.file_path,
+    return Response(
+        content=apk_bytes,
         media_type="application/vnd.android.package-archive",
-        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }
@@ -3695,16 +3679,7 @@ async def download_latest_apk(
     if not apk:
         raise HTTPException(status_code=404, detail="No APK versions available")
     
-    ensure_apk_storage_dir()
-    abs_apk_path = os.path.abspath(apk.file_path)
-    abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
-    
-    # Security check: ensure file is within storage directory
-    if not abs_apk_path.startswith(abs_storage_dir):
-        raise HTTPException(status_code=403, detail="Invalid file path")
-    
-    if not os.path.exists(apk.file_path):
-        raise HTTPException(status_code=404, detail="APK file not found on server")
+    apk_bytes = download_apk_from_storage(apk.file_path)
     
     structured_logger.log_event(
         "apk.download",
@@ -3734,10 +3709,9 @@ async def download_latest_apk(
     
     print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key")
     
-    return FileResponse(
-        apk.file_path,
+    return Response(
+        content=apk_bytes,
         media_type="application/vnd.android.package-archive",
-        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }
@@ -4724,31 +4698,7 @@ async def download_apk_build_admin(
     if not apk:
         raise HTTPException(status_code=404, detail="APK build not found")
     
-    ensure_apk_storage_dir()
-    
-    # Debug logging
-    structured_logger.log_event(
-        "apk.download.debug",
-        build_id=build_id,
-        file_path=apk.file_path,
-        file_exists=os.path.exists(apk.file_path) if apk.file_path else False
-    )
-    
-    abs_apk_path = os.path.abspath(apk.file_path)
-    abs_storage_dir = os.path.abspath(ensure_apk_storage_dir() or "./apk_storage")
-    
-    structured_logger.log_event(
-        "apk.download.paths",
-        abs_apk_path=abs_apk_path,
-        abs_storage_dir=abs_storage_dir,
-        startswith_check=abs_apk_path.startswith(abs_storage_dir)
-    )
-    
-    if not abs_apk_path.startswith(abs_storage_dir):
-        raise HTTPException(status_code=403, detail=f"Invalid file path: {abs_apk_path} not in {abs_storage_dir}")
-    
-    if not os.path.exists(apk.file_path):
-        raise HTTPException(status_code=404, detail="APK file not found on server")
+    apk_bytes = download_apk_from_storage(apk.file_path)
     
     structured_logger.log_event(
         "apk.download",
@@ -4774,10 +4724,9 @@ async def download_apk_build_admin(
         "source": "admin"
     })
     
-    return FileResponse(
-        apk.file_path,
+    return Response(
+        content=apk_bytes,
         media_type="application/vnd.android.package-archive",
-        filename=f"{apk.package_name}_{apk.version_code}.apk",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"'
         }

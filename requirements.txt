@@ -30,3 +30,4 @@ websockets
 alembic
 pytest
 pytest-asyncio
+replit-object-storage
