@@ -1,50 +1,25 @@
 """
 Replit App Storage Service for Python
-Adapted from blueprint:javascript_object_storage
+Uses Replit's native Object Storage SDK for persistent file storage.
 
-This module provides App Storage integration for storing and retrieving files
-in Google Cloud Storage via Replit's built-in object storage.
+This replaces the previous GCS-based implementation to eliminate 401 auth errors.
+All authentication is handled automatically by the Replit sidecar.
 """
 
 import os
-import requests
-from google.cloud import storage
-from google.auth.credentials import Credentials
-from datetime import datetime, timedelta
-from typing import Optional
 import uuid
-
-
-class ReplitStorageCredentials(Credentials):
-    """
-    Custom credentials for Replit App Storage
-    Uses Replit sidecar endpoint for authentication
-    """
-    REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106"
-    
-    def __init__(self):
-        super().__init__()
-        self.token = None
-        self.expiry = None
-    
-    def refresh(self, request):
-        """Fetch a fresh token from the Replit sidecar"""
-        try:
-            response = requests.get(f"{self.REPLIT_SIDECAR_ENDPOINT}/credential")
-            response.raise_for_status()
-            data = response.json()
-            self.token = data.get("access_token")
-            # Set expiry to 1 hour from now
-            self.expiry = datetime.utcnow() + timedelta(hours=1)
-        except Exception as e:
-            raise Exception(f"Failed to get Replit storage credentials: {e}")
-    
-    @property
-    def valid(self):
-        """Check if token is valid"""
-        return self.token is not None and (
-            self.expiry is None or datetime.utcnow() < self.expiry
-        )
+import time
+import json
+from typing import Optional, Tuple
+from replit.object_storage import Client
+from replit.object_storage.errors import (
+    ObjectNotFoundError as ReplitObjectNotFoundError,
+    TooManyRequestsError,
+    UnauthorizedError,
+    ForbiddenError,
+    DefaultBucketError,
+    BucketNotFoundError
+)
 
 
 class ObjectNotFoundError(Exception):
@@ -52,178 +27,274 @@ class ObjectNotFoundError(Exception):
     pass
 
 
+class StorageUnavailableError(Exception):
+    """Raised when storage service is unavailable"""
+    pass
+
+
 class AppStorageService:
     """
-    Service for interacting with Replit App Storage (Google Cloud Storage backed)
+    Service for interacting with Replit Object Storage.
+    
+    Files are stored with keys like: apk/debug/{uuid}_{filename}.apk
+    Database paths use format: storage://apk/debug/{uuid}_{filename}.apk
     """
     
-    REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106"
+    MAX_FILE_SIZE = 60 * 1024 * 1024  # 60 MB
+    MAX_RETRIES = 3
+    RETRY_DELAY = 0.5  # seconds
     
     def __init__(self):
-        """Initialize storage client with Replit credentials"""
-        credentials = ReplitStorageCredentials()
-        credentials.refresh(None)
-        self.client = storage.Client(
-            credentials=credentials,
-            project=""  # Empty project ID as per blueprint
-        )
+        """Initialize storage client (uses default bucket)"""
+        try:
+            self.client = Client()
+            self._logger = self._get_logger()
+        except Exception as e:
+            raise StorageUnavailableError(f"Failed to initialize storage client: {e}")
     
-    def get_private_object_dir(self) -> str:
-        """
-        Get the private object directory from environment variables.
-        Format: /bucket_name/path/to/dir
-        """
-        dir_path = os.getenv("PRIVATE_OBJECT_DIR", "")
-        if not dir_path:
-            raise ValueError(
-                "PRIVATE_OBJECT_DIR not set. Create a bucket in 'App Storage' "
-                "tool and set PRIVATE_OBJECT_DIR env var (format: /bucket_name/apks)"
-            )
-        return dir_path
+    def _get_logger(self):
+        """Get structured logger"""
+        try:
+            from structured_logger import structured_logger
+            return structured_logger
+        except ImportError:
+            return None
     
-    def _parse_object_path(self, path: str) -> tuple[str, str]:
-        """
-        Parse object path into bucket name and object name.
-        
-        Args:
-            path: Path in format /bucket_name/object/path
-            
-        Returns:
-            Tuple of (bucket_name, object_name)
-        """
-        if not path.startswith("/"):
-            path = f"/{path}"
-        
-        parts = path.split("/")
-        if len(parts) < 3:
-            raise ValueError("Invalid path: must contain at least a bucket name")
-        
-        bucket_name = parts[1]
-        object_name = "/".join(parts[2:])
-        
-        return bucket_name, object_name
+    def _log_event(self, event: str, **kwargs):
+        """Log storage event with structured logging"""
+        if self._logger:
+            self._logger.log_event(event, **kwargs)
+        else:
+            print(json.dumps({"event": event, **kwargs}))
     
-    def upload_file(self, file_data: bytes, filename: str, content_type: str = "application/octet-stream") -> str:
+    def _retry_on_error(self, operation, *args, **kwargs):
+        """Retry operation on transient errors"""
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                return operation(*args, **kwargs)
+            except TooManyRequestsError as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_DELAY * (2 ** attempt))
+                    continue
+                raise
+            except (UnauthorizedError, ForbiddenError, DefaultBucketError, BucketNotFoundError) as e:
+                self._log_event("storage.error.critical", error=str(e), error_type=type(e).__name__)
+                raise StorageUnavailableError(f"Storage service error: {e}")
+        
+        if last_error:
+            raise last_error
+    
+    def _validate_apk_file(self, filename: str, file_size: int):
+        """Validate APK file before upload"""
+        if not filename.lower().endswith('.apk'):
+            raise ValueError(f"Invalid file type: {filename}. Must be .apk")
+        
+        if file_size > self.MAX_FILE_SIZE:
+            size_mb = file_size / (1024 * 1024)
+            max_mb = self.MAX_FILE_SIZE / (1024 * 1024)
+            raise ValueError(f"File too large: {size_mb:.1f}MB. Maximum allowed: {max_mb}MB")
+        
+        if file_size == 0:
+            raise ValueError("File is empty")
+    
+    def upload_file(self, file_data: bytes, filename: str, content_type: str = "application/vnd.android.package-archive") -> str:
         """
-        Upload a file to App Storage.
+        Upload a file to Replit Object Storage.
         
         Args:
             file_data: Binary file data
-            filename: Name of the file
+            filename: Name of the file (e.g., "app.apk")
             content_type: MIME type
             
         Returns:
-            Full object path in format /bucket_name/path/to/file
+            Storage path in format: storage://apk/debug/{uuid}_{filename}
+            
+        Raises:
+            ValueError: If file validation fails
+            StorageUnavailableError: If storage service is unavailable
         """
-        private_dir = self.get_private_object_dir()
+        file_size = len(file_data)
+        self._validate_apk_file(filename, file_size)
+        
+        # Generate unique key
         object_id = str(uuid.uuid4())
-        full_path = f"{private_dir}/{object_id}_{filename}"
+        storage_key = f"apk/debug/{object_id}_{filename}"
         
-        bucket_name, object_name = self._parse_object_path(full_path)
-        bucket = self.client.bucket(bucket_name)
-        blob = bucket.blob(object_name)
-        
-        blob.upload_from_string(
-            file_data,
-            content_type=content_type
+        self._log_event(
+            "storage.upload.start",
+            key=storage_key,
+            file_size=file_size,
+            filename=filename
         )
         
-        return full_path
+        try:
+            # Upload with retry logic
+            self._retry_on_error(
+                self.client.upload_from_bytes,
+                storage_key,
+                file_data
+            )
+            
+            # Verify upload succeeded
+            if not self.client.exists(storage_key):
+                raise StorageUnavailableError(f"Upload verification failed: {storage_key}")
+            
+            storage_path = f"storage://{storage_key}"
+            
+            self._log_event(
+                "storage.upload.success",
+                key=storage_key,
+                storage_path=storage_path,
+                file_size=file_size
+            )
+            
+            return storage_path
+            
+        except Exception as e:
+            self._log_event(
+                "storage.upload.error",
+                key=storage_key,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
     
-    def download_file(self, object_path: str) -> tuple[bytes, str, int]:
+    def download_file(self, storage_path: str) -> Tuple[bytes, str, int]:
         """
-        Download a file from App Storage.
+        Download a file from Replit Object Storage.
         
         Args:
-            object_path: Full path to object in format /bucket_name/path/to/file
+            storage_path: Path in format storage://apk/debug/{uuid}_{filename}
+                         or just apk/debug/{uuid}_{filename}
             
         Returns:
             Tuple of (file_data, content_type, file_size)
+            
+        Raises:
+            ObjectNotFoundError: If file doesn't exist
+            StorageUnavailableError: If storage service is unavailable
         """
-        bucket_name, object_name = self._parse_object_path(object_path)
-        bucket = self.client.bucket(bucket_name)
-        blob = bucket.blob(object_name)
+        # Parse storage path
+        storage_key = storage_path.replace("storage://", "")
         
-        if not blob.exists():
-            raise ObjectNotFoundError(f"Object not found: {object_path}")
+        self._log_event(
+            "storage.download.start",
+            key=storage_key
+        )
         
-        # Get metadata
-        blob.reload()
-        content_type = blob.content_type or "application/octet-stream"
-        file_size = blob.size or 0
-        
-        # Download data
-        file_data = blob.download_as_bytes()
-        
-        return file_data, content_type, file_size
+        try:
+            # Check if file exists
+            if not self.client.exists(storage_key):
+                raise ObjectNotFoundError(f"Object not found: {storage_path}")
+            
+            # Download with retry logic
+            file_data = self._retry_on_error(
+                self.client.download_as_bytes,
+                storage_key
+            )
+            
+            file_size = len(file_data)
+            content_type = "application/vnd.android.package-archive"
+            
+            self._log_event(
+                "storage.download.success",
+                key=storage_key,
+                file_size=file_size
+            )
+            
+            return file_data, content_type, file_size
+            
+        except ReplitObjectNotFoundError:
+            self._log_event(
+                "storage.download.error",
+                key=storage_key,
+                error="Object not found",
+                error_type="ObjectNotFoundError"
+            )
+            raise ObjectNotFoundError(f"Object not found: {storage_path}")
+        except ObjectNotFoundError:
+            raise
+        except Exception as e:
+            self._log_event(
+                "storage.download.error",
+                key=storage_key,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
     
-    def delete_file(self, object_path: str) -> bool:
+    def delete_file(self, storage_path: str) -> bool:
         """
-        Delete a file from App Storage.
+        Delete a file from Replit Object Storage.
         
         Args:
-            object_path: Full path to object
+            storage_path: Path in format storage://apk/debug/{uuid}_{filename}
             
         Returns:
             True if deleted, False if not found
         """
-        bucket_name, object_name = self._parse_object_path(object_path)
-        bucket = self.client.bucket(bucket_name)
-        blob = bucket.blob(object_name)
+        storage_key = storage_path.replace("storage://", "")
         
-        if not blob.exists():
-            return False
-        
-        blob.delete()
-        return True
-    
-    def file_exists(self, object_path: str) -> bool:
-        """Check if a file exists in storage"""
         try:
-            bucket_name, object_name = self._parse_object_path(object_path)
-            bucket = self.client.bucket(bucket_name)
-            blob = bucket.blob(object_name)
-            return blob.exists()
+            if not self.client.exists(storage_key):
+                self._log_event(
+                    "storage.delete.not_found",
+                    key=storage_key
+                )
+                return False
+            
+            self._retry_on_error(
+                self.client.delete,
+                storage_key,
+                ignore_not_found=True
+            )
+            
+            self._log_event(
+                "storage.delete.success",
+                key=storage_key
+            )
+            
+            return True
+            
+        except Exception as e:
+            self._log_event(
+                "storage.delete.error",
+                key=storage_key,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            return False
+    
+    def file_exists(self, storage_path: str) -> bool:
+        """Check if a file exists in storage"""
+        storage_key = storage_path.replace("storage://", "")
+        try:
+            return self.client.exists(storage_key)
         except Exception:
             return False
     
-    def get_signed_upload_url(self, filename: str, ttl_seconds: int = 900) -> tuple[str, str]:
+    def list_files(self, prefix: str = "apk/") -> list:
         """
-        Generate a presigned URL for direct upload from client.
+        List files in storage with given prefix.
         
         Args:
-            filename: Name of the file to upload
-            ttl_seconds: URL validity period in seconds (default 15 min)
+            prefix: Key prefix to filter by (default: "apk/")
             
         Returns:
-            Tuple of (signed_url, object_path)
+            List of storage keys
         """
-        private_dir = self.get_private_object_dir()
-        object_id = str(uuid.uuid4())
-        full_path = f"{private_dir}/{object_id}_{filename}"
-        
-        bucket_name, object_name = self._parse_object_path(full_path)
-        
-        # Use Replit sidecar to sign URL
         try:
-            request_data = {
-                "bucket_name": bucket_name,
-                "object_name": object_name,
-                "method": "PUT",
-                "expires_at": (datetime.utcnow() + timedelta(seconds=ttl_seconds)).isoformat() + "Z"
-            }
-            
-            response = requests.post(
-                f"{self.REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url",
-                json=request_data
-            )
-            response.raise_for_status()
-            
-            signed_url = response.json().get("signed_url")
-            return signed_url, full_path
-            
+            objects = list(self.client.list(prefix=prefix))
+            return [obj.name for obj in objects]
         except Exception as e:
-            raise Exception(f"Failed to sign upload URL: {e}")
+            self._log_event(
+                "storage.list.error",
+                prefix=prefix,
+                error=str(e)
+            )
+            return []
 
 
 # Singleton instance
