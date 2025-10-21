@@ -1,7 +1,7 @@
 modules = ["python-3.11", "nodejs-20", "postgresql-16"]
 [agent]
 expertMode = true
-integrations = ["replitmail:1.0.0"]
+integrations = ["replitmail:1.0.0", "javascript_object_storage:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
