@@ -3795,7 +3795,7 @@ async def get_bash_enroll_script(
 # Generated for: {alias}
 # Token: {token_id}
 
-set -e
+set -euo pipefail
 
 BASE_URL="{server_url}"
 APK_ENDPOINT="/v1/apk/download/latest"
@@ -3804,6 +3804,9 @@ ALIAS="{alias}"
 AGENT_PKG="{agent_pkg}"
 UNITY_PKG="{unity_pkg}"
 APK_FILE="nexmdm-latest.apk"
+
+# Enable error handling
+trap 'echo "[ERROR] Script failed at line $LINENO. Press Enter to exit..."; read' ERR
 
 echo "========================================"
 echo "NexMDM Device Enrollment"
@@ -3834,11 +3837,23 @@ DEVICE_ID=$(adb shell settings get secure android_id | tr -d '\\r')
 echo "Device ID: $DEVICE_ID"
 
 echo "[1/7] Downloading latest APK..."
-curl -f -L -H "Authorization: Bearer $ENROLL_TOKEN" -o "$APK_FILE" "$BASE_URL$APK_ENDPOINT"
+echo "[DEBUG] URL: $BASE_URL$APK_ENDPOINT"
+echo "[DEBUG] Token: ${{ENROLL_TOKEN:0:20}}..."
+HTTP_CODE=$(curl -w "%{{http_code}}" -L -H "Authorization: Bearer $ENROLL_TOKEN" -o "$APK_FILE" "$BASE_URL$APK_ENDPOINT" 2>&1 | tail -n1)
+echo "[DEBUG] HTTP Status: $HTTP_CODE"
+if [ "$HTTP_CODE" != "200" ]; then
+    echo "[ERROR] APK download failed with HTTP $HTTP_CODE"
+    echo "[DEBUG] Check if token is valid and not expired"
+    exit 1
+fi
 echo "[OK] APK downloaded"
 
 echo "[2/7] Installing APK..."
-adb install -r "$APK_FILE"
+if ! adb install -r "$APK_FILE" 2>&1; then
+    echo "[ERROR] APK installation failed"
+    echo "[DEBUG] Make sure USB debugging is enabled and device is connected"
+    exit 1
+fi
 echo "[OK] APK installed"
 
 echo "[3/7] Granting runtime permissions..."
@@ -3860,7 +3875,14 @@ adb shell settings put system screen_off_timeout 600000
 echo "[OK] Optimizations applied"
 
 echo "[6/7] Enrolling device with server..."
-curl -f -X POST "$BASE_URL/v1/enroll?device_id=$DEVICE_ID" -H "Authorization: Bearer $ENROLL_TOKEN"
+echo "[DEBUG] Device ID: $DEVICE_ID"
+HTTP_CODE=$(curl -w "%{{http_code}}" -X POST "$BASE_URL/v1/enroll?device_id=$DEVICE_ID" -H "Authorization: Bearer $ENROLL_TOKEN" 2>&1 | tail -n1)
+echo "[DEBUG] HTTP Status: $HTTP_CODE"
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
+    echo "[ERROR] Enrollment failed with HTTP $HTTP_CODE"
+    echo "[DEBUG] Check server connectivity and token validity"
+    exit 1
+fi
 echo "[OK] Device enrolled"
 
 echo "[7/7] Launching app..."
