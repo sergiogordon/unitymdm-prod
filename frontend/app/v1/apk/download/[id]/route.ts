@@ -9,25 +9,33 @@ export async function GET(
   try {
     const { id: apkId } = await params
     
-    // Get device token from headers (case-insensitive)
+    // Get device token or authorization bearer token
     const deviceToken = request.headers.get('x-device-token') || request.headers.get('X-Device-Token')
+    const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
     
-    console.log(`[APK DOWNLOAD PROXY] APK ID: ${apkId}, Has token: ${!!deviceToken}`)
+    console.log(`[APK DOWNLOAD PROXY] APK ID: ${apkId}, Has device token: ${!!deviceToken}, Has auth: ${!!authHeader}`)
     
-    if (!deviceToken) {
-      console.log('[APK DOWNLOAD PROXY] No device token found in headers')
+    if (!deviceToken && !authHeader) {
+      console.log('[APK DOWNLOAD PROXY] No authentication found in headers')
       return NextResponse.json(
-        { error: 'Device token required' },
+        { error: 'Authentication required (device token or enrollment token)' },
         { status: 401 }
       )
     }
     
-    console.log(`[APK DOWNLOAD PROXY] Forwarding to backend with token (first 10): ${deviceToken.substring(0, 10)}...`)
+    // Prepare headers for backend request
+    const backendHeaders: Record<string, string> = {}
+    
+    if (deviceToken) {
+      backendHeaders['X-Device-Token'] = deviceToken
+      console.log(`[APK DOWNLOAD PROXY] Forwarding with device token (first 10): ${deviceToken.substring(0, 10)}...`)
+    } else if (authHeader) {
+      backendHeaders['Authorization'] = authHeader
+      console.log(`[APK DOWNLOAD PROXY] Forwarding with authorization header`)
+    }
     
     const response = await fetch(`${BACKEND_URL}/v1/apk/download/${apkId}`, {
-      headers: {
-        'X-Device-Token': deviceToken,
-      },
+      headers: backendHeaders,
     })
     
     if (!response.ok) {
