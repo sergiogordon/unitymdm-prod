@@ -23,9 +23,9 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Database**: PostgreSQL with partitioned time-series tables, optimized for 500-2,000 devices.
 - **Performance**: Dual-write fast-read architecture with O(1) device status lookups, 10s deduplication bucketing.
 - **Real-time Communication**: WebSockets for live device updates and command execution.
-- **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch.
+- **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch, X-Admin-Key for enrollment flow.
 - **Android Agent**: Dedicated Android application with an automated CI/CD pipeline (GitHub Actions) for secure deployment.
-- **Zero-Touch Enrollment**: Secure provisioning via single-use tokens and server-generated ADB scripts with intelligent Device Owner handling. Supports one-liner Windows CMD commands for paste-and-go enrollment without file downloads. Scripts include safe installation fallback (update → uninstall+clean install), Device Owner detection/provisioning with fail-fast for provisioned devices, broadcast-based auto-enrollment via ConfigReceiver, comprehensive system optimizations, and clear exit codes (0-9) for error handling.
+- **Zero-Touch Enrollment**: Secure provisioning via static X-Admin-Key authentication and server-generated ADB scripts with intelligent Device Owner handling. Supports one-liner Windows CMD commands for paste-and-go enrollment without file downloads. Scripts include safe installation fallback (update → uninstall+clean install), Device Owner detection/provisioning with fail-fast for provisioned devices, broadcast-based auto-enrollment via ConfigReceiver (receives admin key directly), comprehensive system optimizations, and clear exit codes (0-9) for error handling. Uses static admin key instead of expiring enrollment tokens for reliable, automatic deployment.
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival with SHA-256 checksums.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics with latency histograms, connection pool monitoring.
 
