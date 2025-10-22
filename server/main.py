@@ -1528,32 +1528,37 @@ async def heartbeat(
             device.ping_request_id = None
     
     # Service monitoring evaluator: Determine if monitored service is up/down
+    # Get effective monitoring settings (device or global defaults)
+    from monitoring_helpers import get_effective_monitoring_settings
+    monitoring_settings = get_effective_monitoring_settings(db, device)
+    
     service_up = None
     monitored_foreground_recent_s = None
     
-    if device.monitor_enabled and device.monitored_package:
+    if monitoring_settings["enabled"] and monitoring_settings["package"]:
         # Get foreground recency from new unified field (for any package)
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
         
         # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
-        if monitored_foreground_recent_s is None and device.monitored_package == "org.zwanoo.android.speedtest":
+        if monitored_foreground_recent_s is None and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
             fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
             if fg_seconds is not None:
                 monitored_foreground_recent_s = fg_seconds
         
         # Evaluate service status
         if monitored_foreground_recent_s is not None:
-            threshold_seconds = device.monitored_threshold_min * 60
+            threshold_seconds = monitoring_settings["threshold_min"] * 60
             service_up = monitored_foreground_recent_s <= threshold_seconds
             
             structured_logger.log_event(
                 "monitoring.evaluate",
                 device_id=device.id,
                 alias=device.alias,
-                monitored_package=device.monitored_package,
+                monitored_package=monitoring_settings["package"],
                 foreground_recent_s=monitored_foreground_recent_s,
                 threshold_s=threshold_seconds,
-                service_up=service_up
+                service_up=service_up,
+                source=monitoring_settings["source"]
             )
         else:
             # If foreground data not available, service status is unknown
@@ -1563,8 +1568,9 @@ async def heartbeat(
                 level="WARN",
                 device_id=device.id,
                 alias=device.alias,
-                monitored_package=device.monitored_package,
-                reason="usage_access_missing"
+                monitored_package=monitoring_settings["package"],
+                reason="usage_access_missing",
+                source=monitoring_settings["source"]
             )
     
     # Update DeviceLastStatus with service monitoring data
@@ -1575,21 +1581,22 @@ async def heartbeat(
         
         last_status_record.service_up = service_up
         last_status_record.monitored_foreground_recent_s = monitored_foreground_recent_s
-        last_status_record.monitored_package = device.monitored_package if device.monitor_enabled else None
-        last_status_record.monitored_threshold_min = device.monitored_threshold_min if device.monitor_enabled else None
+        last_status_record.monitored_package = monitoring_settings["package"] if monitoring_settings["enabled"] else None
+        last_status_record.monitored_threshold_min = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
         
         # Detect service state transitions for logging
-        if device.monitor_enabled and prev_service_up is not None and service_up is not None:
+        if monitoring_settings["enabled"] and prev_service_up is not None and service_up is not None:
             if prev_service_up and not service_up:
                 # Service went DOWN
                 structured_logger.log_event(
                     "monitoring.service_down",
                     device_id=device.id,
                     alias=device.alias,
-                    monitored_package=device.monitored_package,
-                    monitored_app_name=device.monitored_app_name,
+                    monitored_package=monitoring_settings["package"],
+                    monitored_app_name=monitoring_settings["alias"],
                     foreground_recent_s=monitored_foreground_recent_s,
-                    threshold_min=device.monitored_threshold_min
+                    threshold_min=monitoring_settings["threshold_min"],
+                    source=monitoring_settings["source"]
                 )
                 
             elif not prev_service_up and service_up:
@@ -1598,13 +1605,14 @@ async def heartbeat(
                     "monitoring.service_up",
                     device_id=device.id,
                     alias=device.alias,
-                    monitored_package=device.monitored_package,
-                    monitored_app_name=device.monitored_app_name,
-                    foreground_recent_s=monitored_foreground_recent_s
+                    monitored_package=monitoring_settings["package"],
+                    monitored_app_name=monitoring_settings["alias"],
+                    foreground_recent_s=monitored_foreground_recent_s,
+                    source=monitoring_settings["source"]
                 )
         
         # Metrics for monitoring
-        if device.monitor_enabled and service_up is not None:
+        if monitoring_settings["enabled"] and service_up is not None:
             metrics.set_gauge("service_up_devices", 1 if service_up else 0, {"device_id": device.id})
     
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
@@ -2241,6 +2249,7 @@ async def update_device_monitoring_settings(
         raise HTTPException(status_code=404, detail="Device not found")
     
     updates = {}
+    has_monitoring_update = False
     
     if request.monitored_package is not None:
         if not request.monitored_package.strip():
@@ -2250,22 +2259,30 @@ async def update_device_monitoring_settings(
             raise HTTPException(status_code=400, detail="Invalid package name format")
         device.monitored_package = request.monitored_package.strip()
         updates["monitored_package"] = device.monitored_package
+        has_monitoring_update = True
     
     if request.monitored_app_name is not None:
         if not request.monitored_app_name.strip():
             raise HTTPException(status_code=400, detail="Monitored app name cannot be empty")
         device.monitored_app_name = request.monitored_app_name.strip()
         updates["monitored_app_name"] = device.monitored_app_name
+        has_monitoring_update = True
     
     if request.monitored_threshold_min is not None:
         if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 120:
             raise HTTPException(status_code=400, detail="Threshold must be between 1 and 120 minutes")
         device.monitored_threshold_min = request.monitored_threshold_min
         updates["monitored_threshold_min"] = device.monitored_threshold_min
+        has_monitoring_update = True
     
     if request.monitor_enabled is not None:
         device.monitor_enabled = request.monitor_enabled
         updates["monitor_enabled"] = device.monitor_enabled
+        has_monitoring_update = True
+    
+    if has_monitoring_update:
+        device.monitoring_use_defaults = False
+        updates["monitoring_use_defaults"] = False
     
     db.commit()
     db.refresh(device)

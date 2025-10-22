@@ -224,8 +224,12 @@ class AlertEvaluator:
         """
         Evaluate if the monitored service is down based on foreground recency.
         Uses DeviceLastStatus for efficient querying.
+        Respects global defaults for devices without per-device overrides.
         """
-        if not device.monitor_enabled or not device.monitored_package:
+        from monitoring_helpers import get_effective_monitoring_settings
+        monitoring_settings = get_effective_monitoring_settings(db, device)
+        
+        if not monitoring_settings["enabled"] or not monitoring_settings["package"]:
             return False, None, None
         
         from models import DeviceLastStatus
@@ -257,10 +261,10 @@ class AlertEvaluator:
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
-                    "monitored_package": device.monitored_package,
-                    "monitored_app_name": device.monitored_app_name,
+                    "monitored_package": monitoring_settings["package"],
+                    "monitored_app_name": monitoring_settings["alias"],
                     "foreground_recent_s": foreground_recent_s,
-                    "threshold_min": device.monitored_threshold_min,
+                    "threshold_min": monitoring_settings["threshold_min"],
                     "last_seen": device.last_seen,
                     "severity": "CRIT",
                     "requires_remediation": False
@@ -272,8 +276,8 @@ class AlertEvaluator:
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
-                    "monitored_package": device.monitored_package,
-                    "monitored_app_name": device.monitored_app_name,
+                    "monitored_package": monitoring_settings["package"],
+                    "monitored_app_name": monitoring_settings["alias"],
                     "foreground_recent_s": foreground_recent_s,
                     "recovered": True,
                     "self_healed": False

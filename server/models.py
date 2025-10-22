@@ -55,6 +55,7 @@ class Device(Base):
     monitored_app_name: Mapped[str] = mapped_column(String, nullable=False, default="Speedtest")
     monitored_threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    monitoring_use_defaults: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_relaunch_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     __table_args__ = (
