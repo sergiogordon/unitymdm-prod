@@ -1,6 +1,7 @@
 package com.nexmdm
 
 import android.app.ActivityManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -11,6 +12,7 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
 import android.telephony.TelephonyManager
+import android.util.Log
 import java.net.NetworkInterface
 
 class TelemetryCollector(
@@ -111,6 +113,48 @@ class TelemetryCollector(
     
     suspend fun getQueueDepth(): Int {
         return queueManager?.getQueueDepth() ?: 0
+    }
+    
+    fun getMonitoredForegroundRecency(packageName: String): Int? {
+        if (packageName.isEmpty()) {
+            return null
+        }
+        
+        try {
+            val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+                ?: return null
+            
+            val now = System.currentTimeMillis()
+            val oneHourAgo = now - (60 * 60 * 1000)
+            
+            val stats = usageStatsManager.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY,
+                oneHourAgo,
+                now
+            )
+            
+            if (stats.isNullOrEmpty()) {
+                Log.w("TelemetryCollector", "UsageStats not available - PACKAGE_USAGE_STATS permission may not be granted")
+                return null
+            }
+            
+            val packageStats = stats.find { it.packageName == packageName }
+            
+            return if (packageStats != null && packageStats.lastTimeUsed > 0) {
+                val secondsAgo = ((now - packageStats.lastTimeUsed) / 1000).toInt()
+                Log.d("TelemetryCollector", "Package $packageName last used $secondsAgo seconds ago")
+                secondsAgo
+            } else {
+                Log.d("TelemetryCollector", "Package $packageName not found in usage stats")
+                null
+            }
+        } catch (e: SecurityException) {
+            Log.e("TelemetryCollector", "SecurityException: PACKAGE_USAGE_STATS permission not granted", e)
+            return null
+        } catch (e: Exception) {
+            Log.e("TelemetryCollector", "Error getting monitored foreground recency", e)
+            return null
+        }
     }
 
     private fun getWifiSsid(): String? {

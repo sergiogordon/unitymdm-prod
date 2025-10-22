@@ -212,6 +212,7 @@ class MonitorService : Service() {
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
+        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(prefs.speedtestPackage)
         
         return HeartbeatPayload(
             device_id = prefs.deviceId,
@@ -241,7 +242,8 @@ class MonitorService : Service() {
             power_ok = reliabilityFlags.power_ok,
             doze_whitelisted = reliabilityFlags.doze_whitelisted,
             net_validated = reliabilityFlags.net_validated,
-            queue_depth = queueDepth
+            queue_depth = queueDepth,
+            monitored_foreground_recent_s = monitoredForegroundRecency
         )
     }
     
