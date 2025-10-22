@@ -3685,7 +3685,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo [1/7] Downloading latest APK...
 echo [DEBUG] URL: %BASE_URL%%APK_ENDPOINT%
 echo [DEBUG] Token: %ENROLL_TOKEN:~0,20%...
-curl -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%" -w "HTTP Status: %%{http_code}" 2>&1
+curl -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%" -w "HTTP Status: %%{{http_code}}" 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] APK download failed (exit code: %ERRORLEVEL%)
     echo [DEBUG] Check if token is valid and not expired
