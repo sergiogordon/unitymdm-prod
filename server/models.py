@@ -53,11 +53,14 @@ class Device(Base):
     clipboard_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     monitored_package: Mapped[str] = mapped_column(String, nullable=False, default="org.zwanoo.android.speedtest")
     monitored_app_name: Mapped[str] = mapped_column(String, nullable=False, default="Speedtest")
+    monitored_threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    monitor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_relaunch_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     __table_args__ = (
         Index('idx_device_status_query', 'last_seen'),
         Index('idx_device_token_lookup', 'token_id'),
+        Index('idx_device_monitoring', 'monitor_enabled', 'monitored_package'),
     )
 
 class DeviceEvent(Base):
@@ -334,10 +337,16 @@ class DeviceLastStatus(Base):
     ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default='ok', nullable=False)
     
+    service_up: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    monitored_foreground_recent_s: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    monitored_package: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    monitored_threshold_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
     __table_args__ = (
         Index('idx_last_status_ts', 'last_ts'),
         Index('idx_last_status_offline_query', 'last_ts', 'status'),
         Index('idx_last_status_unity_down', 'unity_running', 'last_ts'),
+        Index('idx_last_status_service_down', 'service_up', 'last_ts'),
     )
 
 class HeartbeatPartition(Base):

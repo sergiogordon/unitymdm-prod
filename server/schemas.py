@@ -55,6 +55,7 @@ class HeartbeatPayload(BaseModel):
     ping_request_id: Optional[str] = None
     self_heal_hints: Optional[SelfHealHints] = None
     is_device_owner: Optional[bool] = None
+    monitored_foreground_recent_s: Optional[int] = None
 
 class HeartbeatResponse(BaseModel):
     ok: bool
@@ -75,6 +76,8 @@ class DeviceSummary(BaseModel):
     is_device_owner: Optional[bool] = None
     monitored_package: str = "org.zwanoo.android.speedtest"
     monitored_app_name: str = "Speedtest"
+    monitored_threshold_min: int = 10
+    monitor_enabled: bool = True
     auto_relaunch_enabled: bool = False
 
 class RegisterResponse(BaseModel):
@@ -100,6 +103,8 @@ class DeployApkRequest(BaseModel):
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = None
     monitored_app_name: Optional[str] = None
+    monitored_threshold_min: Optional[int] = None
+    monitor_enabled: Optional[bool] = None
     auto_relaunch_enabled: Optional[bool] = None
 
 class CreateEnrollmentTokensRequest(BaseModel):

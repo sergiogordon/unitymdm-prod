@@ -1,0 +1,160 @@
+**Milestone Context & End Goal — Configurable “Service Uptime” Monitoring + Discord Alerts**
+
+**Purpose:**
+Let admins choose **which Android app/package to monitor per device** (e.g., Speedtest now, Unity later), define the **foreground-recent threshold** (default 10 minutes), and trigger a **Discord alert** when that app hasn’t been foregrounded within the threshold. Keep the display name **purely UI/alias**; only the **package name** drives monitoring.
+
+---
+
+### What “done” means
+
+* **Per-device settings** support:
+
+  * `monitored_package` (string; required for monitoring)
+  * `monitored_display_name` (UI alias only; optional)
+  * `monitored_threshold_min` (int; default **10**)
+  * `monitor_enabled` (bool; default **true**)
+* **Agent heartbeats** include accurate **foreground recency** for the configured package (in seconds): `monitored_foreground_recent_s`.
+* **Backend evaluator** marks device as **service_down** when:
+
+  * `monitor_enabled=true` AND
+  * `monitored_foreground_recent_s` is **> threshold (min×60)** or missing for two consecutive heartbeats.
+* **Discord alert** fires on first transition to **service_down**, deduped with cooldown (e.g., 30 min), and **recovery** alert when the app returns to foreground.
+* **UI (Settings pane)** lets admin edit the 3 fields above and save; list views show current **Service (alias)** + **Status** (Up/Down/Unknown) + **Last Foreground**.
+* Works today with **Speedtest** package; can be switched later to Unity package without code changes.
+
+---
+
+### Backend changes
+
+1. **Schema**
+
+   * Add nullable columns on `devices` (or `device_settings` table if you have one):
+
+     * `monitored_package` VARCHAR(255)
+     * `monitored_display_name` VARCHAR(255)
+     * `monitored_threshold_min` INT DEFAULT 10
+     * `monitor_enabled` BOOLEAN DEFAULT TRUE
+   * Index: `(monitor_enabled, monitored_package)` for quick filtered lists.
+
+2. **API**
+
+   * `PATCH /admin/devices/{device_id}/monitoring`
+
+     ```json
+     { "monitor_enabled": true, "monitored_package": "org.zwanoo.android.speedtest", "monitored_display_name": "Speedtest", "monitored_threshold_min": 10 }
+     ```
+
+     * Scope: `device_manage`. Returns updated settings.
+   * `GET /admin/devices/{device_id}/monitoring` → returns current settings.
+   * (Optional) `PATCH /admin/monitoring/defaults` to set org-wide defaults used when a device lacks explicit settings.
+
+3. **Heartbeat ingestion**
+
+   * Accept/merge fields:
+
+     ```json
+     {
+       "monitored_package": "org.zwanoo.android.speedtest",    // echo for audit (optional)
+       "monitored_foreground_recent_s": 123,                   // required for monitoring
+       "unity_pkg": "...", "unity_running": true               // unchanged, for legacy
+     }
+     ```
+   * Store `monitored_foreground_recent_s` in the last-status record.
+   * Evaluator rule (runs on heartbeat write or in minutely evaluator):
+
+     * `service_up = (monitor_enabled && monitored_package && monitored_foreground_recent_s != null && monitored_foreground_recent_s <= monitored_threshold_min*60)`
+     * Track transitions; emit alert/events on change.
+
+4. **Alerts**
+
+   * New condition: **service_down** (monitored app not foregrounded within threshold).
+   * Discord payload: device, alias, **Service:** `<monitored_display_name or package>`, **Last Foreground:** “13m ago”, threshold, quick actions link (open device).
+   * Dedupe: per-device cooldown (30 min), global cap respected.
+   * Recovery: send on transition back to **Up**.
+
+5. **Observability**
+
+   * Events: `monitoring.update`, `monitoring.service_up`, `monitoring.service_down`, `alert.service_down.raise|recover`.
+   * Counters: `service_down_devices_gauge`, `service_down_alerts_total`, `service_down_recoveries_total`.
+   * Add fields to `device_last_status`: `service_up` (bool), `monitored_foreground_recent_s`, `monitored_package`, `monitored_threshold_min`.
+
+---
+
+### Android agent changes
+
+* **Config source:** use the already-stored `unity_pkg` field as the monitored package if `monitored_package` not explicitly set via broadcast; allow override via new broadcast extra `monitor_pkg` (kept optional for now).
+* **Foreground detection (UsageStatsManager)**
+
+  * Compute **seconds since last foreground** for `monitored_package`; send as `monitored_foreground_recent_s`.
+  * Requires **Usage Access**; ADB script already grants `GET_USAGE_STATS`. Log a warning (and set value to `null`) if permission missing.
+* **Heartbeat payload**
+
+  * Add fields above and keep existing metrics. If no monitored package configured, send `monitored_foreground_recent_s=null`.
+
+> **Note:** No change to FCM commands required. Optional auto-remediation (send `launch_app`) can be enabled later via your existing alerts subsystem.
+
+---
+
+### Frontend (Settings pane)
+
+* **Per-device Monitoring section**:
+
+  * Inputs:
+
+    * **Service package to monitor** (text; placeholder “org.zwanoo.android.speedtest”)
+    * **Display name (alias)** (text; e.g., “Unity”, “Speedtest”)
+    * **Consider ‘down’ if not foreground for** (number, minutes; default 10)
+    * **Monitoring enabled** (toggle)
+  * Save → `PATCH /admin/devices/{id}/monitoring`.
+* **Devices table**
+
+  * Add columns: **Service** (alias or package), **Service Status** (Up/Down/Unknown), **Last Foreground** (relative).
+  * Filters: `service:down`, `service:unknown`.
+
+---
+
+### Security / Safety
+
+* Admin scope required to update settings.
+* Server validates `monitored_package` (simple package name regex), clamps `monitored_threshold_min` to 1–120 minutes.
+* Logs redact nothing sensitive (these are non-secret strings).
+
+---
+
+### Non-goals (now)
+
+* No multi-app monitoring per device (single package at a time).
+* No UI bulk-edit; single device edit only (bulk can follow later).
+* No auto-remediation changes (you already have hooks—keep default OFF).
+
+---
+
+### Acceptance tests
+
+1. **Setup & save**
+
+   * Set `monitored_package=org.zwanoo.android.speedtest`, alias “Speedtest”, threshold 10. Save → `200`, persisted.
+2. **Heartbeat path**
+
+   * Agent sends `monitored_foreground_recent_s=120` (2 min) → device shows **Service: Up**.
+   * Send `monitored_foreground_recent_s=900` (15 min) twice → evaluator marks **Down**; Discord alert fires once; cooldown respected.
+   * Next heartbeat with `monitored_foreground_recent_s=30` → **Recovery** alert.
+3. **Unknown path**
+
+   * Revoke Usage Access temporarily → agent sends `null` → **Service: Unknown**; no alert; log `usage_access_missing`.
+4. **UI**
+
+   * Devices list shows Service alias, status, and last foreground time; filter `service:down` returns device above when down.
+5. **Toggle/threshold**
+
+   * Disable monitoring → status hidden, no alerts. Re-enable → resumes detection.
+   * Change threshold to 5 → next evaluator uses new threshold.
+
+---
+
+### Definition of Done
+
+* Per-device monitoring settings live; agent reports **seconds since last foreground** for the chosen package.
+* Backend evaluates **Up/Down** against a configurable threshold (default 10 min).
+* Discord alerts/recoveries fire with dedupe; UI displays and edits the settings; device list shows current service status.
+* Works today with **Speedtest**; when Unity’s package is known, switch the package in UI—no code changes required.
