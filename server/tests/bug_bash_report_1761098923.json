@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "total": 7,
+    "passed": 0,
+    "failed": 7,
+    "timestamp": "2025-10-22T02:08:43.841619+00:00"
+  },
+  "results": [
+    {
+      "test_id": "A1",
+      "title": "Happy path service up",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.821278+00:00"
+    },
+    {
+      "test_id": "A2",
+      "title": "Down transition and alert",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.824899+00:00"
+    },
+    {
+      "test_id": "A3",
+      "title": "Unknown state handling",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.828867+00:00"
+    },
+    {
+      "test_id": "A4",
+      "title": "Threshold change live",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.831744+00:00"
+    },
+    {
+      "test_id": "A5",
+      "title": "Monitor toggle",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.834738+00:00"
+    },
+    {
+      "test_id": "A6",
+      "title": "UI alias rename",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.837903+00:00"
+    },
+    {
+      "test_id": "A8",
+      "title": "Race conditions",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to create device",
+      "timestamp": "2025-10-22T02:08:43.841160+00:00"
+    }
+  ]
+}

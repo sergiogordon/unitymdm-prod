@@ -1,0 +1,172 @@
+{
+  "summary": {
+    "total": 7,
+    "passed": 3,
+    "failed": 4,
+    "timestamp": "2025-10-22T02:12:14.435238+00:00"
+  },
+  "results": [
+    {
+      "test_id": "A1",
+      "title": "Happy path service up",
+      "passed": false,
+      "evidence": {
+        "device_id": "bc892ef9-7f06-414d-a1a5-b42518f7cbe5",
+        "status": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:03.432589"
+        },
+        "service_up": null,
+        "foreground_recent_s": null
+      },
+      "notes": "Service: Down, Last Foreground: Nones",
+      "timestamp": "2025-10-22T02:11:06.484754+00:00"
+    },
+    {
+      "test_id": "A2",
+      "title": "Down transition and alert",
+      "passed": false,
+      "evidence": {
+        "device_id": "99fc6dbe-d484-4553-b5e1-8a8076a923f5",
+        "final_status": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:07.525966"
+        },
+        "note": "Check Discord for: 1 down alert, 1 recovery message, no duplicates"
+      },
+      "notes": "\u270b MANUAL CHECK REQUIRED: Verify Discord shows exactly 1 DOWN alert and 1 RECOVERY message",
+      "timestamp": "2025-10-22T02:11:20.231476+00:00"
+    },
+    {
+      "test_id": "A3",
+      "title": "Unknown state handling",
+      "passed": true,
+      "evidence": {
+        "device_id": "ab951dd6-b312-4c22-a8b7-428cece60750",
+        "status": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:21.259848"
+        },
+        "service_up": null
+      },
+      "notes": "Service status: None (should be None/Unknown). Check Discord for NO alerts.",
+      "timestamp": "2025-10-22T02:11:24.247041+00:00"
+    },
+    {
+      "test_id": "A4",
+      "title": "Threshold change live",
+      "passed": false,
+      "evidence": {
+        "device_id": "d321da8e-a435-4a16-a59d-04a0623bbf9c",
+        "threshold_before": 10,
+        "threshold_after": 5,
+        "status_before": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:25.275907"
+        },
+        "status_after": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 5,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:25.275907"
+        }
+      },
+      "notes": "Threshold updated immediately. Service remained DOWN as expected.",
+      "timestamp": "2025-10-22T02:11:31.038358+00:00"
+    },
+    {
+      "test_id": "A5",
+      "title": "Monitor toggle",
+      "passed": false,
+      "evidence": {
+        "device_id": "9cddcf18-d8f7-426b-9672-fadd65e3c757",
+        "status_enabled": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:32.073085"
+        },
+        "status_disabled": {
+          "monitor_enabled": false,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:32.073085"
+        },
+        "status_reenabled": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:32.073085"
+        }
+      },
+      "notes": "Monitor toggled successfully. Check Discord for NO alerts while disabled.",
+      "timestamp": "2025-10-22T02:11:40.575911+00:00"
+    },
+    {
+      "test_id": "A6",
+      "title": "UI alias rename",
+      "passed": true,
+      "evidence": {
+        "device_id": "604fc6db-b235-4be4-9480-300ed5c91a99",
+        "monitored_app_name": "Unity (Staging)",
+        "monitored_package": "org.zwanoo.android.speedtest",
+        "note": "Check Discord: DOWN alert shows 'Unity (Staging)' in recovery message"
+      },
+      "notes": "\u270b MANUAL CHECK: Verify Discord recovery message includes new alias 'Unity (Staging)'",
+      "timestamp": "2025-10-22T02:11:49.246883+00:00"
+    },
+    {
+      "test_id": "A8",
+      "title": "Race conditions",
+      "passed": true,
+      "evidence": {
+        "device_id": "72b79f2b-7f7d-401f-a9bf-388bd45f41eb",
+        "final_status": {
+          "monitor_enabled": true,
+          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_app_name": "Speedtest",
+          "monitored_threshold_min": 10,
+          "service_up": null,
+          "monitored_foreground_recent_s": null,
+          "last_seen": "2025-10-22T02:11:50.288050"
+        },
+        "iterations": 10,
+        "note": "Check Discord for alert flapping - should be minimal"
+      },
+      "notes": "\u270b MANUAL CHECK: Verify Discord shows at most 1-2 DOWN alerts and recoveries (no flapping storm)",
+      "timestamp": "2025-10-22T02:12:14.434521+00:00"
+    }
+  ]
+}
