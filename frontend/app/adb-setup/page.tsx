@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
 import { SettingsDrawer } from "@/components/settings-drawer"
+import { Checkbox } from "@/components/ui/checkbox"
+import { BulkActionsBarEnrollmentTokens } from "@/components/bulk-actions-bar-enrollment-tokens"
+import { BulkDeleteEnrollmentTokensModal } from "@/components/bulk-delete-enrollment-tokens-modal"
 import {
   Select,
   SelectContent,
@@ -62,6 +65,8 @@ function ADBSetupContent() {
   const [scriptContents, setScriptContents] = useState<Record<string, { bash: string, windows: string }>>({})
   const [isDark, setIsDark] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [selectedTokenIds, setSelectedTokenIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false)
 
   useEffect(() => {
     if (isDark) {
@@ -324,6 +329,60 @@ function ADBSetupContent() {
     localStorage.setItem('darkMode', String(newDarkMode))
   }
 
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedTokenIds(new Set(tokens.map(t => t.token_id)))
+    } else {
+      setSelectedTokenIds(new Set())
+    }
+  }
+
+  const handleSelectToken = (tokenId: string, checked: boolean) => {
+    const newSelected = new Set(selectedTokenIds)
+    if (checked) {
+      newSelected.add(tokenId)
+    } else {
+      newSelected.delete(tokenId)
+    }
+    setSelectedTokenIds(newSelected)
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedTokenIds.size === 0) return
+    
+    try {
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch("/api/proxy/v1/enroll-tokens/batch-delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          token_ids: Array.from(selectedTokenIds)
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error("Failed to delete tokens")
+      }
+      
+      const result = await response.json()
+      
+      if (result.failed_count > 0) {
+        console.warn(`${result.failed_count} tokens failed to delete:`, result.errors)
+      }
+      
+      await fetchTokens()
+      setSelectedTokenIds(new Set())
+      
+      alert(`Successfully deleted ${result.deleted_count} token(s)`)
+    } catch (error) {
+      console.error("Bulk delete failed:", error)
+      alert("Failed to delete tokens. Please try again.")
+    }
+  }
+
   return (
     <div className="min-h-screen">
       <Header 
@@ -413,6 +472,13 @@ function ADBSetupContent() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedTokenIds.size === tokens.length && tokens.length > 0}
+                        onCheckedChange={handleSelectAll}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
                     <TableHead>Alias</TableHead>
                     <TableHead>Token</TableHead>
                     <TableHead>Status</TableHead>
@@ -426,6 +492,13 @@ function ADBSetupContent() {
                   {tokens.map((token) => (
                     <>
                       <TableRow key={token.token_id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedTokenIds.has(token.token_id)}
+                            onCheckedChange={(checked) => handleSelectToken(token.token_id, checked as boolean)}
+                            aria-label={`Select ${token.alias}`}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">{token.alias}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -511,7 +584,7 @@ function ADBSetupContent() {
                       </TableRow>
                       {expandedScripts.has(token.token_id) && (
                         <TableRow>
-                          <TableCell colSpan={7} className="bg-muted/30 p-4">
+                          <TableCell colSpan={8} className="bg-muted/30 p-4">
                             <div className="space-y-4">
                               <div className="flex items-center gap-2 mb-2">
                                 <FileCode className="h-4 w-4" />
@@ -583,6 +656,23 @@ function ADBSetupContent() {
       <SettingsDrawer
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      <BulkActionsBarEnrollmentTokens
+        selectedCount={selectedTokenIds.size}
+        onDelete={() => setIsBulkDeleteModalOpen(true)}
+        onClear={() => setSelectedTokenIds(new Set())}
+      />
+
+      <BulkDeleteEnrollmentTokensModal
+        isOpen={isBulkDeleteModalOpen}
+        onClose={() => setIsBulkDeleteModalOpen(false)}
+        onConfirm={handleBulkDelete}
+        tokenCount={selectedTokenIds.size}
+        sampleAliases={tokens
+          .filter(t => selectedTokenIds.has(t.token_id))
+          .slice(0, 5)
+          .map(t => t.alias)}
       />
     </div>
   )
