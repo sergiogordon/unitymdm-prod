@@ -4082,29 +4082,65 @@ async def list_apks(
 
 @app.get("/v1/apk/download/{apk_id}")
 async def download_apk_version(
-    apk_id: int,
+    apk_id: str,
     request: Request,
-    x_device_token: str = Header(...),
+    x_device_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
-    """Download a specific APK version (requires device token) - For devices"""
-    from models import ApkDownloadEvent
+    """Download a specific APK version (requires device token or enrollment token)"""
+    from models import ApkDownloadEvent, EnrollmentToken
     
-    # Optimize: Use a cache or hash lookup instead of iterating all devices
-    # For now, at least limit the query
-    devices = db.query(Device).limit(100).all()  # Limit to first 100
     device = None
-    for d in devices:
-        if verify_token(x_device_token, d.token_hash):
-            device = d
-            break
+    token_id_last4 = "anon"
+    auth_source = "unknown"
     
-    if not device:
-        raise HTTPException(status_code=401, detail="Invalid device token")
+    # Try device token authentication first
+    if x_device_token:
+        devices = db.query(Device).limit(100).all()
+        for d in devices:
+            if verify_token(x_device_token, d.token_hash):
+                device = d
+                token_id_last4 = device.token_id[-4:] if device.token_id else "none"
+                auth_source = "device"
+                break
     
-    apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk:
-        raise HTTPException(status_code=404, detail="APK not found")
+    # Try enrollment token authentication if no device token
+    if not device and authorization:
+        try:
+            if authorization.startswith("Bearer "):
+                enroll_token_value = authorization[7:]
+                # Check if it's a valid enrollment token
+                enrollment_tokens = db.query(EnrollmentToken).filter(
+                    EnrollmentToken.status == 'active'
+                ).all()
+                for et in enrollment_tokens:
+                    if verify_token(enroll_token_value, et.token_hash):
+                        token_id_last4 = et.token_id[-4:]
+                        auth_source = "enrollment"
+                        break
+        except Exception as e:
+            print(f"[APK DOWNLOAD] Enrollment token validation error: {e}")
+    
+    if not device and auth_source != "enrollment":
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    
+    # Handle "latest" as special case
+    if apk_id.lower() == "latest":
+        apk = db.query(ApkVersion).filter(
+            ApkVersion.is_active == True
+        ).order_by(ApkVersion.uploaded_at.desc()).first()
+        if not apk:
+            raise HTTPException(status_code=404, detail="No APK versions available")
+    else:
+        try:
+            apk_id_int = int(apk_id)
+            apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id_int).first()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid APK ID format")
+        
+        if not apk:
+            raise HTTPException(status_code=404, detail="APK not found")
     
     # Download from App Storage
     try:
@@ -4115,8 +4151,6 @@ async def download_apk_version(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
     
-    token_id_last4 = device.token_id[-4:] if device.token_id else "none"
-    
     structured_logger.log_event(
         "apk.download",
         build_id=apk.id,
@@ -4124,13 +4158,13 @@ async def download_apk_version(
         version_name=apk.version_name,
         build_type=apk.build_type or "unknown",
         token_id=token_id_last4,
-        source="manual",
-        device_id=device.id
+        source=auth_source,
+        device_id=device.id if device else None
     )
     
     download_event = ApkDownloadEvent(
         build_id=apk.id,
-        source="manual",
+        source=auth_source,
         token_id=token_id_last4,
         admin_user=None,
         ip=request.client.host if request.client else None
@@ -4140,10 +4174,13 @@ async def download_apk_version(
     
     metrics.inc_counter("apk_download_total", {
         "build_type": apk.build_type or "unknown",
-        "source": "manual"
+        "source": auth_source
     })
     
-    print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
+    if device:
+        print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
+    else:
+        print(f"[APK DOWNLOAD] Enrollment token download: APK {apk.package_name} v{apk.version_code}")
     
     return Response(
         content=file_data,
