@@ -1,0 +1,105 @@
+**Milestone Context & End Goal — Monitoring Defaults (Settings → System)**
+
+**Purpose:**
+Add a simple, global way to configure which app to monitor (by package), the UI alias, the “consider down after” threshold, and whether monitoring is enabled globally. These **defaults** apply to new devices at registration (and as a fallback for devices without per-device overrides).
+
+---
+
+### What “done” means
+
+**Settings UI (new card: “Monitoring Defaults”)**
+
+* Fields:
+
+  * **Monitored package** (text) — e.g., `org.zwanoo.android.speedtest`
+  * **Display name (alias)** (text) — e.g., `Speedtest` or `Unity`
+  * **Foreground timeout (minutes)** (number) — default **10**, clamp 1–120
+  * **Enable monitoring globally** (toggle) — default **ON**
+* Buttons: **Save**, **Cancel**.
+* Shows current saved values; toasts on success/error.
+
+**Backend (persistent org-level defaults)**
+
+* Endpoints:
+
+  * `GET /admin/settings/monitoring-defaults` →
+    `{ "enabled": true, "package": "org.zwanoo.android.speedtest", "alias": "Speedtest", "threshold_min": 10, "updated_at": "…" }`
+  * `PATCH /admin/settings/monitoring-defaults` (scope: `device_manage`) → same shape, partial updates allowed.
+* Persistence: single-row `settings` record (or dedicated `monitoring_defaults` table/kv).
+* Validation: package regex, threshold bounds, alias length ≤ 64.
+
+**Propagation & evaluation**
+
+* **On device registration:** if device has no explicit per-device monitoring settings, seed them from these defaults.
+* **On heartbeat/evaluation:** if a device has no per-device override, evaluator uses **global defaults**.
+* **Per-device override precedence:** per-device settings > global defaults. (No automatic overwrite on global changes.)
+
+**Alerts & status**
+
+* Evaluator treats devices without overrides as governed by the global toggle & threshold.
+* Discord “Service Down” alert text uses **display alias** (falls back to package).
+
+---
+
+### Non-goals (for this milestone)
+
+* No per-device editing UX changes (that remains as is).
+* No bulk apply/force-overwrite existing devices.
+* No auto-remediation toggles.
+* No enrollment UI; ADB setup remains the path.
+
+---
+
+### Security
+
+* `GET`/`PATCH` require admin key with `device_manage` scope.
+* Inputs sanitized and validated; changes audited.
+* No secrets stored.
+
+---
+
+### Observability
+
+* Events: `settings.monitoring_defaults.read|update` (include admin_id, changed fields).
+* Evaluator logs include which source was used: `{source:"global"|"device"}`.
+* Gauges: `service_down_devices_gauge` unaffected by this change except through new config.
+
+---
+
+### Performance & reliability targets
+
+* `GET`/`PATCH` p95 < 80 ms.
+* Registration path reads defaults without extra queries (cached or single lookup).
+* Evaluator uses cached defaults (refresh on change) to avoid per-heartbeat DB hits.
+
+---
+
+### Acceptance tests
+
+**API**
+
+1. `GET /admin/settings/monitoring-defaults` (fresh env) → returns built-in defaults `{enabled:true, package:"org.zwanoo.android.speedtest", alias:"Speedtest", threshold_min:10}`.
+2. `PATCH` with `{ alias:"Unity", package:"com.unity.app", threshold_min:12, enabled:true }` → `200`; `GET` reflects updates.
+3. Invalid inputs (threshold 0, alias >64, bad package) → `422` with clear error.
+
+**Propagation**
+4. Register a new device with no overrides → device settings seeded from updated defaults; evaluator uses them; device shows **Service: Up/Down** accordingly.
+5. Existing device with per-device override remains unchanged after defaults update; evaluator uses **device** settings.
+
+**Evaluator/alerts**
+6. With global defaults enabled, device without override sends heartbeat with `monitored_foreground_recent_s=900` and threshold 10 → **Down** → Discord alert fires once; recovery on foreground.
+
+**UI**
+7. Open Settings → “Monitoring Defaults” shows current values.
+8. Edit and Save → toast success; reopening shows persisted values.
+9. Toggle “Enable monitoring globally” OFF → devices without overrides show **Service: Disabled** (or hide status), no alerts generated.
+
+---
+
+### Definition of Done
+
+* Settings drawer has a **Monitoring Defaults** card with the four fields above.
+* Backend stores and serves these defaults via `GET/PATCH /admin/settings/monitoring-defaults`.
+* New devices inherit defaults on registration; devices without overrides are evaluated using these defaults.
+* Alerts and UI labels use the alias; package drives detection; threshold honored (10 min by default).
+* Tests above pass and logs/metrics reflect reads/updates of monitoring defaults.
