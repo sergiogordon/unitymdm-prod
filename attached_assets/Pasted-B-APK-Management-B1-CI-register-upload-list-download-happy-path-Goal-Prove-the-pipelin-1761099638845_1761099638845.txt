@@ -1,0 +1,203 @@
+B) APK Management
+B1. CI → register → upload → list → download (happy path)
+
+Goal: Prove the pipeline end-to-end.
+
+Steps
+
+Trigger CI to build app-debug.apk.
+
+CI calls:
+
+POST /admin/apk/register (metadata).
+
+POST /admin/apk/upload (multipart APK file).
+
+FE loads APK Management → sees the new build.
+
+Click Download.
+
+Expected
+
+Register returns 200; Upload returns 200 with storage://… key.
+
+Build visible in FE with correct version, size, time.
+
+Download returns file with matching size/hash.
+
+Evidence
+
+API responses (IDs), FE screenshot, file size check, logs apk.register & storage.upload.success.
+
+B2. Device “latest” (debug)
+
+Goal: Verify device path uses the same storage and auth.
+
+Steps
+
+Call GET /v1/apk/download-latest?build_type=debug using an enrollment token (or a device token if supported).
+
+Save the response; check bytes.
+
+Expected
+
+200 OK, correct bytes, no 401/403.
+
+Server logs apk.download {source: device} and increments apk_download_total{source=device}.
+
+Evidence
+
+File saved; logs; counter increments.
+
+B3. Duplicate register policy
+
+Goal: Ensure idempotency or clear errors on duplicate version codes.
+
+Steps
+
+Call POST /admin/apk/register twice with same (build_type, version_code) but different git sha.
+
+Expected (choose one policy)
+
+Upsert: second call updates metadata and returns 200 with note.
+
+Reject: 409 with duplicate_version_code.
+
+Evidence
+
+Response + logs apk.register show consistent policy; no ghost rows.
+
+B4. Invalid file type / oversized upload
+
+Goal: Enforce constraints.
+
+Steps
+
+Upload .txt or .zip to /admin/apk/upload.
+
+Upload a file > max size (e.g., 100 MB).
+
+Expected
+
+415 (unsupported media type) or 422 with clear error.
+
+413 Payload Too Large for oversize; no partial artifacts left in storage.
+
+Evidence
+
+Errors; storage listing shows no garbage; logs storage.upload.error.
+
+B5. Storage sidecar regression (simulate)
+
+Goal: Backend fails gracefully if Replit Storage is unavailable.
+
+Steps
+
+Temporarily disable App Storage in Replit UI (or kill sidecar if possible).
+
+Attempt /admin/apk/upload.
+
+Expected
+
+503 with storage_unavailable error code; no DB row created or linked to missing file.
+
+On re-enable, uploads succeed without code changes.
+
+Evidence
+
+Error response + logs; re-trial success.
+
+B6. Admin download vs device download
+
+Goal: Admin UI uses the correct scoped route, and devices use token-guarded route.
+
+Steps
+
+Try /admin/apk/download/{build_id} without admin scope.
+
+Try /v1/apk/download-latest without enrollment/device token.
+
+Expected
+
+403 on admin route; 401 on device route.
+
+With correct credentials, both work.
+
+Evidence
+
+HTTP status codes; logs sec.scope.denied for admin miss.
+
+B7. Rollback safety (optional)
+
+Goal: A bad build shouldn’t break device path.
+
+Steps
+
+Register/upload a new “bad” build; then immediately “rollback” (un-promote).
+
+Device calls /v1/agent/update (if implemented) or /v1/apk/download-latest.
+
+Expected
+
+Device receives previous safe build or no update.
+
+No 404s pointing at missing builds.
+
+Evidence
+
+Logs and response from device endpoint.
+
+B8. Metrics & logs integrity
+
+Goal: Counters/logs must reflect real actions.
+
+Steps
+
+Do 3 registers, 2 uploads, 4 admin downloads, 5 device downloads.
+
+Scrape /metrics.
+
+Expected
+
+apk_builds_total +3
+
+storage_uploads_total +2
+
+apk_download_total{source=admin} +4
+
+apk_download_total{source=device} +5
+
+Timestamps in logs match actions; no gaps.
+
+Evidence
+
+/metrics snapshot; log extracts with request_id.
+
+Quick cURL/HTTP snippets (fill in values)
+# Update monitoring settings
+curl -s -X PATCH "$BASE_URL/admin/devices/$DEVICE_ID/monitoring" \
+ -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
+ -d '{"monitor_enabled":true,"monitored_package":"org.zwanoo.android.speedtest","monitored_display_name":"Speedtest","monitored_threshold_min":10}'
+
+# Simulate heartbeats
+curl -s -X POST "$BASE_URL/v1/heartbeat" \
+ -H "Authorization: Bearer $DEVICE_TOKEN" -H "Content-Type: application/json" \
+ -d '{"monitored_foreground_recent_s":120,"battery_pct":92,"network_type":"wifi"}'
+
+# Register build
+curl -s -X POST "$BASE_URL/admin/apk/register" \
+ -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
+ -d '{"build_id":"b_debug_001","version_code":101,"version_name":"1.0.1","build_type":"debug","file_size_bytes":25789432,"sha256":"...","signer_fingerprint":"...","storage_url":"placeholder","ci_run_id":"gh_...","git_sha":"abcdef1"}'
+
+# Upload APK file
+curl -s -X POST "$BASE_URL/admin/apk/upload" \
+ -H "X-Admin: $ADMIN_KEY" \
+ -F "file=@app-debug.apk"
+
+Exit criteria (green = done)
+
+Monitoring: Up → Down → Recover works, deduped alerts, no flapping, correct thresholds, “Unknown” handled.
+
+APK Mgmt: CI publish, admin/device downloads work; invalid uploads rejected; storage failures handled gracefully; metrics/logs consistent.
+
+No secrets in logs; UI states accurate; performance is snappy.
