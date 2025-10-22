@@ -21,6 +21,7 @@ from schemas import (
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
     UpdateDeviceSettingsRequest, CreateEnrollmentTokensRequest, CreateEnrollmentTokensResponse,
     EnrollmentTokenResponse, ListEnrollmentTokensResponse, EnrollmentTokenListItem,
+    BatchDeleteEnrollmentTokensRequest, BatchDeleteEnrollmentTokensResponse,
     ActionResultRequest
 )
 from auth import (
@@ -3085,6 +3086,79 @@ async def revoke_enrollment_token(
         "token_id": token_id,
         "status": "revoked"
     }
+
+@app.post("/v1/enroll-tokens/batch-delete", response_model=BatchDeleteEnrollmentTokensResponse)
+async def batch_delete_enrollment_tokens(
+    request: BatchDeleteEnrollmentTokensRequest,
+    req: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete multiple enrollment tokens in batch"""
+    from models import EnrollmentToken, EnrollmentEvent
+    
+    if not request.token_ids or len(request.token_ids) == 0:
+        raise HTTPException(status_code=400, detail="token_ids is required and must not be empty")
+    
+    if len(request.token_ids) > 500:
+        raise HTTPException(status_code=400, detail="Cannot delete more than 500 tokens at once")
+    
+    deleted_count = 0
+    failed_count = 0
+    errors = []
+    
+    for token_id in request.token_ids:
+        try:
+            token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+            
+            if not token:
+                failed_count += 1
+                errors.append({
+                    "token_id": token_id,
+                    "error": "Token not found"
+                })
+                continue
+            
+            db.delete(token)
+            
+            event = EnrollmentEvent(
+                event_type='token.delete',
+                token_id=token_id,
+                alias=token.alias,
+                ip_address=req.client.host if req.client else None,
+                details=json.dumps({
+                    "deleted_by": current_user.username,
+                    "status": token.status
+                })
+            )
+            db.add(event)
+            
+            structured_logger.log_event(
+                "sec.token.delete",
+                token_id=token_id,
+                alias=token.alias,
+                deleted_by=current_user.username
+            )
+            
+            deleted_count += 1
+            
+        except Exception as e:
+            failed_count += 1
+            errors.append({
+                "token_id": token_id,
+                "error": str(e)
+            })
+            continue
+    
+    db.commit()
+    
+    print(f"[BATCH-DELETE-TOKENS] Deleted {deleted_count} tokens, {failed_count} failed by user {current_user.username}")
+    
+    return BatchDeleteEnrollmentTokensResponse(
+        deleted_count=deleted_count,
+        failed_count=failed_count,
+        errors=errors
+    )
 
 @app.get("/v1/scripts/enroll.cmd")
 async def get_windows_enroll_script(

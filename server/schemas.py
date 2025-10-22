@@ -133,6 +133,14 @@ class ListEnrollmentTokensResponse(BaseModel):
     tokens: list[EnrollmentTokenListItem]
     total: int
 
+class BatchDeleteEnrollmentTokensRequest(BaseModel):
+    token_ids: list[str]
+
+class BatchDeleteEnrollmentTokensResponse(BaseModel):
+    deleted_count: int
+    failed_count: int
+    errors: list[dict]
+
 class ActionResultRequest(BaseModel):
     request_id: str
     device_id: str
