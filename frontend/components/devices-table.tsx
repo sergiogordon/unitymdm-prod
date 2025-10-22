@@ -1,12 +1,13 @@
 "use client"
 
-import { Battery, Wifi, Smartphone, Search } from "lucide-react"
+import { Battery, Wifi, Smartphone, Search, Settings2 } from "lucide-react"
 import type { Device } from "@/lib/mock-data"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useState, useEffect } from "react"
 import { BulkActionsBar } from "@/components/bulk-actions-bar"
 import { BulkDeleteModal } from "@/components/bulk-delete-modal"
+import { DeviceMonitoringModal } from "@/components/device-monitoring-modal"
 import { useToast } from "@/hooks/use-toast"
 import { bulkDeleteDevices } from "@/lib/api-client"
 
@@ -20,16 +21,32 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [monitoringDevice, setMonitoringDevice] = useState<Device | null>(null)
   const { toast } = useToast()
 
   const filteredDevices = devices.filter((device) => {
     const query = searchQuery.toLowerCase()
+    
+    if (query === "service:down" || query === "service-down") {
+      return device.monitoring?.service_up === false
+    }
+    
+    if (query === "service:up" || query === "service-up") {
+      return device.monitoring?.service_up === true
+    }
+    
+    if (query === "service:unknown" || query === "service-unknown") {
+      return device.monitoring?.service_up === null || !device.monitoring
+    }
+    
     return (
       device.alias.toLowerCase().includes(query) ||
       device.status.toLowerCase().includes(query) ||
       device.network.name.toLowerCase().includes(query) ||
       device.unity.version.toLowerCase().includes(query) ||
-      device.unity.status.toLowerCase().includes(query)
+      device.unity.status.toLowerCase().includes(query) ||
+      (device.monitoring?.monitored_app_name?.toLowerCase().includes(query) ?? false) ||
+      (device.monitoring?.monitored_package?.toLowerCase().includes(query) ?? false)
     )
   })
 
@@ -152,81 +169,130 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
                 </th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Status</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Alias</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Service</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Last Seen</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Battery</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Network</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Unity</th>
                 <th className="hidden px-4 py-3 text-right text-sm font-medium md:table-cell">RAM</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Uptime</th>
+                <th className="w-12 px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {filteredDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center">
+                  <td colSpan={11} className="px-4 py-12 text-center">
                     <p className="text-sm text-muted-foreground">No devices found matching "{searchQuery}"</p>
                   </td>
                 </tr>
               ) : (
-                filteredDevices.map((device, index) => (
-                  <tr
-                    key={device.id}
-                    className={`transition-colors hover:bg-muted/30 ${
-                      index % 2 === 0 ? "bg-background" : "bg-muted/10"
-                    } ${selectedIds.has(device.id) ? "bg-primary/5" : ""}`}
-                  >
-                    <td className="px-4 py-3">
-                      <Checkbox
-                        checked={selectedIds.has(device.id)}
-                        onCheckedChange={() => toggleSelectDevice(device.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={`Select ${device.alias}`}
-                      />
-                    </td>
-                    <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`h-2 w-2 rounded-full ${
-                            device.status === "online" ? "bg-status-online" : "bg-status-offline"
-                          }`}
+                filteredDevices.map((device, index) => {
+                  const serviceStatus = device.monitoring?.service_up === true ? "Up" :
+                                       device.monitoring?.service_up === false ? "Down" :
+                                       "Unknown"
+                  const lastForegroundMin = device.monitoring?.monitored_foreground_recent_s != null
+                    ? Math.floor(device.monitoring.monitored_foreground_recent_s / 60)
+                    : null
+                    
+                  return (
+                    <tr
+                      key={device.id}
+                      className={`transition-colors hover:bg-muted/30 ${
+                        index % 2 === 0 ? "bg-background" : "bg-muted/10"
+                      } ${selectedIds.has(device.id) ? "bg-primary/5" : ""}`}
+                    >
+                      <td className="px-4 py-3">
+                        <Checkbox
+                          checked={selectedIds.has(device.id)}
+                          onCheckedChange={() => toggleSelectDevice(device.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select ${device.alias}`}
                         />
-                        <span className="text-sm capitalize">{device.status}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium cursor-pointer" onClick={() => onSelectDevice(device)}>{device.alias}</td>
-                    <td className="px-4 py-3 text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.lastSeen}</td>
-                    <td className="px-4 py-3 text-right cursor-pointer" onClick={() => onSelectDevice(device)}>
-                      <div className="flex items-center justify-end gap-1.5">
-                        <span className={`text-sm ${device.battery.percentage < 20 ? "text-status-offline" : ""}`}>
-                          {device.battery.percentage}%
-                        </span>
-                        {device.battery.charging && <Battery className="h-3.5 w-3.5 text-status-online" />}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
-                      <div className="flex items-center gap-1.5">
-                        <Wifi className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-sm">{device.network.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{device.unity.version}</span>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${
-                            device.unity.status === "running"
-                              ? "bg-status-online/10 text-status-online"
-                              : "bg-status-offline/10 text-status-offline"
-                          }`}
+                      </td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`h-2 w-2 rounded-full ${
+                              device.status === "online" ? "bg-status-online" : "bg-status-offline"
+                            }`}
+                          />
+                          <span className="text-sm capitalize">{device.status}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm font-medium cursor-pointer" onClick={() => onSelectDevice(device)}>{device.alias}</td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
+                        {device.monitoring ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">{device.monitoring.monitored_app_name || device.monitoring.monitored_package}</span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs ${
+                                serviceStatus === "Up"
+                                  ? "bg-status-online/10 text-status-online"
+                                  : serviceStatus === "Down"
+                                  ? "bg-status-offline/10 text-status-offline"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {serviceStatus}
+                            </span>
+                            {lastForegroundMin != null && (
+                              <span className="text-xs text-muted-foreground">
+                                {lastForegroundMin}m
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Not configured</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.lastSeen}</td>
+                      <td className="px-4 py-3 text-right cursor-pointer" onClick={() => onSelectDevice(device)}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span className={`text-sm ${device.battery.percentage < 20 ? "text-status-offline" : ""}`}>
+                            {device.battery.percentage}%
+                          </span>
+                          {device.battery.charging && <Battery className="h-3.5 w-3.5 text-status-online" />}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
+                        <div className="flex items-center gap-1.5">
+                          <Wifi className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-sm">{device.network.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{device.unity.version}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs ${
+                              device.unity.status === "running"
+                                ? "bg-status-online/10 text-status-online"
+                                : "bg-status-offline/10 text-status-offline"
+                            }`}
+                          >
+                            {device.unity.status}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="hidden px-4 py-3 text-right text-sm md:table-cell cursor-pointer" onClick={() => onSelectDevice(device)}>{device.ram}%</td>
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.uptime}</td>
+                      <td className="px-4 py-3">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMonitoringDevice(device)
+                          }}
+                          className="h-8 w-8"
                         >
-                          {device.unity.status}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 text-right text-sm md:table-cell cursor-pointer" onClick={() => onSelectDevice(device)}>{device.ram}%</td>
-                    <td className="px-4 py-3 text-right text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.uptime}</td>
-                  </tr>
-                ))
+                          <Settings2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
@@ -246,6 +312,19 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
         deviceCount={selectedIds.size}
         sampleAliases={sampleAliases}
       />
+      
+      {monitoringDevice && (
+        <DeviceMonitoringModal
+          isOpen={true}
+          onClose={() => setMonitoringDevice(null)}
+          deviceId={monitoringDevice.id}
+          deviceAlias={monitoringDevice.alias}
+          currentMonitoring={monitoringDevice.monitoring}
+          onUpdated={() => {
+            onDevicesDeleted?.()
+          }}
+        />
+      )}
     </div>
   )
 }
