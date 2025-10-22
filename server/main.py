@@ -3610,6 +3610,7 @@ async def batch_delete_enrollment_tokens(
 async def get_windows_enroll_script(
     alias: str = Query(...),
     token_id: str = Query(...),
+    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
@@ -3632,7 +3633,7 @@ async def get_windows_enroll_script(
     else:
         server_url = "http://localhost:8000"
     
-    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else token_id
+    token_value = raw_token if raw_token else "TOKEN_NOT_AVAILABLE_REGENERATE"
     
     event = EnrollmentEvent(
         event_type='script.render',
@@ -3758,6 +3759,7 @@ echo ========================================
 async def get_bash_enroll_script(
     alias: str = Query(...),
     token_id: str = Query(...),
+    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
@@ -3779,7 +3781,7 @@ async def get_bash_enroll_script(
     else:
         server_url = "http://localhost:8000"
     
-    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else token_id
+    token_value = raw_token if raw_token else "TOKEN_NOT_AVAILABLE_REGENERATE"
     
     event = EnrollmentEvent(
         event_type='script.render',
@@ -3909,6 +3911,7 @@ echo "========================================"
 async def get_windows_one_liner_script(
     alias: str = Query(...),
     token_id: str = Query(...),
+    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
@@ -3930,7 +3933,7 @@ async def get_windows_one_liner_script(
     else:
         server_url = "http://localhost:8000"
     
-    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else "REPLACE_WITH_TOKEN"
+    token_value = raw_token if raw_token else "TOKEN_NOT_AVAILABLE_REGENERATE"
     
     event = EnrollmentEvent(
         event_type='script.render_one_liner',

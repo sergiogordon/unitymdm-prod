@@ -189,12 +189,14 @@ function ADBSetupContent() {
       }
     }))
     
+    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
+    
     try {
       const [bashResponse, windowsResponse] = await Promise.all([
-        fetch(`/api/proxy/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+        fetch(`/api/proxy/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`, {
           headers: { "Authorization": `Bearer ${authToken}` }
         }),
-        fetch(`/api/proxy/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`, {
+        fetch(`/api/proxy/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`, {
           headers: { "Authorization": `Bearer ${authToken}` }
         })
       ])
@@ -243,7 +245,8 @@ function ADBSetupContent() {
   const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
     const authToken = localStorage.getItem('auth_token')
     const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
-    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
+    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
+    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
     
     try {
       const response = await fetch(url, {
@@ -273,7 +276,8 @@ function ADBSetupContent() {
 
   const copyOneLiner = async (token: EnrollmentToken) => {
     const authToken = localStorage.getItem('auth_token')
-    const url = `/api/proxy/v1/scripts/enroll.one-liner.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
+    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
+    const url = `/api/proxy/v1/scripts/enroll.one-liner.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
     
     try {
       const response = await fetch(url, {
