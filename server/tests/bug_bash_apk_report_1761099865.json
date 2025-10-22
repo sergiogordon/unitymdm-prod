@@ -1,0 +1,65 @@
+{
+  "summary": {
+    "total": 6,
+    "passed": 0,
+    "failed": 6,
+    "timestamp": "2025-10-22T02:24:25.303237+00:00"
+  },
+  "results": [
+    {
+      "test_id": "B1",
+      "title": "End-to-end CI pipeline",
+      "passed": false,
+      "evidence": {},
+      "notes": "Failed to register build",
+      "timestamp": "2025-10-22T02:24:19.704613+00:00"
+    },
+    {
+      "test_id": "B2",
+      "title": "Device download",
+      "passed": false,
+      "evidence": {
+        "download_success": false,
+        "download_size": 0
+      },
+      "notes": "Device successfully downloaded latest debug APK with valid token",
+      "timestamp": "2025-10-22T02:24:21.256086+00:00"
+    },
+    {
+      "test_id": "B3",
+      "title": "Duplicate register",
+      "passed": false,
+      "evidence": {},
+      "notes": "First registration failed",
+      "timestamp": "2025-10-22T02:24:21.265249+00:00"
+    },
+    {
+      "test_id": "B4",
+      "title": "Invalid uploads",
+      "passed": false,
+      "evidence": {},
+      "notes": "Setup failed",
+      "timestamp": "2025-10-22T02:24:21.271572+00:00"
+    },
+    {
+      "test_id": "B6",
+      "title": "Authorization boundaries",
+      "passed": false,
+      "evidence": {},
+      "notes": "No test builds available",
+      "timestamp": "2025-10-22T02:24:21.271594+00:00"
+    },
+    {
+      "test_id": "B8",
+      "title": "Metrics and logs",
+      "passed": false,
+      "evidence": {
+        "metrics_before": {},
+        "metrics_after": {},
+        "deltas": {}
+      },
+      "notes": "Detected 0 metric changes",
+      "timestamp": "2025-10-22T02:24:25.302714+00:00"
+    }
+  ]
+}

@@ -344,7 +344,11 @@ streaming_manager = StreamingConnectionManager()
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     print(f"[VALIDATION ERROR] {request.url.path}")
-    print(f"[VALIDATION ERROR] Body: {await request.body()}")
+    try:
+        body = await request.body()
+        print(f"[VALIDATION ERROR] Body preview: {str(body[:200])}")
+    except:
+        print(f"[VALIDATION ERROR] Body: <unable to read>")
     print(f"[VALIDATION ERROR] Errors: {exc.errors()}")
     return JSONResponse(
         status_code=422,
