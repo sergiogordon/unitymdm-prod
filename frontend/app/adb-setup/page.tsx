@@ -11,13 +11,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { BulkActionsBarEnrollmentTokens } from "@/components/bulk-actions-bar-enrollment-tokens"
 import { BulkDeleteEnrollmentTokensModal } from "@/components/bulk-delete-enrollment-tokens-modal"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Table,
   TableBody,
   TableCell,
@@ -56,7 +49,6 @@ export default function ADBSetupPage() {
 
 function ADBSetupContent() {
   const [aliases, setAliases] = useState("")
-  const [expiryMinutes, setExpiryMinutes] = useState("30")
   const [note, setNote] = useState("")
   const [loading, setLoading] = useState(false)
   const [tokens, setTokens] = useState<EnrollmentToken[]>([])
@@ -122,7 +114,7 @@ function ADBSetupContent() {
         },
         body: JSON.stringify({
           aliases: aliasArray,
-          expires_in_sec: parseInt(expiryMinutes) * 60,
+          expires_in_sec: 31536000,
           uses_allowed: 1,
           note: note.trim() || null
         }),
@@ -408,33 +400,17 @@ function ADBSetupContent() {
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <h2 className="text-lg font-semibold mb-4">Device Enrollment</h2>
           <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="aliases">Device Aliases</Label>
-                <Input
-                  id="aliases"
-                  placeholder="e.g., D01, D02, D03 or Device-01 Device-02"
-                  value={aliases}
-                  onChange={(e) => setAliases(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Comma or space separated. Supports batch generation.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="expiry">Token Expiry</Label>
-                <Select value={expiryMinutes} onValueChange={setExpiryMinutes}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="15">15 minutes</SelectItem>
-                    <SelectItem value="30">30 minutes</SelectItem>
-                    <SelectItem value="60">60 minutes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="aliases">Device Aliases</Label>
+              <Input
+                id="aliases"
+                placeholder="e.g., D01, D02, D03 or Device-01 Device-02"
+                value={aliases}
+                onChange={(e) => setAliases(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma or space separated. Supports batch generation.
+              </p>
             </div>
 
             <div className="space-y-2">
