@@ -1314,14 +1314,21 @@ async def register_device(
         import uuid
         device_id = str(uuid.uuid4())
         
-        # Create device
+        # Get monitoring defaults to seed new device
+        defaults = monitoring_defaults_cache.get_defaults(db)
+        
+        # Create device with monitoring defaults
         device = Device(
             id=device_id,
             alias=alias,
             token_hash=token_hash,
             token_id=token_id,
             created_at=datetime.now(timezone.utc),
-            last_seen=datetime.now(timezone.utc)
+            last_seen=datetime.now(timezone.utc),
+            monitor_enabled=defaults["enabled"],
+            monitored_package=defaults["package"],
+            monitored_app_name=defaults["alias"],
+            monitored_threshold_min=defaults["threshold_min"]
         )
         
         db.add(device)
