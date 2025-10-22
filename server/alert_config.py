@@ -11,9 +11,6 @@ class AlertConfig:
         self.ALERTS_ENABLE_AUTOREMEDIATION = os.getenv("ALERTS_ENABLE_AUTOREMEDIATION", "false").lower() == "true"
         self.UNITY_DOWN_REQUIRE_CONSECUTIVE = os.getenv("UNITY_DOWN_REQUIRE_CONSECUTIVE", "false").lower() == "true"
         self.DISCORD_WEBHOOK_URL: Optional[str] = os.getenv("DISCORD_WEBHOOK_URL")
-        self.DASHBOARD_BASE_URL = os.getenv("REPLIT_DEV_DOMAIN", "http://localhost:5000")
-        
-        if not self.DASHBOARD_BASE_URL.startswith("http"):
-            self.DASHBOARD_BASE_URL = f"https://{self.DASHBOARD_BASE_URL}"
+        self.DASHBOARD_BASE_URL = os.getenv("SERVER_URL", "http://localhost:5000")
 
 alert_config = AlertConfig()

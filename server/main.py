@@ -3312,10 +3312,8 @@ async def get_enrollment_qr_payload(alias: str):
     if not alias or not alias.strip():
         raise HTTPException(status_code=400, detail="Alias is required")
     
-    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if server_url:
-        server_url = f"https://{server_url}"
-    else:
+    server_url = os.getenv("SERVER_URL", "")
+    if not server_url:
         server_url = "http://localhost:8000"
     
     admin_key = os.getenv("ADMIN_KEY", "")
@@ -3627,10 +3625,8 @@ async def get_windows_enroll_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
-    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if server_url:
-        server_url = f"https://{server_url}"
-    else:
+    server_url = os.getenv("SERVER_URL", "")
+    if not server_url:
         server_url = "http://localhost:8000"
     
     admin_key = os.getenv("ADMIN_KEY", "admin")
@@ -3787,10 +3783,8 @@ async def get_bash_enroll_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
-    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if server_url:
-        server_url = f"https://{server_url}"
-    else:
+    server_url = os.getenv("SERVER_URL", "")
+    if not server_url:
         server_url = "http://localhost:8000"
     
     admin_key = os.getenv("ADMIN_KEY", "admin")
@@ -3947,10 +3941,8 @@ async def get_windows_one_liner_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
-    server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if server_url:
-        server_url = f"https://{server_url}"
-    else:
+    server_url = os.getenv("SERVER_URL", "")
+    if not server_url:
         server_url = "http://localhost:8000"
     
     admin_key = os.getenv("ADMIN_KEY", "admin")
@@ -4024,10 +4016,8 @@ async def upload_apk(
         notes=notes
     )
     
-    base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if base_url:
-        base_url = f"https://{base_url}"
-    else:
+    base_url = os.getenv("SERVER_URL", "")
+    if not base_url:
         base_url = "http://localhost:8000"
     
     return {
@@ -4052,10 +4042,8 @@ async def list_apks(
     
     apks = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).all()
     
-    base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if base_url:
-        base_url = f"https://{base_url}"
-    else:
+    base_url = os.getenv("SERVER_URL", "")
+    if not base_url:
         base_url = "http://localhost:8000"
     
     result = []
@@ -4397,10 +4385,8 @@ async def deploy_apk_to_devices(
     if not devices:
         raise HTTPException(status_code=400, detail="No devices found")
     
-    base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if base_url:
-        base_url = f"https://{base_url}"
-    else:
+    base_url = os.getenv("SERVER_URL", "")
+    if not base_url:
         base_url = "http://localhost:8000"
     
     download_url = get_apk_download_url(apk, base_url)
@@ -4673,10 +4659,8 @@ async def agent_update_check(
     
     increment_deployment_stat(db, current_build.id, "total_eligible")
     
-    base_url = os.getenv("REPLIT_DEV_DOMAIN", "")
-    if base_url:
-        base_url = f"https://{base_url}"
-    else:
+    base_url = os.getenv("SERVER_URL", "")
+    if not base_url:
         base_url = "http://localhost:8000"
     
     download_url = f"{base_url}/v1/apk/download/{current_build.id}"
