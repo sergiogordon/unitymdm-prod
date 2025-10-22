@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -42,6 +42,7 @@ import fast_reads
 import bulk_delete
 from purge_jobs import purge_manager
 from rate_limiter import rate_limiter
+from monitoring_defaults_cache import monitoring_defaults_cache
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -2274,6 +2275,110 @@ async def update_device_monitoring_settings(
             "monitored_app_name": device.monitored_app_name,
             "monitored_threshold_min": device.monitored_threshold_min
         }
+    }
+
+@app.get("/admin/settings/monitoring-defaults")
+async def get_monitoring_defaults(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get global monitoring defaults.
+    Returns built-in defaults if no custom settings exist.
+    Results are cached for performance.
+    """
+    start_time = time.time()
+    
+    defaults = monitoring_defaults_cache.get_defaults(db)
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("monitoring_defaults_get_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.monitoring_defaults.read",
+        user=current_user.username,
+        latency_ms=latency_ms
+    )
+    
+    return defaults
+
+class UpdateMonitoringDefaultsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    package: Optional[str] = None
+    alias: Optional[str] = None
+    threshold_min: Optional[int] = None
+
+@app.patch("/admin/settings/monitoring-defaults")
+async def update_monitoring_defaults(
+    request: UpdateMonitoringDefaultsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update global monitoring defaults.
+    Requires device_manage scope (admin user).
+    Validates inputs and invalidates cache.
+    """
+    start_time = time.time()
+    
+    defaults_record = db.query(MonitoringDefaults).first()
+    
+    if not defaults_record:
+        defaults_record = MonitoringDefaults()
+        db.add(defaults_record)
+    
+    updates = {}
+    
+    if request.package is not None:
+        if not request.package.strip():
+            raise HTTPException(status_code=422, detail="Package cannot be empty")
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', request.package.strip()):
+            raise HTTPException(status_code=422, detail="Invalid package name format")
+        defaults_record.package = request.package.strip()
+        updates["package"] = defaults_record.package
+    
+    if request.alias is not None:
+        if not request.alias.strip():
+            raise HTTPException(status_code=422, detail="Alias cannot be empty")
+        if len(request.alias.strip()) > 64:
+            raise HTTPException(status_code=422, detail="Alias must be 64 characters or less")
+        defaults_record.alias = request.alias.strip()
+        updates["alias"] = defaults_record.alias
+    
+    if request.threshold_min is not None:
+        if request.threshold_min < 1 or request.threshold_min > 120:
+            raise HTTPException(status_code=422, detail="Threshold must be between 1 and 120 minutes")
+        defaults_record.threshold_min = request.threshold_min
+        updates["threshold_min"] = defaults_record.threshold_min
+    
+    if request.enabled is not None:
+        defaults_record.enabled = request.enabled
+        updates["enabled"] = defaults_record.enabled
+    
+    defaults_record.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(defaults_record)
+    
+    monitoring_defaults_cache.invalidate()
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("monitoring_defaults_update_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.monitoring_defaults.update",
+        user=current_user.username,
+        updates=updates,
+        latency_ms=latency_ms
+    )
+    
+    return {
+        "enabled": defaults_record.enabled,
+        "package": defaults_record.package,
+        "alias": defaults_record.alias,
+        "threshold_min": defaults_record.threshold_min,
+        "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 
 @app.post("/v1/devices/settings/bulk")

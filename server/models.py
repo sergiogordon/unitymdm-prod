@@ -413,6 +413,20 @@ class DeviceSelection(Base):
         Index('idx_selection_created', 'created_at'),
     )
 
+class MonitoringDefaults(Base):
+    __tablename__ = "monitoring_defaults"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    package: Mapped[str] = mapped_column(String, nullable=False, default="org.zwanoo.android.speedtest")
+    alias: Mapped[str] = mapped_column(String, nullable=False, default="Speedtest")
+    threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_monitoring_defaults_updated', 'updated_at'),
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
 
 # Configure connection pool for better concurrency (handles 100+ devices)
