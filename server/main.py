@@ -3811,104 +3811,112 @@ async def get_bash_enroll_script(
 
 set -euo pipefail
 
-BASE_URL="{server_url}"
-APK_ENDPOINT="/v1/apk/download/latest"
-ENROLL_TOKEN="{token_value}"
+PKG="{agent_pkg}"
 ALIAS="{alias}"
-AGENT_PKG="{agent_pkg}"
-UNITY_PKG="{unity_pkg}"
-APK_FILE="nexmdm-latest.apk"
+SPEEDTEST_PKG="{unity_pkg}"
+APK_PATH="nexmdm-latest.apk"
+BASE_URL="{server_url}"
+DL_URL="{server_url}/v1/apk/download/latest"
+BEARER="{token_value}"
 
-# Enable error handling
-trap 'echo "[ERROR] Script failed at line $LINENO. Press Enter to exit..."; read' ERR
-
-echo "========================================"
-echo "NexMDM Device Enrollment"
-echo "========================================"
-echo "Alias: $ALIAS"
-echo "Server: $BASE_URL"
-echo "========================================"
+echo "[NexMDM Deployment - Device: $ALIAS]"
 echo ""
 
-# Check ADB
-if ! command -v adb &> /dev/null; then
-    echo "[ERROR] ADB not found. Install Android SDK Platform Tools."
-    exit 1
+echo "[Step 0] Waiting for device..."
+adb wait-for-device || {{ echo "❌ No device found"; exit 2; }}
+
+echo "[Step 1/7] Downloading latest APK..."
+echo "[DEBUG] URL: $DL_URL"
+curl -L -H "Authorization: Bearer $BEARER" "$DL_URL" -o "$APK_PATH" || {{ echo "❌ Download failed"; exit 3; }}
+if [ ! -f "$APK_PATH" ]; then
+    echo "❌ APK missing at $APK_PATH"
+    exit 3
+fi
+echo "✅ APK downloaded!"
+echo ""
+
+echo "[Step 2/7] Installing APK (safe update w/ fallback)..."
+if ! adb install -r "$APK_PATH" 2>&1; then
+    echo "[WARN] Update failed — attempting uninstall + clean install..."
+    adb shell pm uninstall -k --user 0 $PKG 2>/dev/null || true
+    if ! adb install -t -d "$APK_PATH" 2>&1; then
+        echo "❌ Clean install failed"
+        exit 4
+    fi
+fi
+echo "✅ APK installed/updated!"
+echo ""
+
+echo "[Step 3/7] Ensuring Device Owner (DO)..."
+DEVPROV=$(adb shell settings get secure device_provisioned | tr -d '\\r')
+USERSETUP=$(adb shell settings get secure user_setup_complete | tr -d '\\r')
+
+if ! adb shell dumpsys device_policy | grep -q "Device Owner.*$PKG"; then
+    echo "[INFO] Device Owner not detected for $PKG."
+    if [ "$DEVPROV" = "1" ] && [ "$USERSETUP" = "1" ]; then
+        echo "❌ Cannot set Device Owner on a provisioned device."
+        echo "    Device Owner requires a factory-reset / unprovisioned state."
+        echo "    Please wipe the device (or use QR/NFC provisioning) and re-run."
+        exit 5
+    fi
+    if ! adb shell dpm set-device-owner $PKG/.NexDeviceAdminReceiver 2>/dev/null; then
+        echo "❌ Failed to set Device Owner. Ensure device is factory-fresh and compatible."
+        exit 6
+    fi
 fi
 
-# Check device connection
-if ! adb devices | grep -q "device$"; then
-    echo "[ERROR] No ADB device connected"
-    echo "Connect device via USB and enable USB debugging"
-    exit 1
+if ! adb shell dumpsys device_policy | grep -q "$PKG"; then
+    echo "❌ Device Owner verification failed."
+    exit 7
 fi
+echo "✅ Device Owner confirmed."
+echo ""
 
-SERIAL=$(adb devices | grep "device$" | head -1 | awk '{{print $1}}')
-echo "[OK] Device connected (Serial: $SERIAL)"
+echo "[Step 4/7] Permissions & Doze whitelist..."
+adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+adb shell pm grant $PKG android.permission.CAMERA 2>/dev/null || true
+adb shell pm grant $PKG android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
+adb shell appops set $PKG RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
+adb shell appops set $PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>/dev/null || true
+adb shell appops set $PKG GET_USAGE_STATS allow 2>/dev/null || true
+adb shell dumpsys deviceidle whitelist +$PKG >/dev/null
+echo "✅ Whitelisted & permissions set!"
+echo ""
 
-# Get device ID
-DEVICE_ID=$(adb shell settings get secure android_id | tr -d '\\r')
-echo "Device ID: $DEVICE_ID"
+echo "[Step 5/7] Applying full optimizations and bloat off..."
+adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2"
+adb shell dumpsys deviceidle whitelist +$SPEEDTEST_PKG >/dev/null
+adb shell appops set $SPEEDTEST_PKG RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
+echo "✅ Optimizations applied!"
+echo ""
 
-echo "[1/7] Downloading latest APK..."
-echo "[DEBUG] URL: $BASE_URL$APK_ENDPOINT"
-echo "[DEBUG] Token: ${{ENROLL_TOKEN:0:20}}..."
-HTTP_CODE=$(curl -w "%{{http_code}}" -L -H "Authorization: Bearer $ENROLL_TOKEN" -o "$APK_FILE" "$BASE_URL$APK_ENDPOINT" 2>&1 | tail -n1)
-echo "[DEBUG] HTTP Status: $HTTP_CODE"
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "[ERROR] APK download failed with HTTP $HTTP_CODE"
-    echo "[DEBUG] Check if token is valid and not expired"
-    exit 1
+echo "[Step 6/7] Launch and configure..."
+adb shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+sleep 2
+echo "[DEBUG] Sending CONFIGURE broadcast (foreground)..."
+adb shell am broadcast --receiver-foreground -a $PKG.CONFIGURE -n $PKG/.ConfigReceiver --es server_url "$BASE_URL" --es token "$BEARER" --es alias "$ALIAS" --es speedtest_package "$SPEEDTEST_PKG" --es unity_pkg "$SPEEDTEST_PKG"
+if [ $? -ne 0 ]; then
+    echo "❌ CONFIGURE broadcast failed."
+    exit 8
 fi
-echo "[OK] APK downloaded"
+sleep 3
+echo "✅ Configuration broadcast sent!"
+echo ""
 
-echo "[2/7] Installing APK..."
-if ! adb install -r "$APK_FILE" 2>&1; then
-    echo "[ERROR] APK installation failed"
-    echo "[DEBUG] Make sure USB debugging is enabled and device is connected"
-    exit 1
-fi
-echo "[OK] APK installed"
-
-echo "[3/7] Granting runtime permissions..."
-adb shell pm grant $AGENT_PKG android.permission.POST_NOTIFICATIONS || true
-adb shell pm grant $AGENT_PKG android.permission.READ_EXTERNAL_STORAGE || true
-adb shell pm grant $AGENT_PKG android.permission.WRITE_EXTERNAL_STORAGE || true
-echo "[OK] Permissions granted"
-
-echo "[4/7] Setting Device Owner (requires factory reset)..."
-if adb shell dpm set-device-owner $AGENT_PKG/.receiver.AdminReceiver 2>/dev/null; then
-    echo "[OK] Device Owner set successfully"
+echo "[Step 7/7] Verifying service..."
+if adb shell pidof $PKG >/dev/null 2>&1; then
+    echo "✅ Service running"
 else
-    echo "[WARN] Device Owner failed - continue anyway (requires factory reset)"
+    echo "❌ Service not running"
+    exit 9
 fi
-
-echo "[5/7] Applying optimizations..."
-adb shell settings put global stay_on_while_plugged_in 7
-adb shell settings put system screen_off_timeout 600000
-echo "[OK] Optimizations applied"
-
-echo "[6/7] Enrolling device with server..."
-echo "[DEBUG] Device ID: $DEVICE_ID"
-HTTP_CODE=$(curl -w "%{{http_code}}" -X POST "$BASE_URL/v1/enroll?device_id=$DEVICE_ID" -H "Authorization: Bearer $ENROLL_TOKEN" 2>&1 | tail -n1)
-echo "[DEBUG] HTTP Status: $HTTP_CODE"
-if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
-    echo "[ERROR] Enrollment failed with HTTP $HTTP_CODE"
-    echo "[DEBUG] Check server connectivity and token validity"
-    exit 1
-fi
-echo "[OK] Device enrolled"
-
-echo "[7/7] Launching app..."
-adb shell am start -n $AGENT_PKG/.MainActivity
-echo "[OK] App launched"
 
 echo ""
-echo "========================================"
-echo "ENROLLMENT COMPLETE"
-echo "Device should appear in dashboard within 60 seconds"
-echo "Alias: $ALIAS"
-echo "========================================"
+echo "=========================================="
+echo "✅ ENROLLMENT COMPLETE"
+echo "=========================================="
+echo "📱 \"$ALIAS\" should appear in the dashboard within ~60s."
+echo ""
 '''
     
     return Response(
