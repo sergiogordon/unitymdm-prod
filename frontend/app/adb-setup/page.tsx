@@ -386,12 +386,8 @@ function ADBSetupContent() {
   return (
     <div className="min-h-screen">
       <Header 
-        lastUpdated={Date.now()} 
-        alertCount={0} 
         isDark={isDark} 
         onToggleDark={handleToggleDark}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={() => {}}
       />
       
       <main className="mx-auto max-w-[1280px] space-y-6 px-6 pb-12 pt-[84px] md:px-8">
