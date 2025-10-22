@@ -1930,6 +1930,9 @@ async def update_device_settings(
     if request.monitored_package is not None:
         if not request.monitored_package.strip():
             raise HTTPException(status_code=400, detail="Monitored package cannot be empty")
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', request.monitored_package.strip()):
+            raise HTTPException(status_code=400, detail="Invalid package name format")
         device.monitored_package = request.monitored_package.strip()
         updates["monitored_package"] = device.monitored_package
     
@@ -1939,6 +1942,16 @@ async def update_device_settings(
         device.monitored_app_name = request.monitored_app_name.strip()
         updates["monitored_app_name"] = device.monitored_app_name
     
+    if request.monitored_threshold_min is not None:
+        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 120:
+            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 120 minutes")
+        device.monitored_threshold_min = request.monitored_threshold_min
+        updates["monitored_threshold_min"] = device.monitored_threshold_min
+    
+    if request.monitor_enabled is not None:
+        device.monitor_enabled = request.monitor_enabled
+        updates["monitor_enabled"] = device.monitor_enabled
+    
     if request.auto_relaunch_enabled is not None:
         device.auto_relaunch_enabled = request.auto_relaunch_enabled
         updates["auto_relaunch_enabled"] = device.auto_relaunch_enabled
@@ -1947,6 +1960,7 @@ async def update_device_settings(
     db.refresh(device)
     
     log_device_event(db, device.id, "settings_updated", updates)
+    structured_logger.log_event("monitoring.update", device_id=device.id, updates=updates)
     
     return {
         "ok": True,
@@ -1955,7 +1969,91 @@ async def update_device_settings(
             "id": device.id,
             "monitored_package": device.monitored_package,
             "monitored_app_name": device.monitored_app_name,
+            "monitored_threshold_min": device.monitored_threshold_min,
+            "monitor_enabled": device.monitor_enabled,
             "auto_relaunch_enabled": device.auto_relaunch_enabled
+        }
+    }
+
+@app.get("/admin/devices/{device_id}/monitoring")
+async def get_device_monitoring_settings(
+    device_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get monitoring configuration for a specific device"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    last_status = db.query(DeviceLastStatus).filter(DeviceLastStatus.device_id == device_id).first()
+    
+    return {
+        "ok": True,
+        "monitoring": {
+            "monitor_enabled": device.monitor_enabled,
+            "monitored_package": device.monitored_package,
+            "monitored_app_name": device.monitored_app_name,
+            "monitored_threshold_min": device.monitored_threshold_min,
+            "service_up": last_status.service_up if last_status else None,
+            "monitored_foreground_recent_s": last_status.monitored_foreground_recent_s if last_status else None,
+            "last_seen": device.last_seen.isoformat() if device.last_seen else None
+        }
+    }
+
+@app.patch("/admin/devices/{device_id}/monitoring")
+async def update_device_monitoring_settings(
+    device_id: str,
+    request: UpdateDeviceSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update monitoring configuration for a specific device"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    updates = {}
+    
+    if request.monitored_package is not None:
+        if not request.monitored_package.strip():
+            raise HTTPException(status_code=400, detail="Monitored package cannot be empty")
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', request.monitored_package.strip()):
+            raise HTTPException(status_code=400, detail="Invalid package name format")
+        device.monitored_package = request.monitored_package.strip()
+        updates["monitored_package"] = device.monitored_package
+    
+    if request.monitored_app_name is not None:
+        if not request.monitored_app_name.strip():
+            raise HTTPException(status_code=400, detail="Monitored app name cannot be empty")
+        device.monitored_app_name = request.monitored_app_name.strip()
+        updates["monitored_app_name"] = device.monitored_app_name
+    
+    if request.monitored_threshold_min is not None:
+        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 120:
+            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 120 minutes")
+        device.monitored_threshold_min = request.monitored_threshold_min
+        updates["monitored_threshold_min"] = device.monitored_threshold_min
+    
+    if request.monitor_enabled is not None:
+        device.monitor_enabled = request.monitor_enabled
+        updates["monitor_enabled"] = device.monitor_enabled
+    
+    db.commit()
+    db.refresh(device)
+    
+    log_device_event(db, device.id, "monitoring_settings_updated", updates)
+    structured_logger.log_event("monitoring.update", device_id=device.id, updates=updates)
+    
+    return {
+        "ok": True,
+        "message": "Monitoring settings updated successfully",
+        "monitoring": {
+            "monitor_enabled": device.monitor_enabled,
+            "monitored_package": device.monitored_package,
+            "monitored_app_name": device.monitored_app_name,
+            "monitored_threshold_min": device.monitored_threshold_min
         }
     }
 
