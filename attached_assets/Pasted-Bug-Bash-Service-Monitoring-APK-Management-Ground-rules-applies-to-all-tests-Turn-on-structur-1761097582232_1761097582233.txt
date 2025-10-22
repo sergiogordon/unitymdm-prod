@@ -1,0 +1,193 @@
+Bug Bash — Service Monitoring + APK Management
+Ground rules (applies to all tests)
+
+Turn on structured logs and keep the console open.
+
+Note request_id for every API call you make.
+
+Snapshot /metrics before and after critical tests.
+
+Label bugs with Severity (Blocker, High, Medium, Low) and include:
+
+Title, Area (Monitoring|Alerts|APK Mgmt|Agent|CI), Repro, Expected vs Actual, Logs (request_id), Suspected Root Cause, Fix rec, Regression test.
+
+A) Configurable Service Uptime Monitoring + Discord Alerts
+A1. Happy path: service stays up
+
+Goal: Verify “Up” status when the monitored package has been foregrounded within threshold.
+
+Steps
+
+In Device Settings → Monitoring set:
+monitor_enabled=true, monitored_package=org.zwanoo.android.speedtest, monitored_display_name="Speedtest", monitored_threshold_min=10.
+
+On device, put Speedtest in foreground briefly; then background it.
+
+Send heartbeat with monitored_foreground_recent_s=120 (2min).
+
+Expected
+
+UI shows Service: Up, Last Foreground ≈ 2m.
+
+No Discord alert.
+
+Logs: monitoring.service_up with device_id, package, threshold.
+
+Evidence
+
+Screenshot device details; structured log snippet; /metrics diff (service_down_devices_gauge unchanged).
+
+A2. Down transition + alert (dedupe)
+
+Goal: Detect “Down” after threshold and send exactly one alert, with recovery on return.
+
+Steps
+
+Send two heartbeats 5 min apart with monitored_foreground_recent_s ≥ 900 (≥15m).
+(Simulates “not in foreground ≥ threshold” twice).
+
+Wait alert evaluator tick (≤60s).
+
+Bring app to foreground; heartbeat with monitored_foreground_recent_s=20.
+
+Expected
+
+First “Down” transition triggers one Discord alert (no spam).
+
+Status flips to Service: Down then back to Up after last heartbeat.
+
+Recovery message sent once.
+
+Cooldown respected (no repeated alerts while still down).
+
+Evidence
+
+Discord messages (down + recovery), alert.service_down.raise|recover logs with same device_id, cooldown not violated.
+
+A3. Unknown state (missing usage access)
+
+Goal: Ensure we don’t misfire alerts when agent can’t measure.
+
+Steps
+
+Remove Usage Access for the agent (manually or ADB).
+
+Heartbeat with monitored_foreground_recent_s = null.
+
+Expected
+
+UI shows Service: Unknown.
+
+No alert fired.
+
+Log: usage_access_missing or equivalent; evaluator skips alert.
+
+Evidence
+
+Device page screenshot; logs; absence of new Discord messages.
+
+A4. Threshold change live update
+
+Goal: Changing threshold applies immediately.
+
+Steps
+
+With “Down” condition active, change monitored_threshold_min from 10 → 5.
+
+Next heartbeat still shows monitored_foreground_recent_s=600 (10m).
+
+Expected
+
+Evaluator uses 5-minute threshold immediately; device remains Down.
+
+No duplicate “Down” alert (state unchanged).
+
+Recovery requires foreground event <5min.
+
+Evidence
+
+monitoring.update log; no duplicate alert.
+
+A5. Monitor toggle off/on
+
+Goal: Disabling monitoring cancels alerts and hides state.
+
+Steps
+
+Set monitor_enabled=false.
+
+Send heartbeat with big value, e.g., monitored_foreground_recent_s=3600.
+
+Re-enable, send normal heartbeat.
+
+Expected
+
+While disabled: no status badge, no alerts.
+
+When re-enabled: evaluator resumes; state recomputed on next heartbeat.
+
+Evidence
+
+UI states before/after; logs show no alert.service_down while disabled.
+
+A6. UI-only alias (rename service)
+
+Goal: Renaming “display name” doesn’t affect monitoring logic.
+
+Steps
+
+Change monitored_display_name from “Speedtest” → “Unity (Staging)”.
+
+Do not change monitored_package.
+
+Expected
+
+UI label updates.
+
+Detection unchanged (still tied to package).
+
+Alerts show new alias in message.
+
+Evidence
+
+Screenshot + Discord message text includes new alias.
+
+A7. Bulk edit (optional) / 50 devices smoke
+
+Goal: Ensure list views scale.
+
+Steps
+
+Apply monitoring settings to 50 devices (script or API).
+
+Drive 10 devices to “Down”.
+
+Expected
+
+Devices table filters: service:down shows 10; performance OK.
+
+Exactly 10 alerts (or one roll-up if configured).
+
+Evidence
+
+Counters: service_down_alerts_total increased by expected value; no FE lag.
+
+A8. Race conditions / noisy agent
+
+Goal: No alert flapping.
+
+Steps
+
+Alternate heartbeats: monitored_foreground_recent_s=590 then 610 every minute with threshold=10min.
+
+Run for 15 min.
+
+Expected
+
+At most one “Down” alert and one recovery (if you cross boundary once).
+
+Cooldown + state tracking prevent flapping.
+
+Evidence
+
+Logs show no alert storm; Discord quiet except single transitions.
