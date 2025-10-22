@@ -3627,9 +3627,11 @@ async def get_windows_enroll_script(
     
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
-        server_url = "http://localhost:8000"
+        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
     
-    admin_key = os.getenv("ADMIN_KEY", "admin")
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
     event = EnrollmentEvent(
         event_type='script.render',
@@ -3683,8 +3685,8 @@ for /f "tokens=2 delims=: " %%A in ('adb shell settings get secure device_provis
 for /f "tokens=2 delims=: " %%B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%%B
 
 REM Trim CR/LF
-set DEVPROV=%DEVPROV:~0,1%
-set USERSETUP=%USERSETUP:~0,1%
+set DEVPROV=!DEVPROV:~0,1!
+set USERSETUP=!USERSETUP:~0,1!
 
 adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:"!PKG!" >nul
 if errorlevel 1 (
@@ -3785,9 +3787,11 @@ async def get_bash_enroll_script(
     
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
-        server_url = "http://localhost:8000"
+        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
     
-    admin_key = os.getenv("ADMIN_KEY", "admin")
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
     event = EnrollmentEvent(
         event_type='script.render',
@@ -3832,7 +3836,7 @@ echo ""
 echo "[Step 2/7] Installing APK (safe update w/ fallback)..."
 if ! adb install -r "$APK_PATH" 2>&1; then
     echo "[WARN] Update failed — attempting uninstall + clean install..."
-    adb shell pm uninstall -k --user 0 $PKG 2>/dev/null || true
+    adb shell pm uninstall -k --user 0 "$PKG" 2>/dev/null || true
     if ! adb install -t -d "$APK_PATH" 2>&1; then
         echo "❌ Clean install failed"
         exit 4
@@ -3853,7 +3857,7 @@ if ! adb shell dumpsys device_policy | grep -q "Device Owner.*$PKG"; then
         echo "    Please wipe the device (or use QR/NFC provisioning) and re-run."
         exit 5
     fi
-    if ! adb shell dpm set-device-owner $PKG/.NexDeviceAdminReceiver 2>/dev/null; then
+    if ! adb shell dpm set-device-owner "$PKG"/.NexDeviceAdminReceiver 2>/dev/null; then
         echo "❌ Failed to set Device Owner. Ensure device is factory-fresh and compatible."
         exit 6
     fi
@@ -3867,28 +3871,28 @@ echo "✅ Device Owner confirmed."
 echo ""
 
 echo "[Step 4/7] Permissions & Doze whitelist..."
-adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS 2>/dev/null || true
-adb shell pm grant $PKG android.permission.CAMERA 2>/dev/null || true
-adb shell pm grant $PKG android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
-adb shell appops set $PKG RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
-adb shell appops set $PKG AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>/dev/null || true
-adb shell appops set $PKG GET_USAGE_STATS allow 2>/dev/null || true
-adb shell dumpsys deviceidle whitelist +$PKG >/dev/null
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
+adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
+adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
+adb shell appops set "$PKG" AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>/dev/null || true
+adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
+adb shell dumpsys deviceidle whitelist +"$PKG" >/dev/null
 echo "✅ Whitelisted & permissions set!"
 echo ""
 
 echo "[Step 5/7] Applying full optimizations and bloat off..."
 adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2"
-adb shell dumpsys deviceidle whitelist +$SPEEDTEST_PKG >/dev/null
-adb shell appops set $SPEEDTEST_PKG RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
+adb shell dumpsys deviceidle whitelist +"$SPEEDTEST_PKG" >/dev/null
+adb shell appops set "$SPEEDTEST_PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
 echo "✅ Optimizations applied!"
 echo ""
 
 echo "[Step 6/7] Launch and configure..."
-adb shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 sleep 2
 echo "[DEBUG] Sending CONFIGURE broadcast (foreground)..."
-adb shell am broadcast --receiver-foreground -a $PKG.CONFIGURE -n $PKG/.ConfigReceiver --es server_url "$BASE_URL" --es token "$ADMINKEY" --es alias "$ALIAS" --es speedtest_package "$SPEEDTEST_PKG" --es unity_pkg "$SPEEDTEST_PKG"
+adb shell am broadcast --receiver-foreground -a "$PKG".CONFIGURE -n "$PKG"/.ConfigReceiver --es server_url "$BASE_URL" --es token "$ADMINKEY" --es alias "$ALIAS" --es speedtest_package "$SPEEDTEST_PKG" --es unity_pkg "$SPEEDTEST_PKG"
 if [ $? -ne 0 ]; then
     echo "❌ CONFIGURE broadcast failed."
     exit 8
@@ -3898,7 +3902,7 @@ echo "✅ Configuration broadcast sent!"
 echo ""
 
 echo "[Step 7/7] Verifying service..."
-if adb shell pidof $PKG >/dev/null 2>&1; then
+if adb shell pidof "$PKG" >/dev/null 2>&1; then
     echo "✅ Service running"
 else
     echo "❌ Service not running"
@@ -3943,9 +3947,11 @@ async def get_windows_one_liner_script(
     
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
-        server_url = "http://localhost:8000"
+        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
     
-    admin_key = os.getenv("ADMIN_KEY", "admin")
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
     event = EnrollmentEvent(
         event_type='script.render_one_liner',
