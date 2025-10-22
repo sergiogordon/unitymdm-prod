@@ -3682,17 +3682,23 @@ if %ERRORLEVEL% NEQ 0 (
 )
 
 echo [1/7] Downloading latest APK...
-curl -f -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%"
+echo [DEBUG] URL: %BASE_URL%%APK_ENDPOINT%
+echo [DEBUG] Token: %ENROLL_TOKEN:~0,20%...
+curl -w "\\n[DEBUG] HTTP Status: %%{{http_code}}\\n" -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] APK download failed
+    echo [ERROR] APK download failed (exit code: %ERRORLEVEL%)
+    echo [DEBUG] Check if token is valid and not expired
+    pause
     exit /b 1
 )
 echo [OK] APK downloaded
 
 echo [2/7] Installing APK...
-adb install -r %APK_FILE%
+adb install -r %APK_FILE% 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] APK installation failed
+    echo [ERROR] APK installation failed (exit code: %ERRORLEVEL%)
+    echo [DEBUG] Make sure USB debugging is enabled and device is connected
+    pause
     exit /b 1
 )
 echo [OK] APK installed
@@ -3718,9 +3724,12 @@ adb shell settings put system screen_off_timeout 600000
 echo [OK] Optimizations applied
 
 echo [6/7] Enrolling device with server...
-curl -f -X POST "%BASE_URL%/v1/enroll?device_id=%DEVICE_ID%" -H "Authorization: Bearer %ENROLL_TOKEN%"
+echo [DEBUG] Device ID: %DEVICE_ID%
+curl -w "\\n[DEBUG] HTTP Status: %%{{http_code}}\\n" -X POST "%BASE_URL%/v1/enroll?device_id=%DEVICE_ID%" -H "Authorization: Bearer %ENROLL_TOKEN%" 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Enrollment failed
+    echo [ERROR] Enrollment failed (exit code: %ERRORLEVEL%)
+    echo [DEBUG] Check server connectivity and token validity
+    pause
     exit /b 1
 )
 echo [OK] Device enrolled
