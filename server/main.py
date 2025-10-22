@@ -3651,100 +3651,112 @@ REM Token: {token_id}
 
 setlocal enabledelayedexpansion
 
-set BASE_URL={server_url}
-set APK_ENDPOINT=/v1/apk/download/latest
-set ENROLL_TOKEN={token_value}
+set PKG={agent_pkg}
 set ALIAS={alias}
-set AGENT_PKG={agent_pkg}
-set UNITY_PKG={unity_pkg}
-set APK_FILE=nexmdm-latest.apk
+set SPEEDTEST_PKG={unity_pkg}
+set APK_PATH=%TEMP%\\nexmdm-latest.apk
+set BASE_URL={server_url}
+set DL_URL={server_url}/v1/apk/download/latest
+set BEARER={token_value}
 
-echo ========================================
-echo NexMDM Device Enrollment
-echo ========================================
-echo Alias: %ALIAS%
-echo Server: %BASE_URL%
-echo ========================================
+echo [NexMDM Deployment - Device: %ALIAS%]
 echo.
 
-REM Check ADB
-where adb >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] ADB not found. Install Android SDK Platform Tools.
-    exit /b 1
+echo [Step 0] Waiting for device...
+adb wait-for-device || (echo ❌ No device found & exit /b 2)
+
+echo [Step 1/7] Downloading latest APK...
+echo [DEBUG] URL: %DL_URL%
+curl -L -H "Authorization: Bearer %BEARER%" "%DL_URL%" -o "%APK_PATH%" || (echo ❌ Download failed & exit /b 3)
+if not exist "%APK_PATH%" (echo ❌ APK missing at %APK_PATH% & exit /b 3)
+echo ✅ APK downloaded!
+echo.
+
+echo [Step 2/7] Installing APK (safe update w/ fallback)...
+adb install -r "%APK_PATH%"
+if errorlevel 1 (
+  echo [WARN] Update failed — attempting uninstall + clean install...
+  adb shell pm uninstall -k --user 0 %PKG% 1>nul 2>nul
+  adb install -t -d "%APK_PATH%" || (echo ❌ Clean install failed & exit /b 4)
+)
+echo ✅ APK installed/updated!
+echo.
+
+echo [Step 3/7] Ensuring Device Owner (DO)...
+for /f "tokens=2 delims=: " %%A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%%A
+for /f "tokens=2 delims=: " %%A in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%%A
+
+REM Trim CR/LF
+set DEVPROV=%DEVPROV:~0,1%
+set USERSETUP=%USERSETUP:~0,1%
+
+adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:"%PKG%" >nul
+if errorlevel 1 (
+  echo [INFO] Device Owner not detected for %PKG%.
+  if "%DEVPROV%"=="1" if "%USERSETUP%"=="1" (
+    echo ❌ Cannot set Device Owner on a provisioned device.
+    echo     Device Owner requires a factory-reset / unprovisioned state.
+    echo     Please wipe the device (or use QR/NFC provisioning) and re-run.
+    exit /b 5
+  )
+  adb shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver 1>nul 2>nul || (
+    echo ❌ Failed to set Device Owner. Ensure device is factory-fresh and compatible.
+    exit /b 6
+  )
 )
 
-REM Check device connection
-adb devices | findstr "device$" >nul
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] No ADB device connected
-    echo Connect device via USB and enable USB debugging
-    exit /b 1
+adb shell dumpsys device_policy | findstr /C:"%PKG%" >nul || (
+  echo ❌ Device Owner verification failed.
+  exit /b 7
 )
+echo ✅ Device Owner confirmed.
+echo.
 
-echo [1/7] Downloading latest APK...
-echo [DEBUG] URL: %BASE_URL%%APK_ENDPOINT%
-echo [DEBUG] Token: %ENROLL_TOKEN:~0,20%...
-curl -L -H "Authorization: Bearer %ENROLL_TOKEN%" -o %APK_FILE% "%BASE_URL%%APK_ENDPOINT%" -w "HTTP Status: %%{{http_code}}" 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] APK download failed (exit code: %ERRORLEVEL%)
-    echo [DEBUG] Check if token is valid and not expired
-    pause
-    exit /b 1
+echo [Step 4/7] Permissions ^& Doze whitelist...
+adb shell pm grant %PKG% android.permission.POST_NOTIFICATIONS 2>nul
+adb shell pm grant %PKG% android.permission.CAMERA 2>nul
+adb shell pm grant %PKG% android.permission.ACCESS_FINE_LOCATION 2>nul
+adb shell appops set %PKG% RUN_ANY_IN_BACKGROUND allow 2>nul
+adb shell appops set %PKG% AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul
+adb shell appops set %PKG% GET_USAGE_STATS allow 2>nul
+adb shell dumpsys deviceidle whitelist +%PKG% 1>nul
+echo ✅ Whitelisted ^& permissions set!
+echo.
+
+echo [Step 5/7] Applying full optimizations and bloat off...
+adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global ambient_tilt_to_wake 1; settings put global ambient_touch_to_wake 1; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put global app_restriction_enabled false; settings put global dynamic_power_savings_enabled 0; settings put global battery_tip_constants advertise_disable_apps_enabled=false; settings put secure location_mode 0; settings put global assisted_gps_enabled 0; settings put global wifi_scan_always_enabled 0; settings put global ble_scan_always_enabled 0; settings put global network_recommendations_enabled 0; settings put global wifi_networks_available_notification_on 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global heads_up_notifications_enabled 0; settings put global development_settings_enabled 1; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2; settings put global bluetooth_on 0"
+adb shell dumpsys deviceidle whitelist +%SPEEDTEST_PKG% 1>nul
+adb shell appops set %SPEEDTEST_PKG% RUN_ANY_IN_BACKGROUND allow 2>nul
+echo ✅ Optimizations applied!
+echo.
+
+echo [Step 6/7] Launch and configure...
+adb shell monkey -p %PKG% -c android.intent.category.LAUNCHER 1 1>nul 2>nul
+timeout /t 2 /nobreak >nul
+echo [DEBUG] Sending CONFIGURE broadcast (foreground)…
+adb shell am broadcast --receiver-foreground -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url "%BASE_URL%" --es token "%BEARER%" --es alias "%ALIAS%" --es speedtest_package "%SPEEDTEST_PKG%" --es unity_pkg "%SPEEDTEST_PKG%"
+if errorlevel 1 (
+  echo ❌ CONFIGURE broadcast failed.
+  exit /b 8
 )
-echo [OK] APK downloaded
+timeout /t 3 /nobreak >nul
+echo ✅ Configuration broadcast sent!
+echo.
 
-echo [2/7] Installing APK...
-adb install -r %APK_FILE% 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] APK installation failed (exit code: %ERRORLEVEL%)
-    echo [DEBUG] Make sure USB debugging is enabled and device is connected
-    pause
-    exit /b 1
+echo [Step 7/7] Verifying service...
+adb shell pidof %PKG% 1>nul && (
+  echo ✅ Service running
+) || (
+  echo ❌ Service not running
+  exit /b 9
 )
-echo [OK] APK installed
-
-echo [3/7] Granting runtime permissions...
-adb shell pm grant %AGENT_PKG% android.permission.POST_NOTIFICATIONS
-adb shell pm grant %AGENT_PKG% android.permission.READ_EXTERNAL_STORAGE
-adb shell pm grant %AGENT_PKG% android.permission.WRITE_EXTERNAL_STORAGE
-echo [OK] Permissions granted
-
-echo [4/7] Setting Device Owner (requires factory reset)...
-for /f "tokens=*" %%i in ('adb shell settings get secure android_id') do set DEVICE_ID=%%i
-adb shell dpm set-device-owner %AGENT_PKG%/.receiver.AdminReceiver
-if %ERRORLEVEL% EQU 0 (
-    echo [OK] Device Owner set successfully
-) else (
-    echo [WARN] Device Owner failed - continue anyway ^(requires factory reset^)
-)
-
-echo [5/7] Applying optimizations...
-adb shell settings put global stay_on_while_plugged_in 7
-adb shell settings put system screen_off_timeout 600000
-echo [OK] Optimizations applied
-
-echo [6/7] Enrolling device with server...
-echo [DEBUG] Device ID: %DEVICE_ID%
-curl -w "\\n[DEBUG] HTTP Status: %%{{http_code}}\\n" -X POST "%BASE_URL%/v1/enroll?device_id=%DEVICE_ID%" -H "Authorization: Bearer %ENROLL_TOKEN%" 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Enrollment failed (exit code: %ERRORLEVEL%)
-    echo [DEBUG] Check server connectivity and token validity
-    pause
-    exit /b 1
-)
-echo [OK] Device enrolled
-
-echo [7/7] Launching app...
-adb shell am start -n %AGENT_PKG%/.MainActivity
-echo [OK] App launched
 
 echo.
-echo ========================================
-echo ENROLLMENT COMPLETE
-echo Device should appear in dashboard within 60 seconds
-echo Alias: %ALIAS%
-echo ========================================
+echo ==========================================
+echo ✅ ENROLLMENT COMPLETE
+echo ==========================================
+echo 📱 "%ALIAS%" should appear in the dashboard within ~60s.
+echo.
 '''
     
     return Response(
@@ -3955,7 +3967,7 @@ async def get_windows_one_liner_script(
     
     apk_endpoint = f"{server_url}/v1/apk/download/latest"
     
-    one_liner = f'''echo [NexMDM Deployment - Device: {alias}] && echo. && echo [Step 1/7] Downloading latest APK (18MB, ~15 seconds)... && echo [DEBUG] URL: {apk_endpoint} && echo [DEBUG] Token: {token_value[:20]}... && curl -L -H "Authorization: Bearer {token_value}" "{apk_endpoint}" -o "%TEMP%\\nexmdm-latest.apk" && echo [DEBUG] Checking file... && dir "%TEMP%\\nexmdm-latest.apk" && echo [DEBUG] File exists! && echo. && echo ✅ APK downloaded! && echo. && echo [Step 2/7] Installing APK (may require device approval)... && echo [DEBUG] Running: adb install -r "%TEMP%\\nexmdm-latest.apk" && adb install -r "%TEMP%\\nexmdm-latest.apk" && echo [DEBUG] Install completed! && echo ✅ APK installed/updated! && echo. && echo [Step 3/7] (Optional) Device Owner... && adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver 1>nul 2>nul && echo ✅ Device Owner set! || echo ℹ️ Skipping (not factory-reset) && echo. && echo [Step 4/7] Permissions and Doze whitelist... && adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS 2>nul && adb shell pm grant {agent_pkg} android.permission.CAMERA 2>nul && adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION 2>nul && adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow 2>nul && adb shell appops set {agent_pkg} AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul && adb shell appops set {agent_pkg} GET_USAGE_STATS allow 2>nul && adb shell dumpsys deviceidle whitelist +{agent_pkg} 1>nul && echo ✅ Whitelisted! && echo. && echo [Step 5/7] Optimizations... && adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5" && adb shell dumpsys deviceidle whitelist +{unity_pkg} 1>nul && adb shell appops set {unity_pkg} RUN_ANY_IN_BACKGROUND allow 2>nul && echo ✅ Optimizations applied! && echo. && echo [Step 6/7] Launch and configure... && adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 1>nul 2>nul && timeout /t 2 /nobreak >nul && adb shell am broadcast -a {agent_pkg}.CONFIGURE -n {agent_pkg}/.ConfigReceiver --es server_url "{server_url}" --es token "{token_value}" --es alias "{alias}" --es unity_pkg "{unity_pkg}" 1>nul && timeout /t 3 /nobreak >nul && echo ✅ Configuration sent! && echo. && echo [Step 7/7] Verifying... && adb shell pidof {agent_pkg} 1>nul && echo ✅ Service running || echo [WARN] Service starting... && echo. && echo ========================================== && echo ✅ ENROLLMENT COMPLETE && echo ========================================== && echo 📱 "{alias}" should appear in the dashboard within ~60s.'''
+    one_liner = f'''@echo off & setlocal enabledelayedexpansion & set PKG={agent_pkg} & set ALIAS={alias} & set SPEEDTEST_PKG={unity_pkg} & set APK_PATH=%TEMP%\\nexmdm-latest.apk & set BASE_URL={server_url} & set DL_URL={server_url}/v1/apk/download/latest & set BEARER={token_value} & echo [NexMDM Deployment - Device: %ALIAS%] & echo. & echo [Step 0] Waiting for device... & adb wait-for-device || (echo ❌ No device found & exit /b 2) & echo [Step 1/7] Downloading latest APK... & curl -L -H "Authorization: Bearer %BEARER%" "%DL_URL%" -o "%APK_PATH%" || (echo ❌ Download failed & exit /b 3) & if not exist "%APK_PATH%" (echo ❌ APK missing & exit /b 3) & echo ✅ APK downloaded! & echo. & echo [Step 2/7] Installing APK... & adb install -r "%APK_PATH%" & if errorlevel 1 (adb shell pm uninstall -k --user 0 %PKG% 1>nul 2>nul & adb install -t -d "%APK_PATH%" || (echo ❌ Clean install failed & exit /b 4)) & echo ✅ APK installed! & echo. & echo [Step 3/7] Ensuring Device Owner... & for /f "tokens=2 delims=: " %%A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%%A & for /f "tokens=2 delims=: " %%B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%%B & set DEVPROV=!DEVPROV:~0,1! & set USERSETUP=!USERSETUP:~0,1! & adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:"%PKG%" >nul & if errorlevel 1 (if "!DEVPROV!"=="1" if "!USERSETUP!"=="1" (echo ❌ Cannot set DO on provisioned device. Factory reset required. & exit /b 5) & adb shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver 1>nul 2>nul || (echo ❌ Failed to set Device Owner & exit /b 6)) & echo ✅ Device Owner confirmed. & echo. & echo [Step 4/7] Permissions... & adb shell pm grant %PKG% android.permission.POST_NOTIFICATIONS 2>nul & adb shell pm grant %PKG% android.permission.CAMERA 2>nul & adb shell pm grant %PKG% android.permission.ACCESS_FINE_LOCATION 2>nul & adb shell appops set %PKG% RUN_ANY_IN_BACKGROUND allow 2>nul & adb shell appops set %PKG% AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul & adb shell appops set %PKG% GET_USAGE_STATS allow 2>nul & adb shell dumpsys deviceidle whitelist +%PKG% 1>nul & echo ✅ Permissions set! & echo. & echo [Step 5/7] Optimizations... & adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global wifi_sleep_policy 2" & adb shell dumpsys deviceidle whitelist +%SPEEDTEST_PKG% 1>nul & echo ✅ Optimizations applied! & echo. & echo [Step 6/7] Launch and configure... & adb shell monkey -p %PKG% -c android.intent.category.LAUNCHER 1 1>nul 2>nul & timeout /t 2 /nobreak >nul & adb shell am broadcast --receiver-foreground -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url "%BASE_URL%" --es token "%BEARER%" --es alias "%ALIAS%" --es speedtest_package "%SPEEDTEST_PKG%" --es unity_pkg "%SPEEDTEST_PKG%" & timeout /t 3 /nobreak >nul & echo ✅ Configuration sent! & echo. & echo [Step 7/7] Verifying... & adb shell pidof %PKG% 1>nul && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 9) & echo. & echo ✅ ENROLLMENT COMPLETE - "%ALIAS%" should appear in dashboard within ~60s. & echo. & endlocal & exit /b 0'''
     
     return Response(
         content=one_liner,
