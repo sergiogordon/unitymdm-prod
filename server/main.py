@@ -1380,6 +1380,86 @@ async def heartbeat(
             # Clear ping state after successful response
             device.ping_request_id = None
     
+    # Service monitoring evaluator: Determine if monitored service is up/down
+    service_up = None
+    monitored_foreground_recent_s = None
+    
+    if device.monitor_enabled and device.monitored_package:
+        # Get foreground recency from new unified field (for any package)
+        monitored_foreground_recent_s = payload.monitored_foreground_recent_s
+        
+        # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
+        if monitored_foreground_recent_s is None and device.monitored_package == "org.zwanoo.android.speedtest":
+            fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
+            if fg_seconds is not None:
+                monitored_foreground_recent_s = fg_seconds
+        
+        # Evaluate service status
+        if monitored_foreground_recent_s is not None:
+            threshold_seconds = device.monitored_threshold_min * 60
+            service_up = monitored_foreground_recent_s <= threshold_seconds
+            
+            structured_logger.log_event(
+                "monitoring.evaluate",
+                device_id=device.id,
+                alias=device.alias,
+                monitored_package=device.monitored_package,
+                foreground_recent_s=monitored_foreground_recent_s,
+                threshold_s=threshold_seconds,
+                service_up=service_up
+            )
+        else:
+            # If foreground data not available, service status is unknown
+            service_up = None
+            structured_logger.log_event(
+                "monitoring.evaluate.unknown",
+                level="WARN",
+                device_id=device.id,
+                alias=device.alias,
+                monitored_package=device.monitored_package,
+                reason="usage_access_missing"
+            )
+    
+    # Update DeviceLastStatus with service monitoring data
+    last_status_record = db.query(DeviceLastStatus).filter(DeviceLastStatus.device_id == device.id).first()
+    if last_status_record:
+        # Track previous state for transition detection
+        prev_service_up = last_status_record.service_up
+        
+        last_status_record.service_up = service_up
+        last_status_record.monitored_foreground_recent_s = monitored_foreground_recent_s
+        last_status_record.monitored_package = device.monitored_package if device.monitor_enabled else None
+        last_status_record.monitored_threshold_min = device.monitored_threshold_min if device.monitor_enabled else None
+        
+        # Detect service state transitions for alerting (task 5)
+        if device.monitor_enabled and prev_service_up is not None and service_up is not None:
+            if prev_service_up and not service_up:
+                # Service went DOWN
+                structured_logger.log_event(
+                    "monitoring.service_down",
+                    device_id=device.id,
+                    alias=device.alias,
+                    monitored_package=device.monitored_package,
+                    monitored_app_name=device.monitored_app_name,
+                    foreground_recent_s=monitored_foreground_recent_s,
+                    threshold_min=device.monitored_threshold_min
+                )
+                # Queue alert (will implement in task 5)
+                asyncio.create_task(alert_manager.check_and_raise_alerts(db, device))
+                
+            elif not prev_service_up and service_up:
+                # Service RECOVERED
+                structured_logger.log_event(
+                    "monitoring.service_up",
+                    device_id=device.id,
+                    alias=device.alias,
+                    monitored_package=device.monitored_package,
+                    monitored_app_name=device.monitored_app_name,
+                    foreground_recent_s=monitored_foreground_recent_s
+                )
+                # Queue recovery alert (will implement in task 5)
+                asyncio.create_task(alert_manager.check_and_raise_alerts(db, device))
+    
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: auto_relaunch_enabled={device.auto_relaunch_enabled}, monitored_package={device.monitored_package}")
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: app_versions keys in payload: {list(payload.app_versions.keys())}")
