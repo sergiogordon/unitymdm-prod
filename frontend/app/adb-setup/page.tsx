@@ -401,12 +401,12 @@ function ADBSetupContent() {
             <h1 className="text-3xl font-bold tracking-tight">ADB Setup</h1>
           </div>
           <p className="text-muted-foreground">
-            Generate per-device tokens and one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
+            Enroll devices with one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
           </p>
         </div>
 
         <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">Token Generator</h2>
+          <h2 className="text-lg font-semibold mb-4">Device Enrollment</h2>
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -448,7 +448,7 @@ function ADBSetupContent() {
             </div>
 
             <Button onClick={generateTokens} disabled={loading || !aliases.trim()}>
-              {loading ? "Generating..." : "Generate Tokens"}
+              {loading ? "Generating..." : "Generate Scripts"}
             </Button>
           </div>
         </div>
