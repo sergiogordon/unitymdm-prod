@@ -3623,13 +3623,16 @@ async def get_windows_enroll_script(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
     
+    if token.status != 'active':
+        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    
     server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
     if server_url:
         server_url = f"https://{server_url}"
     else:
         server_url = "http://localhost:8000"
     
-    token_value = "REPLACE_WITH_ACTUAL_TOKEN"
+    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else token_id
     
     event = EnrollmentEvent(
         event_type='script.render',
@@ -3758,13 +3761,16 @@ async def get_bash_enroll_script(
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
     
+    if token.status != 'active':
+        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    
     server_url = os.getenv("REPLIT_DEV_DOMAIN", "")
     if server_url:
         server_url = f"https://{server_url}"
     else:
         server_url = "http://localhost:8000"
     
-    token_value = "REPLACE_WITH_ACTUAL_TOKEN"
+    token_value = token.token_hash[:64] if hasattr(token, 'token_hash') else token_id
     
     event = EnrollmentEvent(
         event_type='script.render',
