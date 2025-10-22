@@ -31,7 +31,11 @@ class DiscordWebhookClient:
         network_type: Optional[str],
         unity_running: Optional[bool],
         unity_version: Optional[str],
-        details: Optional[str] = None
+        details: Optional[str] = None,
+        monitored_app_name: Optional[str] = None,
+        monitored_package: Optional[str] = None,
+        foreground_recent_s: Optional[int] = None,
+        threshold_min: Optional[int] = None
     ) -> Dict[str, Any]:
         embed = {
             "title": f"🚨 Alert: {condition.replace('_', ' ').title()}",
@@ -43,6 +47,29 @@ class DiscordWebhookClient:
                 {"name": "Severity", "value": severity, "inline": True},
             ]
         }
+        
+        # Service Down specific fields
+        if condition == "service_down" and monitored_app_name:
+            embed["fields"].append({
+                "name": "Service",
+                "value": f"{monitored_app_name} ({monitored_package})" if monitored_package else monitored_app_name,
+                "inline": False
+            })
+            
+            if foreground_recent_s is not None:
+                minutes_ago = int(foreground_recent_s / 60)
+                embed["fields"].append({
+                    "name": "Last Foreground",
+                    "value": f"{minutes_ago} minutes ago",
+                    "inline": True
+                })
+            
+            if threshold_min is not None:
+                embed["fields"].append({
+                    "name": "Threshold",
+                    "value": f"{threshold_min} minutes",
+                    "inline": True
+                })
         
         if last_seen:
             embed["fields"].append({
@@ -143,7 +170,11 @@ class DiscordWebhookClient:
         network_type: Optional[str] = None,
         unity_running: Optional[bool] = None,
         unity_version: Optional[str] = None,
-        details: Optional[str] = None
+        details: Optional[str] = None,
+        monitored_app_name: Optional[str] = None,
+        monitored_package: Optional[str] = None,
+        foreground_recent_s: Optional[int] = None,
+        threshold_min: Optional[int] = None
     ) -> bool:
         if not self.webhook_url:
             structured_logger.log_event(
@@ -164,7 +195,11 @@ class DiscordWebhookClient:
             network_type=network_type,
             unity_running=unity_running,
             unity_version=unity_version,
-            details=details
+            details=details,
+            monitored_app_name=monitored_app_name,
+            monitored_package=monitored_package,
+            foreground_recent_s=foreground_recent_s,
+            threshold_min=threshold_min
         )
         
         payload = {

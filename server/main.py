@@ -1431,7 +1431,7 @@ async def heartbeat(
         last_status_record.monitored_package = device.monitored_package if device.monitor_enabled else None
         last_status_record.monitored_threshold_min = device.monitored_threshold_min if device.monitor_enabled else None
         
-        # Detect service state transitions for alerting (task 5)
+        # Detect service state transitions for logging
         if device.monitor_enabled and prev_service_up is not None and service_up is not None:
             if prev_service_up and not service_up:
                 # Service went DOWN
@@ -1444,8 +1444,6 @@ async def heartbeat(
                     foreground_recent_s=monitored_foreground_recent_s,
                     threshold_min=device.monitored_threshold_min
                 )
-                # Queue alert (will implement in task 5)
-                asyncio.create_task(alert_manager.check_and_raise_alerts(db, device))
                 
             elif not prev_service_up and service_up:
                 # Service RECOVERED
@@ -1457,8 +1455,10 @@ async def heartbeat(
                     monitored_app_name=device.monitored_app_name,
                     foreground_recent_s=monitored_foreground_recent_s
                 )
-                # Queue recovery alert (will implement in task 5)
-                asyncio.create_task(alert_manager.check_and_raise_alerts(db, device))
+        
+        # Metrics for monitoring
+        if device.monitor_enabled and service_up is not None:
+            metrics.set_gauge("service_up_devices", 1 if service_up else 0, {"device_id": device.id})
     
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: auto_relaunch_enabled={device.auto_relaunch_enabled}, monitored_package={device.monitored_package}")

@@ -11,6 +11,7 @@ class AlertCondition:
     OFFLINE = "offline"
     LOW_BATTERY = "low_battery"
     UNITY_DOWN = "unity_down"
+    SERVICE_DOWN = "service_down"
 
 class AlertEvaluator:
     def __init__(self):
@@ -215,6 +216,72 @@ class AlertEvaluator:
         
         return False, None, None
     
+    def evaluate_service_down(
+        self,
+        db: Session,
+        device: Device
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Evaluate if the monitored service is down based on foreground recency.
+        Uses DeviceLastStatus for efficient querying.
+        """
+        if not device.monitor_enabled or not device.monitored_package:
+            return False, None, None
+        
+        from models import DeviceLastStatus
+        last_status = db.query(DeviceLastStatus).filter(
+            DeviceLastStatus.device_id == device.id
+        ).first()
+        
+        if not last_status:
+            return False, None, None
+        
+        service_up = last_status.service_up
+        foreground_recent_s = last_status.monitored_foreground_recent_s
+        
+        # Service status unknown (no foreground data)
+        if service_up is None:
+            return False, None, None
+        
+        alert_state = self._get_alert_state(db, device.id, AlertCondition.SERVICE_DOWN)
+        
+        if not service_up:
+            # Service is DOWN
+            value = f"{int(foreground_recent_s)}s" if foreground_recent_s else "unknown"
+            
+            if not alert_state or alert_state.state != "raised":
+                self._create_or_update_alert_state(
+                    db, device.id, AlertCondition.SERVICE_DOWN, "raised", value
+                )
+                
+                context = {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "monitored_package": device.monitored_package,
+                    "monitored_app_name": device.monitored_app_name,
+                    "foreground_recent_s": foreground_recent_s,
+                    "threshold_min": device.monitored_threshold_min,
+                    "last_seen": device.last_seen,
+                    "severity": "CRIT",
+                    "requires_remediation": False
+                }
+                return True, value, context
+        else:
+            # Service is UP
+            if alert_state and alert_state.state == "raised":
+                context = {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "monitored_package": device.monitored_package,
+                    "monitored_app_name": device.monitored_app_name,
+                    "foreground_recent_s": foreground_recent_s,
+                    "recovered": True,
+                    "self_healed": False
+                }
+                return False, None, context
+        
+        return False, None, None
+    
     def evaluate_all_devices(self, db: Session) -> List[Dict[str, Any]]:
         start_time = datetime.now(timezone.utc)
         
@@ -224,7 +291,7 @@ class AlertEvaluator:
         alerts_to_raise = []
         
         for device in devices:
-            for condition in [AlertCondition.OFFLINE, AlertCondition.LOW_BATTERY, AlertCondition.UNITY_DOWN]:
+            for condition in [AlertCondition.OFFLINE, AlertCondition.LOW_BATTERY, AlertCondition.UNITY_DOWN, AlertCondition.SERVICE_DOWN]:
                 try:
                     should_alert = False
                     value = None
@@ -236,6 +303,8 @@ class AlertEvaluator:
                         should_alert, value, context = self.evaluate_low_battery(db, device)
                     elif condition == AlertCondition.UNITY_DOWN:
                         should_alert, value, context = self.evaluate_unity_down(db, device)
+                    elif condition == AlertCondition.SERVICE_DOWN:
+                        should_alert, value, context = self.evaluate_service_down(db, device)
                     
                     if should_alert and context:
                         alerts_to_raise.append({

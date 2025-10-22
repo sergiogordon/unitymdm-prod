@@ -144,7 +144,11 @@ class AlertManager:
             network_type=alert_data.get('network_type'),
             unity_running=alert_data.get('unity_running'),
             unity_version=alert_data.get('unity_version'),
-            details=alert_data.get('details')
+            details=alert_data.get('details'),
+            monitored_app_name=alert_data.get('monitored_app_name'),
+            monitored_package=alert_data.get('monitored_package'),
+            foreground_recent_s=alert_data.get('foreground_recent_s'),
+            threshold_min=alert_data.get('threshold_min')
         )
         
         if success:
