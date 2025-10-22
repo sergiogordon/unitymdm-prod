@@ -1,0 +1,70 @@
+Here’s a clear **milestone spec** you can give your Replit agent:
+
+---
+
+### 🧭 **Milestone: Migrate Enrollment Flow Back to Static `X-Admin-Key` Authentication**
+
+#### **Objective**
+
+Replace the current Bearer token–based authentication in the enrollment script with the proven static `X-Admin-Key` model to restore automatic device enrollment functionality and simplify backend validation.
+
+#### **Background**
+
+* The old working environment successfully handled device enrollment using a static `X-Admin-Key` header for both APK download and device configuration broadcast.
+* The new Bearer token system introduced expiry, requiring periodic refresh and causing devices to fail enrollment silently.
+* Reverting to the static admin key will ensure stability and full automation during MDM deployment.
+
+---
+
+#### **Deliverables**
+
+1. **Remove all Bearer token logic** from:
+
+   * APK download headers (`Authorization: Bearer ...`)
+   * Broadcast parameters (`--es token ...`)
+2. **Implement `X-Admin-Key` header** for both download and enrollment:
+
+   * Replace with:
+
+     ```bash
+     -H "X-Admin-Key: <ADMIN_KEY>"
+     ```
+3. **Set enrollment broadcast to use static key:**
+
+   ```bash
+   --es token "<ADMIN_KEY>"
+   ```
+4. **Validate end-to-end flow:**
+
+   * Device Owner is set successfully on factory-reset devices.
+   * App installs and launches without user intervention.
+   * App auto-enrolls into the dashboard within 60s.
+5. **Add conditional local caching for APK:**
+
+   * Use `%TEMP%\nexmdm-latest.apk` if it exists.
+   * Re-download only if missing or corrupted.
+
+---
+
+#### **Acceptance Criteria**
+
+✅ The CMD one-liner below works out of the box on Windows without requiring token renewal or manual input.
+✅ The APK installs, sets DO mode (on factory reset), applies optimizations, and auto-enrolls to the dashboard.
+✅ No `Bearer` or `Authorization` headers remain in the codebase.
+✅ Admin key is defined once as an environment variable or inline parameter.
+
+---
+
+#### **Final Implementation (Reference One-Liner)**
+
+```bat
+cmd.exe /V:ON /C "set PKG=com.nexmdm & set ALIAS=D23 & set BASE=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev & set ADMINKEY=Mi0nHylehtt1EqaD1G6sRa6gArA0oli6uL9Aa0FqchU & set APK=%TEMP%\nexmdm-latest.apk & echo [NexMDM Deployment - Device: %ALIAS%] & adb wait-for-device && (if exist \"%APK%\" (echo [1/7] Using local APK: \"%APK%\") else (echo [1/7] Downloading APK... & curl -f -L --retry 2 -H \"X-Admin-Key: %ADMINKEY%\" \"%BASE%/v1/apk/download-latest\" -o \"%APK%\" && echo   OK)) && echo [2/7] Installing APK... && ( adb install -r \"%APK%\" || ( echo   Update failed, trying clean install... & adb shell pm uninstall -k --user 0 %PKG% 1>nul 2>nul & adb install -t -d \"%APK%\" ) ) && echo [3/7] Setting Device Owner... & adb shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver 1>nul 2>nul || echo   Skipped/failed (not in Setup Wizard) & echo   DO status: & adb shell dumpsys device_policy | findstr /C:\"Device Owner\" /C:\"%PKG%\" & echo [4/7] Permissions... & adb shell pm grant %PKG% android.permission.POST_NOTIFICATIONS 2>nul & adb shell pm grant %PKG% android.permission.CAMERA 2>nul & adb shell pm grant %PKG% android.permission.ACCESS_FINE_LOCATION 2>nul & adb shell appops set %PKG% RUN_ANY_IN_BACKGROUND allow 2>nul & adb shell appops set %PKG% AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul & adb shell appops set %PKG% GET_USAGE_STATS allow 2>nul & adb shell dumpsys deviceidle whitelist +%PKG% 1>nul & echo [5/7] Optimizations... & adb shell \"settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put system screen_off_timeout 2147483647; pm disable-user --user 0 com.google.android.youtube 2>/dev/null; pm disable-user --user 0 com.google.android.apps.youtube.music 2>/dev/null; pm enable com.verizon.obdm 2>/dev/null; settings put global install_non_market_apps 1\" & adb shell dumpsys deviceidle whitelist +org.zwanoo.android.speedtest 1>nul & adb shell appops set org.zwanoo.android.speedtest RUN_ANY_IN_BACKGROUND allow 2>nul & echo [6/7] Launch and configure... & adb shell monkey -p %PKG% -c android.intent.category.LAUNCHER 1 1>nul 2>nul & timeout /t 2 /nobreak >nul & adb shell am broadcast -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url \"%BASE%\" --es token \"%ADMINKEY%\" --es alias \"%ALIAS%\" --es speedtest_package \"org.zwanoo.android.speedtest\" & timeout /t 3 /nobreak >nul & echo [7/7] Verify... & adb shell pidof %PKG% 1>nul && echo   ✅ Process running (check dashboard) || echo   ⚠️ Not running (check DO setup) & echo DONE. & pause"
+```
+
+---
+
+**Next Step for Replit Agent:**
+
+* Update all enrollment endpoints and deployment scripts to accept `X-Admin-Key` instead of Bearer tokens.
+* Verify both `apk/download-latest` and `CONFIGURE` broadcasts respond correctly to the static key.
+* Push changes to the `replit.dev` environment and confirm device appears in dashboard automatically.
