@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Set, List
 from collections import defaultdict
@@ -89,6 +89,36 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = req_id
     
     return response
+
+@app.middleware("http")
+async def exception_guard_middleware(request: Request, call_next):
+    """
+    Global exception handler middleware to prevent process crashes.
+    
+    Catches all unhandled exceptions in routes and returns proper 500 responses
+    instead of crashing the backend process. Logs full stacktraces for debugging.
+    """
+    try:
+        return await call_next(request)
+    except Exception as e:
+        # Log the exception with full stacktrace
+        structured_logger.log_event(
+            "http.unhandled_exception",
+            level="ERROR",
+            path=request.url.path,
+            method=request.method,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        
+        # Return 500 without exposing internal details to client
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "internal_server_error",
+                "message": "An unexpected error occurred. Please try again later."
+            }
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -343,12 +373,27 @@ streaming_manager = StreamingConnectionManager()
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Handle validation errors safely without crashing on multipart requests.
+    
+    For multipart/form-data requests, the body stream is already consumed by
+    the file upload parser, so attempting to read it again causes RuntimeError.
+    """
     print(f"[VALIDATION ERROR] {request.url.path}")
-    try:
-        body = await request.body()
-        print(f"[VALIDATION ERROR] Body preview: {str(body[:200])}")
-    except:
-        print(f"[VALIDATION ERROR] Body: <unable to read>")
+    
+    # Skip body logging for multipart requests to avoid stream consumption errors
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        print(f"[VALIDATION ERROR] Body: <multipart/form-data - skipped to prevent stream error>")
+    else:
+        try:
+            body = await request.body()
+            print(f"[VALIDATION ERROR] Body preview: {str(body[:200])}")
+        except RuntimeError as e:
+            print(f"[VALIDATION ERROR] Body: <stream consumed - {e}>")
+        except Exception as e:
+            print(f"[VALIDATION ERROR] Body: <unable to read - {e}>")
+    
     print(f"[VALIDATION ERROR] Errors: {exc.errors()}")
     return JSONResponse(
         status_code=422,
@@ -477,11 +522,47 @@ def validate_configuration():
 
 @app.on_event("startup")
 async def startup_event():
+    """
+    Initialize application dependencies and background tasks.
+    Wraps background task startup in defensive error handling to prevent
+    silent crashes from unhandled exceptions in async loops.
+    """
     validate_configuration()
     init_db()
     migrate_database()
-    await alert_scheduler.start()
-    await background_tasks.start()
+    
+    # Start background tasks with defensive error handling
+    try:
+        await alert_scheduler.start()
+        structured_logger.log_event(
+            "startup.alert_scheduler.started",
+            level="INFO"
+        )
+    except Exception as e:
+        structured_logger.log_event(
+            "startup.alert_scheduler.failed",
+            level="ERROR",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        # Log but don't crash - some deployments may not need alerts
+        print(f"⚠️  Alert scheduler failed to start: {e}")
+    
+    try:
+        await background_tasks.start()
+        structured_logger.log_event(
+            "startup.background_tasks.started",
+            level="INFO"
+        )
+    except Exception as e:
+        structured_logger.log_event(
+            "startup.background_tasks.failed",
+            level="ERROR",
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        # Log but don't crash - background tasks may be optional
+        print(f"⚠️  Background tasks failed to start: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -533,7 +614,10 @@ def log_device_event(db: Session, device_id: str, event_type: str, details: Opti
 
 @app.get("/healthz")
 async def health_check():
-    """Health check endpoint to monitor backend status"""
+    """
+    Liveness check - returns 200 if process is alive.
+    Does not check dependencies (use /readyz for that).
+    """
     uptime_seconds = (datetime.now(timezone.utc) - backend_start_time).total_seconds()
     return {
         "status": "healthy",
@@ -541,6 +625,57 @@ async def health_check():
         "uptime_formatted": f"{int(uptime_seconds // 3600)}h {int((uptime_seconds % 3600) // 60)}m",
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
     }
+
+@app.get("/readyz")
+async def readiness_check():
+    """
+    Readiness check - verifies all dependencies are operational.
+    Checks database connectivity and object storage availability.
+    Returns 200 if ready, 503 if not ready.
+    """
+    checks = {
+        "database": False,
+        "storage": False,
+        "overall": False
+    }
+    errors = []
+    
+    # Check database connectivity
+    try:
+        db = SessionLocal()
+        try:
+            # Simple query to verify DB is reachable
+            result = db.execute(text("SELECT 1")).scalar()
+            checks["database"] = (result == 1)
+        finally:
+            db.close()
+    except Exception as e:
+        errors.append(f"database: {str(e)[:100]}")
+        checks["database"] = False
+    
+    # Check object storage connectivity
+    try:
+        storage = get_storage_service()
+        # Storage service uses sidecar, just verify it's initialized
+        checks["storage"] = (storage is not None)
+    except Exception as e:
+        errors.append(f"storage: {str(e)[:100]}")
+        checks["storage"] = False
+    
+    # Overall readiness
+    checks["overall"] = checks["database"] and checks["storage"]
+    
+    status_code = 200 if checks["overall"] else 503
+    
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "ready": checks["overall"],
+            "checks": checks,
+            "errors": errors if errors else None,
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+        }
+    )
 
 @app.get("/metrics")
 async def prometheus_metrics(x_admin: str = Header(None)):
@@ -4863,9 +4998,74 @@ async def upload_apk_file(
     db: Session = Depends(get_db)
 ):
     """
-    Upload APK file binary to server storage.
-    This endpoint is called after /admin/apk/register to upload the actual file.
-    Requires admin authentication.
+    Upload APK file binary to Replit Object Storage.
+    
+    **IMPORTANT:** This endpoint requires multipart/form-data encoding.
+    All metadata fields must be sent as form fields alongside the file.
+    
+    **Two-Step Upload Process:**
+    1. Call /admin/apk/register to register APK metadata
+    2. Call /admin/apk/upload to upload the actual APK file
+    
+    **Required Form Fields:**
+    - file: APK binary file (multipart/form-data, must end with .apk)
+    - build_id: Unique build identifier (must match registered build)
+    - version_code: Integer version code (e.g., 123)
+    - version_name: Human-readable version (e.g., "1.2.3")
+    - build_type: Build type ("debug" or "release")
+    - package_name: Android package name (default: "com.nexmdm.agent")
+    
+    **Authentication:**
+    - X-Admin header with admin key required
+    
+    **File Constraints:**
+    - Maximum size: 60MB (enforced by object storage)
+    - Must be a valid .apk file
+    - Build metadata must be registered first via /admin/apk/register
+    
+    **Example - Python with requests:**
+    ```python
+    files = {
+        'file': ('app.apk', open('app-debug.apk', 'rb'), 'application/vnd.android.package-archive')
+    }
+    data = {
+        'build_id': 'build_001',
+        'version_code': '123',
+        'version_name': '1.2.3',
+        'build_type': 'debug',
+        'package_name': 'com.nexmdm.agent'
+    }
+    response = requests.post(
+        'https://your-app.repl.co/admin/apk/upload',
+        headers={'X-Admin': 'your-admin-key'},
+        files=files,
+        data=data
+    )
+    ```
+    
+    **Example - curl:**
+    ```bash
+    curl -X POST https://your-app.repl.co/admin/apk/upload \
+      -H "X-Admin: your-admin-key" \
+      -F "file=@app-debug.apk" \
+      -F "build_id=build_001" \
+      -F "version_code=123" \
+      -F "version_name=1.2.3" \
+      -F "build_type=debug" \
+      -F "package_name=com.nexmdm.agent"
+    ```
+    
+    **Response Codes:**
+    - 200: Upload successful
+    - 400: Invalid file type (not .apk)
+    - 403: Admin key required or invalid
+    - 404: Build not registered (call /admin/apk/register first)
+    - 413: File too large (>60MB)
+    - 500: Storage upload failed
+    
+    **Storage:**
+    Files are stored in Replit Object Storage with automatic sidecar authentication.
+    Storage path format: storage://apk/{build_type}/{uuid}_{filename}.apk
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")

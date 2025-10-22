@@ -1,0 +1,167 @@
+**Milestone Context & End Goal — APK Management Stabilization & Production Readiness (Post–Bug Bash Fixes)**
+
+**Purpose:**
+Resolve all **critical bugs (P0–P1)** uncovered during the bug bash to make the **APK Management pipeline production-ready.**
+The milestone focuses on backend stability, upload handler fixes, documentation accuracy, and post-fix validation through automated and manual regression tests.
+
+---
+
+### 🧩 What “done” means
+
+* Backend no longer crashes during `/admin/apk/upload`.
+* Uploads complete successfully for valid APK files (20–50 MB typical).
+* Invalid/malformed uploads return graceful 4xx responses (not process termination).
+* `/admin/apk/upload` and `/admin/apk/register` fully documented (metadata + file requirements).
+* Backend runs stably for >24h under load with process monitoring + health checks.
+* 100% pass on **B1–B8** test suite in `server/tests/bug_bash_apk_management.py`.
+* All CI and device download paths function end-to-end without instability.
+
+---
+
+### 🧱 Scope of Work
+
+#### **1. Fix: Upload crash bug (P0 BLOCKER)**
+
+**Root cause:**
+Multipart upload validation handler tries to log or parse request body stream twice (body consumed once by file upload parser, then again by validation middleware).
+
+**Solution:**
+
+* Modify global error handler in `server/main.py` to **skip body logging for multipart/form-data** requests.
+* Add conditional:
+
+  ```python
+  if "multipart/form-data" in request.headers.get("content-type", ""):
+      body = "<multipart-body-skipped>"
+  ```
+* Ensure FastAPI/Pydantic validators handle `UploadFile` streams safely (no double reads).
+* Add integration test: upload 10–50MB APKs to verify memory footprint and success.
+* Validate exception logging does not expose internal stacktraces to clients.
+
+✅ **Outcome:** Uploads no longer crash backend; 200 OK responses on valid files; clear 4xx/5xx responses on errors.
+
+---
+
+#### **2. Add: Process monitoring & health checks (P0 BLOCKER)**
+
+**Root cause:**
+Backend crashes silently (no restart or health visibility).
+
+**Solution:**
+
+* Implement `/healthz` and `/readyz` endpoints returning 200 if event loop + DB + storage reachable.
+* Wrap FastAPI startup in try/except to log and fail fast if dependencies missing.
+* Integrate process watchdog (e.g., `supervisord` or Replit-provided health restart).
+* Log unhandled exceptions via global middleware:
+
+  ```python
+  @app.middleware("http")
+  async def exception_guard(request, call_next):
+      try:
+          return await call_next(request)
+      except Exception as e:
+          logger.exception("Unhandled exception in request")
+          return JSONResponse(status_code=500, content={"error": "internal_server_error"})
+  ```
+
+✅ **Outcome:** Backend remains operational; unhandled errors no longer terminate process; health endpoints monitored by CI and uptime bot.
+
+---
+
+#### **3. Improve: Upload API documentation (P1 HIGH)**
+
+**Root cause:**
+Missing docs about multipart form fields caused confusion in CI integration.
+
+**Solution:**
+
+* Update `/admin/apk/upload` endpoint docstring + OpenAPI spec:
+
+  ```python
+  """
+  Upload an APK file and associate metadata.
+
+  Required form fields:
+    - file: the APK binary (multipart/form-data)
+    - build_id: unique build ID from CI
+    - version_code: integer version code
+    - version_name: human-readable version
+    - build_type: "debug" | "release"
+  """
+  ```
+* Regenerate OpenAPI schema (via FastAPI auto-docs).
+* Add example request in README + CI doc (`docs/ci_upload_example.md`).
+  ✅ **Outcome:** CI and developer pipelines can integrate without guesswork; automated clients validated.
+
+---
+
+#### **4. Add: Exception handling & stability improvements**
+
+**Tasks:**
+
+* Audit all endpoints for uncaught exceptions; wrap in safe `try/except` with structured logs.
+* Standardize responses: 4xx for validation, 5xx for server errors.
+* Add `@app.on_event("startup")` logging for successful dependency initialization.
+* Enable structured logging for uploads (`storage.upload.start|success|error`).
+  ✅ **Outcome:** Consistent error responses; no silent crashes; logs always structured and searchable.
+
+---
+
+#### **5. Regression & verification testing**
+
+**Tests to run post-fix:**
+
+* **B1–B8 suite** (`server/tests/bug_bash_apk_management.py`): should reach 100% pass.
+* Load test: 50 sequential uploads (10–50MB) within 10 minutes → backend remains stable.
+* CI pipeline test: full register + upload + list + download → all succeed.
+* Negative tests:
+
+  * Invalid file types (`.zip`, `.txt`) → 415 or 422.
+  * Oversized files (>100MB) → 413.
+  * Missing fields → 400.
+  * Duplicate version → 409 (expected policy).
+* Monitor logs for memory/latency spikes; ensure Replit Storage adapter consistent.
+
+✅ **Outcome:** All previously failing bug bash cases now pass; backend stable under load.
+
+---
+
+#### **6. Documentation & release readiness**
+
+* Update `BUG_BASH_APK_MANAGEMENT_REPORT.md` → mark resolved issues.
+* Update `README.md` and `/docs/api_endpoints.md` for new behavior.
+* Add note in changelog: “Fixed upload crash + process monitoring + doc improvements.”
+* Schedule final **bug bash re-run** (focused 2h session) with version `v0.9.2`.
+  ✅ **Outcome:** All documentation accurate; release candidate verified clean.
+
+---
+
+### 🧩 Non-goals
+
+* No feature additions (no new OTA features or build promotion workflows).
+* No changes to CI YAML except re-testing with fixed upload.
+* No migration to S3 in this milestone (Replit storage remains primary).
+
+---
+
+### 📊 Acceptance Criteria
+
+| Area              | Expected Result                                  |
+| ----------------- | ------------------------------------------------ |
+| Upload endpoint   | Stable, no crash, returns proper HTTP codes      |
+| Process stability | 24h uptime under CI traffic                      |
+| API docs          | Clear multipart instructions, OpenAPI updated    |
+| Test suite        | 100% pass on B1–B8                               |
+| Discord alerts    | Still functional for monitoring (non-regression) |
+| Logs/metrics      | Structured, no unhandled exceptions              |
+
+---
+
+### 🚀 Definition of Done
+
+* All 3 critical bugs resolved and validated via automated + manual tests.
+* APK upload/download pipeline completes end-to-end with no crashes.
+* API documentation published and accurate.
+* Backend stable for sustained load.
+* Monitoring feature remains unaffected.
+* Status updated to **✅ Production Ready (v0.9.2)** in next release report.
