@@ -50,6 +50,9 @@ export default function ApkDeployPage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [deploymentResult, setDeploymentResult] = useState<DeploymentResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "25" | "50" | "custom">("all")
+  const [customPercentage, setCustomPercentage] = useState<number>(10)
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
 
   useEffect(() => {
     if (isDark) {
@@ -117,15 +120,41 @@ export default function ApkDeployPage() {
     setSelectedDevices(newSelection)
   }
 
-  const handleDeploy = async () => {
+  const getDeploymentDevices = (): string[] => {
+    const allSelected = Array.from(selectedDevices)
+    
+    if (rolloutStrategy === "all") {
+      return allSelected
+    }
+    
+    let percentage: number
+    if (rolloutStrategy === "25") {
+      percentage = 25
+    } else if (rolloutStrategy === "50") {
+      percentage = 50
+    } else {
+      percentage = customPercentage
+    }
+    
+    const count = Math.max(1, Math.ceil((allSelected.length * percentage) / 100))
+    return allSelected.slice(0, count)
+  }
+
+  const handleDeployClick = () => {
     if (selectedDevices.size === 0) {
       alert('Please select at least one device')
       return
     }
+    setShowConfirmModal(true)
+  }
 
+  const handleDeploy = async () => {
+    setShowConfirmModal(false)
     setIsDeploying(true)
     setDeploymentResult(null)
     setError(null)
+
+    const devicesToDeploy = getDeploymentDevices()
 
     try {
       const response = await fetch('/v1/apk/deploy', {
@@ -135,7 +164,7 @@ export default function ApkDeployPage() {
         },
         body: JSON.stringify({
           apk_id: parseInt(apkId),
-          device_ids: Array.from(selectedDevices)
+          device_ids: devicesToDeploy
         })
       })
 
@@ -148,7 +177,7 @@ export default function ApkDeployPage() {
       setDeploymentResult({
         success: result.success_count || 0,
         failed: result.failed_devices?.length || 0,
-        total: selectedDevices.size,
+        total: devicesToDeploy.length,
         details: [
           ...(result.installations || []).map((inst: any) => ({
             device_id: inst.device?.id || '',
@@ -316,30 +345,98 @@ export default function ApkDeployPage() {
                 })
               )}
             </div>
-
-            <div className="mt-6 flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">
-                {selectedDevices.size} device{selectedDevices.size !== 1 ? 's' : ''} selected
-              </div>
-              <Button
-                onClick={handleDeploy}
-                disabled={selectedDevices.size === 0 || isDeploying}
-                className="gap-2"
-              >
-                {isDeploying ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Deploying...
-                  </>
-                ) : (
-                  <>
-                    <Send className="h-4 w-4" />
-                    Deploy to {selectedDevices.size} Device{selectedDevices.size !== 1 ? 's' : ''}
-                  </>
-                )}
-              </Button>
-            </div>
           </Card>
+
+          {/* Rollout Strategy Card */}
+          {selectedDevices.size > 0 && (
+            <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-card-foreground">Rollout Strategy</h2>
+              
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <Button
+                  variant={rolloutStrategy === "all" ? "default" : "outline"}
+                  onClick={() => setRolloutStrategy("all")}
+                  className="h-auto flex-col gap-1 py-3"
+                >
+                  <div className="text-sm font-semibold">All at Once</div>
+                  <div className="text-xs opacity-80">{selectedDevices.size} devices</div>
+                </Button>
+                <Button
+                  variant={rolloutStrategy === "25" ? "default" : "outline"}
+                  onClick={() => setRolloutStrategy("25")}
+                  className="h-auto flex-col gap-1 py-3"
+                >
+                  <div className="text-sm font-semibold">Staged 25%</div>
+                  <div className="text-xs opacity-80">{Math.ceil((selectedDevices.size * 25) / 100)} devices</div>
+                </Button>
+                <Button
+                  variant={rolloutStrategy === "50" ? "default" : "outline"}
+                  onClick={() => setRolloutStrategy("50")}
+                  className="h-auto flex-col gap-1 py-3"
+                >
+                  <div className="text-sm font-semibold">Staged 50%</div>
+                  <div className="text-xs opacity-80">{Math.ceil((selectedDevices.size * 50) / 100)} devices</div>
+                </Button>
+                <Button
+                  variant={rolloutStrategy === "custom" ? "default" : "outline"}
+                  onClick={() => setRolloutStrategy("custom")}
+                  className="h-auto flex-col gap-1 py-3"
+                >
+                  <div className="text-sm font-semibold">Custom %</div>
+                  <div className="text-xs opacity-80">Configure below</div>
+                </Button>
+              </div>
+
+              {rolloutStrategy === "custom" && (
+                <div className="mt-4 rounded-lg border border-border bg-muted p-4">
+                  <Label htmlFor="custom-percentage" className="mb-2 block text-sm font-medium">
+                    Deployment Percentage
+                  </Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      id="custom-percentage"
+                      type="range"
+                      min="1"
+                      max="100"
+                      value={customPercentage}
+                      onChange={(e) => setCustomPercentage(parseInt(e.target.value))}
+                      className="flex-1"
+                    />
+                    <div className="w-16 text-right font-mono text-sm font-semibold">
+                      {customPercentage}%
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Will deploy to {Math.ceil((selectedDevices.size * customPercentage) / 100)} of {selectedDevices.size} selected devices
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-6 flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  Ready to deploy to {getDeploymentDevices().length} device{getDeploymentDevices().length !== 1 ? 's' : ''}
+                </div>
+                <Button
+                  onClick={handleDeployClick}
+                  disabled={selectedDevices.size === 0 || isDeploying}
+                  className="gap-2"
+                  size="lg"
+                >
+                  {isDeploying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Deploying...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Deploy Now
+                    </>
+                  )}
+                </Button>
+              </div>
+            </Card>
+          )}
 
           {/* Deployment Results */}
           {deploymentResult && (
@@ -396,6 +493,62 @@ export default function ApkDeployPage() {
           )}
         </div>
       </main>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <h2 className="mb-4 text-xl font-semibold text-card-foreground">Confirm Deployment</h2>
+            
+            <div className="mb-6 space-y-3 text-sm">
+              <div className="flex justify-between rounded-lg bg-muted p-3">
+                <span className="text-muted-foreground">APK:</span>
+                <span className="font-medium">{apk?.filename}</span>
+              </div>
+              <div className="flex justify-between rounded-lg bg-muted p-3">
+                <span className="text-muted-foreground">Version:</span>
+                <span className="font-medium">{apk?.version_name} ({apk?.version_code})</span>
+              </div>
+              <div className="flex justify-between rounded-lg bg-muted p-3">
+                <span className="text-muted-foreground">Strategy:</span>
+                <span className="font-medium">
+                  {rolloutStrategy === "all" ? "All at Once (100%)" : 
+                   rolloutStrategy === "25" ? "Staged Rollout (25%)" :
+                   rolloutStrategy === "50" ? "Staged Rollout (50%)" :
+                   `Custom Rollout (${customPercentage}%)`}
+                </span>
+              </div>
+              <div className="flex justify-between rounded-lg bg-muted p-3">
+                <span className="text-muted-foreground">Devices:</span>
+                <span className="font-medium">{getDeploymentDevices().length} of {selectedDevices.size} selected</span>
+              </div>
+            </div>
+
+            {rolloutStrategy !== "all" && (
+              <div className="mb-6 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
+                <strong>Staged Rollout:</strong> Devices will be deployed in order of selection. Monitor results before deploying to remaining devices.
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDeploy}
+                className="flex-1 gap-2"
+              >
+                <Send className="h-4 w-4" />
+                Confirm & Deploy
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
