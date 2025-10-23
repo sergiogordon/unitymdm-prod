@@ -1,0 +1,241 @@
+Milestone: APK “Deploy” from Versions Page
+Goal
+
+Enable a “Deploy” action next to any APK version (NexMDM, Unity, Speedtest, etc.) that upgrades either the entire fleet or selected devices, with guardrails so it doesn’t break existing flows.
+
+Scope
+In-scope
+
+UI: “Deploy” button beside each APK version row → opens a deploy modal.
+
+Targeting: “Entire fleet” or “Selected devices” (filter by tags/groups/search).
+
+Options:
+
+Canary batch (e.g., first 5 devices) then automatic rollout.
+
+Rate limit (installs/min), concurrency limit, Wi-Fi-only, min battery %, charging-only.
+
+Maintenance window (start/end, timezone aware).
+
+Retry policy (max retries, backoff).
+
+Post-install action: “restart app” (if the app supports a safe restart intent).
+
+Rollback toggle (if a previous signed version exists).
+
+Backend: Deployment job orchestration + per-device task queue + audit trail.
+
+Agent: Silent install path if permitted; fallback to user-prompt flow if not.
+
+Observability: Live status (Queued / In-Progress / Succeeded / Failed / Skipped) per device, aggregate counters, logs, and reasons (e.g., battery too low, no Wi-Fi).
+
+Kill switch: cancel/pause deployment; feature flag to disable globally.
+
+Out-of-scope (for this milestone)
+
+Creating new app “groups” UI (we’ll use existing tags/groups).
+
+Blue/green side-by-side installs.
+
+Staged rollouts by percentage (we’ll simulate via rate + canary now).
+
+UX/Flows
+
+APK Versions Page
+
+New Deploy button on each version row.
+
+Deploy Modal
+
+Target: Entire fleet | Selected devices (multi-select with filters).
+
+Options: Canary size, rate limit, concurrency, Wi-Fi only, min battery, charging, maintenance window, retries, post-install restart, rollback allowed.
+
+CTA: Start Deployment (disabled until validation passes).
+
+Deployment Details Page
+
+Header summary (app, from→to version, created by, options).
+
+Real-time counters + per-device table with status, last error, timestamps.
+
+Actions: Pause, Resume, Cancel, Export CSV.
+
+Data Model (PostgreSQL / SQLAlchemy async)
+
+apk (id, package_name, display_name)
+
+apk_version (id, apk_id, version_name, version_code, download_url, sha256, signature_info, created_at)
+
+device (id, alias, tags[], groups[], current_versions jsonb)
+
+deployment (id, apk_id, from_version_id nullable, to_version_id, created_by, options jsonb, status enum[queued, running, paused, canceled, complete, failed], created_at, started_at, finished_at, killed_by nullable, killed_reason nullable, feature_flag_snapshot jsonb)
+
+deployment_target (id, deployment_id, scope enum[fleet, selection], selection_query jsonb, resolved_count int)
+
+deployment_task (id, deployment_id, device_id, status enum[queued, waiting_window, throttled, sending, installing, succeeded, failed, skipped], attempt int, last_error text, next_run_at, created_at, updated_at)
+
+deployment_event (id, deployment_id, device_id nullable, level enum[info,warn,error], message, meta jsonb, created_at) // audit log
+
+Indexes on (deployment_id, status), (device_id, status)
+
+No destructive schema change to existing tables.
+
+API (FastAPI)
+
+POST /v1/deployments
+
+body: { apk_version_id, target: {type:'fleet'|'selection', device_ids?:[], filters?:{tags?:[], groups?:[], query?:string}}, options:{canary:int, rate:int, concurrency:int, wifi_only:bool, min_battery:int, charging_only:bool, window?:{start_iso, end_iso}, retry:{max:int, backoff_sec:int}, post_install:{restart_intent?:{action, extras?}}, allow_rollback:bool} }
+
+returns: { deployment_id }
+
+GET /v1/deployments/{id}
+
+returns summary + rollup counters
+
+GET /v1/deployments/{id}/tasks?status=...&page=...
+
+returns paged per-device statuses
+
+POST /v1/deployments/{id}/pause
+
+POST /v1/deployments/{id}/resume
+
+POST /v1/deployments/{id}/cancel
+
+Agent callback/webhook: POST /v1/agent/deployments/{deployment_id}/devices/{device_id}/status (auth’d)
+
+{ status, error?, installed_version? }
+
+Backward compatible; no changes to existing endpoints.
+
+Orchestration Logic (Server)
+
+Planner resolves device list (for “fleet” it’s all active devices; for “selection” it resolves filters and locks the set).
+
+Canary: enqueue first N tasks, wait for success threshold (e.g., 90% succeed) or timeout → then continue.
+
+Throttle: permit only rate installs/min and max concurrency in “installing”.
+
+Windowing: tasks outside window move to waiting_window.
+
+Pre-checks per device before sending command:
+
+online heartbeat ≤ X min, Wi-Fi if required, battery ≥ min, charging if required, storage ≥ Y MB, doze exempt if needed.
+
+Download artifact: agent uses signed download_url + sha256 to verify.
+
+Install:
+
+Preferred: silent update via PackageInstaller under Device Owner (no UI).
+
+Fallback: prompt user flow (agent returns failed:not_permitted → mark skipped with reason).
+
+Post-install: optional app restart intent.
+
+Rollback (if enabled): on elevated failure rate (configurable threshold), automatically pause rollout and offer one-click rollback to last known good signed version.
+
+Agent Changes (Android / Kotlin)
+
+New FCM action: deploy_apk payload:
+
+{
+  "deployment_id": "...",
+  "apk": {
+    "package": "com.nexmdm",
+    "version_code": 121,
+    "version_name": "1.0.121-d263d20",
+    "url": "https://.../signed.apk",
+    "sha256": "…"
+  },
+  "constraints": {"wifi_only":true,"min_battery":30,"charging_only":false},
+  "post_install": {"restart_intent": {"action":"com.nexmdm.RESTART","extras":{}}}
+}
+
+
+Implement:
+
+Constraints check → early “skipped” with reason.
+
+Download with checksum verify; stream to PackageInstaller.Session.
+
+Silent install path under Device Owner; return granular error codes.
+
+Report status transitions to server webhook.
+
+Respect maintenance window (local check) & backoff for retries.
+
+Guardrails: abort if current foreground call, low storage, or metered network when Wi-Fi required.
+
+Safety / “Don’t Break Anything” Guardrails
+
+Feature flag: deployments.enabled=false by default → set true in staging then prod.
+
+Permissions gate: server validates that target package is in the “Managed Packages Allowlist”. Unknown packages hard-fail.
+
+Signature gate: server records signing cert fingerprint for each app; agent verifies same signer before updating; mismatches are rejected.
+
+Rate/concurrency defaults: conservative (e.g., 10 installs/min, concurrency=3).
+
+Canary required for fleet deployments (cannot set to 0 on fleet).
+
+Wi-Fi only default ON.
+
+Min battery default 40%.
+
+Global kill switch: toggle to pause all deployments immediately.
+
+Audit trail: every action/event logged in deployment_event.
+
+Read-only by default: “dry run” option in modal lists how many devices qualify & reasons exclusions—no commands sent.
+
+Acceptance Criteria
+
+From the APK Versions page, clicking Deploy opens a modal with targets + options.
+
+“Dry run” shows device counts and exclusion reasons without sending installs.
+
+Starting a deployment creates tasks and begins with canary; canary health gates the rollout.
+
+Devices outside constraints (battery, Wi-Fi, window) show Skipped with reason.
+
+Agent performs checksum + signer validation; mismatches are aborted and logged.
+
+Live status updates are visible; rollup counters match per-device table totals.
+
+Pause/Resume/Cancel works and is reflected within ≤10s on the detail page.
+
+Rollback button appears if failure rate exceeds threshold during rollout.
+
+Existing enrollment/heartbeat flows remain unaffected (no API regressions).
+
+End-to-end test proves upgrading NexMDM on a test group without impacting others.
+
+Testing Plan
+
+Unit: planner selection, options validation, rate/window logic, JSON contracts.
+
+Integration: agent download→install→status callback loop (local emulator + physical Orbic Joy 2).
+
+Load: 2k devices simulated tasks; assert throttle/concurrency enforcement.
+
+Failure sims: bad checksum, signer mismatch, out-of-space, permission denied, network drops.
+
+UX: accessibility checks; long lists (10k devices) virtualization.
+
+Canary drill: force canary failure → verify auto-pause and rollback prompt.
+
+Telemetry & Alerts
+
+Metrics: tasks/sec, installs/min, success rate, mean install time, error codes distribution.
+
+Alerts: canary failure, high failure rate (>X%), webhook error spikes, queue backlog, long-running paused states.
+
+Rollout
+
+Staging: enable feature flag; test with 5 devices and a dummy APK.
+
+Pilot: small internal group, canary=3, rate=5/min, Wi-Fi only.
+
+Production: enable flag, rate 10/min, concurrency 3; monitor metrics; gradually increase.
