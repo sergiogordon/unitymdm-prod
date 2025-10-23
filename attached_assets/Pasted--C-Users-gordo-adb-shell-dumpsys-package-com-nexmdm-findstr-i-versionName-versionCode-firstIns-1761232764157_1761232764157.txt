@@ -1,0 +1,41 @@
+
+C:\Users\gordo>adb shell dumpsys package com.nexmdm | findstr /i "versionName versionCode firstInstallTime lastUpdateTime"
+    versionCode=119 minSdk=33 targetSdk=34
+    versionName=1.0.119-06a9e4b
+    lastUpdateTime=2025-10-23 10:15:37
+      firstInstallTime=2025-10-23 10:15:37
+
+C:\Users\gordo>adb shell am broadcast -a com.nexmdm.CONFIGURE ^
+More?   -n com.nexmdm/.ConfigReceiver ^
+More?   --receiver-foreground ^
+More?   --es server_url "https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev" ^
+More?   --es admin_key  "ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=" ^
+More?   --es alias      "D23"
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+
+C:\Users\gordo>adb shell dumpsys package com.nexmdm | findstr /i "receiver exported intent-filter"
+adb shell dumpsys package com.nexmdm | findstr /i "ConfigReceiver"
+adb shell dumpsys package com.nexmdm | findstr /i "com.nexmdm.CONFIGURE"
+Receiver Resolver Table:
+        e78404b com.nexmdm/.ConfigReceiver filter 1cc6a28
+        d66a4ed com.nexmdm/androidx.profileinstaller.ProfileInstallReceiver filter 96dcf70
+        89627 com.nexmdm/.ApkInstallReceiver filter a9200d4
+        f519341 com.nexmdm/.NexDeviceAdminReceiver filter 5dfb0e6
+        d66a4ed com.nexmdm/androidx.profileinstaller.ProfileInstallReceiver filter 7429f22
+        62d5717 com.nexmdm/com.google.firebase.iid.FirebaseInstanceIdReceiver filter 4a14704
+        1d92435 com.nexmdm/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 87ac0ca
+        1d92435 com.nexmdm/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 87ac0ca
+        d66a4ed com.nexmdm/androidx.profileinstaller.ProfileInstallReceiver filter a264db3
+        d66a4ed com.nexmdm/androidx.profileinstaller.ProfileInstallReceiver filter 995a2e9
+        12fbfc5 com.nexmdm/.BootReceiver filter 520dd1a
+        1d92435 com.nexmdm/androidx.work.impl.background.systemalarm.RescheduleReceiver filter 87ac0ca
+        e04ceb1 com.nexmdm/androidx.work.impl.diagnostics.DiagnosticsReceiver filter cec1f96
+        12fbfc5 com.nexmdm/.BootReceiver filter 520dd1a
+        93dd23b com.nexmdm/androidx.work.impl.background.systemalarm.ConstraintProxyUpdateReceiver filter a02ad58
+        89627 com.nexmdm/.ApkInstallReceiver filter a9200d4
+  Permission [com.nexmdm.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION] (97f990e):
+    perm=PermissionInfo{1ce7cc7 com.nexmdm.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION}
+      com.nexmdm.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: prot=signature, INSTALLED
+      com.nexmdm.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+      com.nexmdm.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
