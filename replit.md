@@ -25,7 +25,14 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch, X-Admin-Key for enrollment flow.
 - **Android Agent**: Dedicated Android application with an automated CI/CD pipeline (GitHub Actions) for secure deployment.
-- **Zero-Touch Enrollment**: Secure provisioning via static X-Admin-Key authentication and server-generated ADB scripts with intelligent Device Owner handling. Supports three script types: Windows .cmd (full batch file), Bash .sh (Unix/Linux/macOS), and Windows one-liner (paste-and-go CMD). All scripts include safe installation fallback (update → uninstall+clean install), Device Owner detection/provisioning with fail-fast for provisioned devices, broadcast-based auto-enrollment via ConfigReceiver (receives admin key directly), comprehensive system optimizations, and clear exit codes (0-9) for error handling. Uses static admin key instead of expiring enrollment tokens for reliable, automatic deployment. **Bug Bash Completed (Oct 2025)**: Fixed Windows delayed expansion (!VAR! syntax), Bash variable quoting ("$VAR"), Windows one-liner caret escaping (^"text"^ for cmd.exe /C context), and enforced environment variable validation (SERVER_URL, ADMIN_KEY must be set, no fallback defaults).
+- **Zero-Tap Enrollment (Enhanced Oct 2025)**: True single-command device provisioning with enhanced debugging capabilities. The system now provides **true 1-liner commands** (Windows CMD and Bash) that handle the complete enrollment workflow from factory-reset Android devices with fail-fast behavior and actionable error messages. Key improvements:
+  - **Android ConfigReceiver**: Updated to accept 'admin_key' instead of 'token' in broadcast intents for simplified authentication
+  - **Backend /v1/register**: Now authenticates via X-Admin-Key header instead of enrollment tokens, streamlining the registration flow
+  - **Enhanced Scripts**: All enrollment scripts (full .cmd/.sh and one-liners) feature 7-step progress tracking with ✅/❌ indicators, inline debug hints for failures, and specific exit codes (2-8) for each failure point
+  - **Frontend Integration**: ADB setup page offers both Windows and Bash one-liner buttons for easy clipboard copy
+  - **Enrollment Flow**: (1) Wait for device → (2) Download APK → (3) Install APK → (4) Set Device Owner → (5) Grant permissions → (6) Launch app & send broadcast → (7) Verify service
+  - **Error Guidance**: Each failure point includes specific fix instructions (e.g., "Fix: Factory reset device" for Device Owner failures)
+  - Supports three script types: Windows .cmd (full batch file), Bash .sh (Unix/Linux/macOS), Windows one-liner (CMD paste), and Bash one-liner (Terminal paste)
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival with SHA-256 checksums.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics with latency histograms, connection pool monitoring.
 
