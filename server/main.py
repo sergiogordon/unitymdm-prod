@@ -3664,7 +3664,8 @@ if errorlevel 1 (
     echo ❌ No device found
     echo    Fix: Check USB cable, ensure USB debugging enabled
     echo    Run: adb devices -l
-    exit /b 2
+    set EXITCODE=2
+    goto :end
 )
 echo ✅ Device connected
 echo.
@@ -3675,12 +3676,14 @@ if errorlevel 1 (
     echo ❌ Download failed
     echo    Fix: Check network, verify SERVER_URL: !BASE_URL!
     echo    Debug: curl -v "!BASE_URL!/v1/apk/download/latest"
-    exit /b 3
+    set EXITCODE=3
+    goto :end
 )
 if not exist "!APK_PATH!" (
     echo ❌ APK missing at !APK_PATH!
     echo    Fix: Check temp directory permissions
-    exit /b 3
+    set EXITCODE=3
+    goto :end
 )
 echo ✅ APK downloaded
 echo.
@@ -3695,7 +3698,8 @@ if errorlevel 1 (
         echo ❌ Install failed
         echo    Fix: Check adb install errors
         echo    Debug: adb install -r -g "!APK_PATH!"
-        exit /b 4
+        set EXITCODE=4
+        goto :end
     )
 )
 echo ✅ APK installed
@@ -3716,7 +3720,8 @@ if errorlevel 1 (
     echo    Fix: Factory reset device or use QR provisioning
     echo    Debug: adb shell dpm get-device-owner
     echo    Note: Device must be unprovisioned (fresh or reset)
-    exit /b 5
+    set EXITCODE=5
+    goto :end
 )
 
 REM Verify Device Owner
@@ -3724,7 +3729,8 @@ adb shell dumpsys device_policy | findstr /C:"!PKG!" >nul 2>&1
 if errorlevel 1 (
     echo ❌ Device Owner verification failed
     echo    Debug: adb shell dumpsys device_policy
-    exit /b 6
+    set EXITCODE=6
+    goto :end
 )
 echo ✅ Device Owner confirmed
 echo.
@@ -3750,7 +3756,8 @@ if errorlevel 1 (
     echo ❌ Configuration broadcast failed
     echo    Debug: Check ConfigReceiver in manifest
     echo    Fix: Verify receiver is exported
-    exit /b 7
+    set EXITCODE=7
+    goto :end
 )
 echo ✅ Auto-enrollment initiated
 echo.
@@ -3761,7 +3768,8 @@ adb shell pidof !PKG! >nul 2>&1
 if errorlevel 1 (
     echo ❌ Service not running
     echo    Debug: adb logcat -d ^| findstr !PKG!
-    exit /b 8
+    set EXITCODE=8
+    goto :end
 )
 echo ✅ Service running
 echo.
@@ -3772,6 +3780,12 @@ echo ================================================
 echo 📱 Device "!ALIAS!" enrolled successfully!
 echo 🔍 Check dashboard within 60 seconds
 echo ================================================
+set EXITCODE=0
+
+:end
+echo.
+pause
+exit /b !EXITCODE!
 '''
     
     return Response(
@@ -4010,7 +4024,8 @@ async def get_windows_one_liner_script(
     
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
     
-    one_liner = f'''cmd.exe /V:ON /C "set PKG={agent_pkg} & set ALIAS={alias} & set SPEEDTEST_PKG={unity_pkg} & set APK_PATH=%TEMP%\\nexmdm-latest.apk & set BASE_URL={server_url} & set DL_URL={server_url}/v1/apk/download/latest & set ADMINKEY={admin_key} & echo [NexMDM Deployment - Device: !ALIAS!] & echo. & echo [Step 0] Waiting for device... & adb wait-for-device || (echo ❌ No device found & exit /b 2) & echo [Step 1/7] Downloading latest APK... & curl -L -H ^"X-Admin-Key: !ADMINKEY!^" ^"!DL_URL!^" -o ^"!APK_PATH!^" || (echo ❌ Download failed & exit /b 3) & if not exist ^"!APK_PATH!^" (echo ❌ APK missing & exit /b 3) & echo ✅ APK downloaded! & echo. & echo [Step 2/7] Installing APK... & adb install -r ^"!APK_PATH!^" & if errorlevel 1 (adb shell pm uninstall -k --user 0 !PKG! 1>nul 2>nul & adb install -t -d ^"!APK_PATH!^" || (echo ❌ Clean install failed & exit /b 4)) & echo ✅ APK installed! & echo. & echo [Step 3/7] Ensuring Device Owner... & for /f "tokens=2 delims=: " %A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%A & for /f "tokens=2 delims=: " %B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%B & set DEVPROV=!DEVPROV:~0,1! & set USERSETUP=!USERSETUP:~0,1! & adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:^"!PKG!^" >nul & if errorlevel 1 (if "!DEVPROV!"=="1" if "!USERSETUP!"=="1" (echo ❌ Cannot set DO on provisioned device. Factory reset required. & exit /b 5) & adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver 1>nul 2>nul || (echo ❌ Failed to set Device Owner & exit /b 6)) & echo ✅ Device Owner confirmed. & echo. & echo [Step 4/7] Permissions... & adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS 2>nul & adb shell pm grant !PKG! android.permission.CAMERA 2>nul & adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION 2>nul & adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow 2>nul & adb shell appops set !PKG! AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul & adb shell appops set !PKG! GET_USAGE_STATS allow 2>nul & adb shell dumpsys deviceidle whitelist +!PKG! 1>nul & echo ✅ Permissions set! & echo. & echo [Step 5/7] Optimizations... & adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global wifi_sleep_policy 2" & adb shell dumpsys deviceidle whitelist +!SPEEDTEST_PKG! 1>nul & echo ✅ Optimizations applied! & echo. & echo [Step 6/7] Launch and configure... & adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 1>nul 2>nul & timeout /t 2 /nobreak >nul & adb shell am broadcast --receiver-foreground -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url ^"!BASE_URL!^" --es admin_key ^"!ADMINKEY!^" --es alias ^"!ALIAS!^" & timeout /t 3 /nobreak >nul & echo ✅ Configuration sent! & echo. & echo [Step 7/7] Verifying... & adb shell pidof !PKG! 1>nul && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 9) & echo. & echo ✅ ENROLLMENT COMPLETE - ^"!ALIAS!^" should appear in dashboard within ~60s. & exit /b 0"'''
+    # Create simplified one-liner that doesn't exit early - /K keeps window open
+    one_liner = f'''cmd.exe /V:ON /K "set PKG={agent_pkg} & set ALIAS={alias} & set BASE_URL={server_url} & set ADMINKEY={admin_key} & set APK_PATH=%TEMP%\\unitymdm.apk & echo ============================================ & echo UnityMDM Zero-Tap Enrollment - !ALIAS! & echo ============================================ & echo. & echo [Step 1/7] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable) & echo. & echo [Step 2/7] Download APK... & curl -L -H ^"X-Admin-Key: !ADMINKEY!^" ^"!BASE_URL!/v1/apk/download/latest^" -o ^"!APK_PATH!^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/7] Install APK... & (adb install -r -g ^"!APK_PATH!^" >nul 2>&1 || (adb uninstall !PKG! >nul 2>&1 & adb install -r -g -t ^"!APK_PATH!^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/7] Set Device Owner... & adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/7] Grant permissions... & adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant !PKG! android.permission.CAMERA >nul 2>&1 & adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set !PKG! GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +!PKG! >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/7] Launch and auto-enroll... & adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1 & timeout /t 2 /nobreak >nul & adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url ^"!BASE_URL!^" --es admin_key ^"!ADMINKEY!^" --es alias ^"!ALIAS!^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated) || (echo ❌ Broadcast failed) & echo. & echo [Step 7/7] Verify... & timeout /t 3 /nobreak >nul & adb shell pidof !PKG! >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running) & echo. & echo ============================================ & echo ✅ ENROLLMENT COMPLETE & echo ============================================ & echo Device: !ALIAS! & echo Check dashboard within 60 seconds & echo ============================================ & echo. & echo Window will stay open - Type 'exit' to close"'''
     
     return Response(
         content=one_liner,
