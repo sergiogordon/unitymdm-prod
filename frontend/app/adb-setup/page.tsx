@@ -266,10 +266,15 @@ function ADBSetupContent() {
     }
   }
 
-  const copyOneLiner = async (token: EnrollmentToken) => {
+  const copyOneLiner = async (token: EnrollmentToken, platform: 'windows' | 'bash' = 'windows') => {
     const authToken = localStorage.getItem('auth_token')
     const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
-    const url = `/api/proxy/v1/scripts/enroll.one-liner.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
+    
+    const endpoint = platform === 'windows' 
+      ? `/api/proxy/v1/scripts/enroll.one-liner.cmd`
+      : `/api/proxy/v1/scripts/enroll.one-liner.sh`
+    
+    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
     
     try {
       const response = await fetch(url, {
@@ -285,9 +290,14 @@ function ADBSetupContent() {
       
       const oneLinerCommand = await response.text()
       await navigator.clipboard.writeText(oneLinerCommand)
-      alert(`✅ One-liner copied to clipboard!\n\nPaste into Windows Command Prompt (cmd.exe) to enroll device "${token.alias}"`)
+      
+      const message = platform === 'windows'
+        ? `✅ Windows one-liner copied to clipboard!\n\nPaste into Command Prompt (cmd.exe) to enroll device "${token.alias}"`
+        : `✅ Bash one-liner copied to clipboard!\n\nPaste into Terminal (Linux/Mac) to enroll device "${token.alias}"`
+      
+      alert(message)
     } catch (error) {
-      alert(`Failed to copy one-liner: ${error}`)
+      alert(`Failed to copy ${platform} one-liner: ${error}`)
       console.error(error)
     }
   }
@@ -507,13 +517,24 @@ function ADBSetupContent() {
                             <Button
                               variant="default"
                               size="sm"
-                              onClick={() => copyOneLiner(token)}
-                              title="Copy One-Liner (Windows CMD) - Paste into Command Prompt. Requires ADB in PATH."
+                              onClick={() => copyOneLiner(token, 'windows')}
+                              title="Copy Windows One-Liner - Paste into Command Prompt (cmd.exe). Requires ADB in PATH."
                               disabled={token.status !== 'active'}
                               className="gap-1"
                             >
                               <Command className="h-3 w-3" />
-                              One-Liner
+                              Win
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => copyOneLiner(token, 'bash')}
+                              title="Copy Bash One-Liner - Paste into Terminal (Linux/Mac). Requires ADB in PATH."
+                              disabled={token.status !== 'active'}
+                              className="gap-1"
+                            >
+                              <Terminal className="h-3 w-3" />
+                              Bash
                             </Button>
                             {token.full_token && (
                               <Button
