@@ -4030,6 +4030,66 @@ async def get_windows_one_liner_script(
         }
     )
 
+@app.get("/v1/scripts/enroll.one-liner.sh")
+async def get_bash_one_liner_script(
+    alias: str = Query(...),
+    token_id: str = Query(...),
+    raw_token: Optional[str] = Query(None),
+    agent_pkg: str = Query("com.nexmdm"),
+    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Generate zero-tap Bash one-liner enrollment command with enhanced debugging"""
+    from models import EnrollmentToken, EnrollmentEvent
+    
+    # Validate enrollment token
+    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+    
+    if token.status != 'active':
+        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    
+    # Get server configuration
+    server_url = os.getenv("SERVER_URL", "")
+    if not server_url:
+        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
+    
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
+    
+    # Log script generation event
+    event = EnrollmentEvent(
+        event_type='script.render_one_liner',
+        token_id=token_id,
+        alias=alias,
+        details=json.dumps({"platform": "bash_oneliner", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+    )
+    db.add(event)
+    db.commit()
+    
+    structured_logger.log_event(
+        "script.render_one_liner",
+        token_id=token_id,
+        alias=alias,
+        platform="bash"
+    )
+    
+    metrics.inc_counter("script_oneliner_copies_total", {"platform": "bash", "alias": alias})
+    
+    # Create Bash one-liner with proper debugging
+    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment - $ALIAS" && echo "================================================" && echo && echo "[Step 1/7] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && exit 2) && echo && echo "[Step 2/7] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download/latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 3/7] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 4/7] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 5/7] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 6/7] Launch and auto-enroll..." && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; sleep 2; (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated") || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 7/7] Verify enrollment..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT COMPLETE ✅✅✅" && echo "================================================" && echo "📱 Device \\\"$ALIAS\\\" enrolled successfully!" && echo "🔍 Check dashboard within 60 seconds" && echo "================================================"'''
+    
+    return Response(
+        content=one_liner,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'inline; filename="enroll-{alias}-oneliner.sh"'
+        }
+    )
+
 @app.post("/v1/apk/upload")
 async def upload_apk(
     file: UploadFile = File(...),
