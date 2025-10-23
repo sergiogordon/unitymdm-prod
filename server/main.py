@@ -3846,7 +3846,7 @@ fi
 echo "✅ Device Owner confirmed"
 echo
 
-echo "[Step 5/7] Grant core permissions..."
+echo "[Step 5/9] Grant core permissions..."
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
 adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
@@ -3856,7 +3856,50 @@ adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null || true
 echo "✅ Permissions granted"
 echo
 
-echo "[Step 6/7] Auto-enroll and launch..."
+echo "[Step 6/9] Disable bloatware (optional)..."
+echo "   This may take 30-60 seconds..."
+BLOAT_COUNT=0
+BLOAT_PACKAGES=(
+    "com.vzw.hss.myverizon" "com.verizon.obdm_permissions" "com.vzw.apnlib"
+    "com.verizon.mips.services" "com.vcast.mediamanager" "com.reliancecommunications.vvmclient"
+    "com.google.android.apps.youtube.music" "com.google.android.youtube" "com.google.android.apps.videos"
+    "com.google.android.apps.docs" "com.google.android.apps.maps" "com.google.android.apps.photos"
+    "com.google.android.apps.wallpaper" "com.google.android.apps.walletnfcrel"
+    "com.google.android.apps.nbu.files" "com.google.android.apps.keep"
+    "com.google.android.apps.googleassistant" "com.google.android.apps.tachyon"
+    "com.google.android.apps.safetyhub" "com.google.android.apps.nbu.paisa.user"
+    "com.google.android.apps.chromecast.app" "com.google.android.apps.wellbeing"
+    "com.google.android.apps.customization.pixel" "com.google.android.deskclock"
+    "com.google.android.calendar" "com.google.android.gm" "com.google.android.calculator"
+    "com.google.android.projection.gearhead" "com.google.android.printservice.recommendation"
+    "com.google.android.feedback" "com.google.android.marvin.talkback" "com.google.android.tts"
+    "com.google.android.gms.supervision" "com.LogiaGroup.LogiaDeck" "com.dti.folderlauncher"
+    "com.huub.viper" "us.sliide.viper" "com.example.sarswitch" "com.handmark.expressweather"
+    "com.tripledot.solitaire" "com.facebook.katana" "com.facebook.appmanager" "com.discounts.viper"
+    "com.android.egg" "com.android.dreams.basic" "com.android.dreams.phototable"
+    "com.android.musicfx" "com.android.soundrecorder" "com.android.protips"
+    "com.android.wallpapercropper" "com.android.wallpaper.livepicker"
+    "com.android.providers.partnerbookmarks" "com.android.bips" "com.android.printspooler"
+    "com.android.wallpaperbackup" "com.android.soundpicker"
+)
+for PKG_TO_DISABLE in "${{BLOAT_PACKAGES[@]}}"; do
+    if adb shell pm disable-user --user 0 "$PKG_TO_DISABLE" 2>/dev/null; then
+        ((BLOAT_COUNT++)) || true
+    fi
+done
+echo "✅ Disabled $BLOAT_COUNT bloatware packages"
+echo
+
+echo "[Step 7/9] Apply system tweaks..."
+adb shell settings put global app_standby_enabled 0 2>/dev/null || true
+adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null || true
+adb shell settings put system screen_brightness_mode 0 2>/dev/null || true
+adb shell settings put system ambient_tilt_to_wake 1 2>/dev/null || true
+adb shell settings put system ambient_touch_to_wake 1 2>/dev/null || true
+echo "✅ System tweaks applied"
+echo
+
+echo "[Step 8/9] Auto-enroll and launch..."
 # Send configuration broadcast first with receiver-foreground flag
 if ! adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$DEVICE_ALIAS" 2>/dev/null; then
     echo "❌ Configuration broadcast failed"
@@ -3870,17 +3913,27 @@ echo "✅ Auto-enrollment initiated"
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 echo
 
-echo "[Step 7/8] Verify service..."
+echo "[Step 9/9] Verify service..."
 sleep 3
 if ! adb shell pidof "$PKG" 2>/dev/null; then
     echo "❌ Service not running"
     echo "   Debug: adb logcat -d | grep $PKG"
+    DIAG_FILE="/tmp/mdm_enroll_diag.txt"
+    echo "NexMDM Enrollment Diagnostics" > "$DIAG_FILE"
+    echo "Generated: $(date)" >> "$DIAG_FILE"
+    echo "Device Alias: $ALIAS" >> "$DIAG_FILE"
+    echo "Exit Code: 8" >> "$DIAG_FILE"
+    echo "" >> "$DIAG_FILE"
+    echo "===== ADB Logcat =====" >> "$DIAG_FILE"
+    adb logcat -d 2>&1 | grep -i "nexmdm\|usage\|appops\|standby\|deviceidle" >> "$DIAG_FILE" 2>&1 || true
+    echo "" >> "$DIAG_FILE"
+    echo "Diagnostics saved to: $DIAG_FILE"
     exit 8
 fi
 echo "✅ Service running"
 echo
 
-echo "[Step 8/8] Verify registration..."
+echo "[Step 9/9] Verify registration..."
 echo "   Waiting 10 seconds for first heartbeat..."
 sleep 10
 
@@ -3901,10 +3954,33 @@ if echo "$API_RESPONSE" | grep -q "\"alias\":\"$DEVICE_ALIAS\""; then
     echo "================================================"
     echo "📱 Device \"$ALIAS\" enrolled and verified!"
     echo "🔍 Check dashboard now - device is online"
+    echo
+    echo "⚠️  MANUAL STEPS REQUIRED ON DEVICE:"
+    echo
+    echo "1. Enable Usage Access:"
+    echo "   Settings → Apps → Special app access → Usage access → NexMDM → Allow"
+    echo
+    echo "2. Enable Full Screen Intents (Android 14+):"
+    echo "   Settings → Apps → NexMDM → Notifications → Use full screen intents → Allow"
+    echo
+    echo "💡 These permissions enable battery/RAM monitoring and alert notifications."
+    echo "   The device will send metrics to the dashboard within 60 seconds."
     echo "================================================"
 else
     echo "❌ Device NOT found in backend"
     echo "   API Response: $API_RESPONSE"
+    echo
+    DIAG_FILE="/tmp/mdm_enroll_diag.txt"
+    echo "NexMDM Enrollment Diagnostics" > "$DIAG_FILE"
+    echo "Generated: $(date)" >> "$DIAG_FILE"
+    echo "Device Alias: $ALIAS" >> "$DIAG_FILE"
+    echo "Exit Code: 9" >> "$DIAG_FILE"
+    echo "API Response: $API_RESPONSE" >> "$DIAG_FILE"
+    echo "" >> "$DIAG_FILE"
+    echo "===== ADB Logcat =====" >> "$DIAG_FILE"
+    adb logcat -d 2>&1 | grep -i "nexmdm\|usage\|appops\|standby\|deviceidle" >> "$DIAG_FILE" 2>&1 || true
+    echo "" >> "$DIAG_FILE"
+    echo "Diagnostics saved to: $DIAG_FILE"
     echo
     echo "================================================"
     echo "❌❌❌ ENROLLMENT FAILED ❌❌❌"
@@ -3912,6 +3988,7 @@ else
     echo "📱 Device \"$ALIAS\" did not register"
     echo "🔍 Check server logs for errors"
     echo "   Debug: Check /v1/register endpoint"
+    echo "   Diagnostics saved to: $DIAG_FILE"
     echo "================================================"
     exit 9
 fi
