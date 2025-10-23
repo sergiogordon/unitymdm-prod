@@ -1287,7 +1287,7 @@ async def register_device(
     db: Session = Depends(get_db)
 ):
     """Register a device using admin key authentication"""
-    from models import EnrollmentToken, EnrollmentEvent
+    from models import EnrollmentEvent
     
     alias = payload.get("alias")
     hardware_id = payload.get("hardware_id", "unknown")
@@ -3805,8 +3805,11 @@ async def get_windows_one_liner_script(
     
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
     
-    # Create simplified one-liner that doesn't exit early - /K keeps window open
-    one_liner = f'''cmd.exe /V:ON /K "set PKG={agent_pkg} & set ALIAS={alias} & set BASE_URL={server_url} & set ADMINKEY={admin_key} & set APK_PATH=%TEMP%\\unitymdm.apk & echo ============================================ & echo UnityMDM Zero-Tap Enrollment - !ALIAS! & echo ============================================ & echo. & echo [Step 0/7] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %%A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %%A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/7] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/7] Download APK... & curl -L -H ^"X-Admin-Key: !ADMINKEY!^" ^"!BASE_URL!/v1/apk/download/latest^" -o ^"!APK_PATH!^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/7] Install APK... & (adb install -r -g ^"!APK_PATH!^" >nul 2>&1 || (adb uninstall !PKG! >nul 2>&1 & adb install -r -g -t ^"!APK_PATH!^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/7] Set Device Owner... & adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/7] Grant permissions... & adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant !PKG! android.permission.CAMERA >nul 2>&1 & adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set !PKG! GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +!PKG! >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/7] Launch and auto-enroll... & adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1 & timeout /t 2 /nobreak >nul & adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url ^"!BASE_URL!^" --es admin_key ^"!ADMINKEY!^" --es alias ^"!ALIAS!^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated) || (echo ❌ Broadcast failed) & echo. & echo [Step 7/7] Verify... & timeout /t 3 /nobreak >nul & adb shell pidof !PKG! >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running) & echo. & echo ============================================ & echo ✅ ENROLLMENT COMPLETE & echo ============================================ & echo Device: !ALIAS! & echo Check dashboard within 60 seconds & echo ============================================ & echo. & echo Window will stay open - Type 'exit' to close"'''
+    # Create one-liner with direct value substitution (no delayed expansion needed)
+    # Use %TEMP% for APK path - it expands at runtime
+    # Escape inner quotes with ^" for CMD parsing
+    apk_path = "%TEMP%\\unitymdm.apk"
+    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment - {alias} & echo ============================================ & echo. & echo [Step 0/7] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/7] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/7] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download/latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/7] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/7] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/7] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/7] Launch and auto-enroll... & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1 & timeout /t 2 /nobreak >nul & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated) || (echo ❌ Broadcast failed) & echo. & echo [Step 7/7] Verify... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running) & echo. & echo ============================================ & echo ✅ ENROLLMENT COMPLETE & echo ============================================ & echo Device: {alias} & echo Check dashboard within 60 seconds & echo ============================================ & echo. & echo Window will stay open - Type 'exit' to close"'''
     
     return Response(
         content=one_liner,
@@ -3988,18 +3991,25 @@ async def download_apk_version(
     apk_id: str,
     request: Request,
     x_device_token: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
     db: Session = Depends(get_db)
 ):
-    """Download a specific APK version (requires device token or enrollment token)"""
-    from models import ApkDownloadEvent, EnrollmentToken
+    """Download a specific APK version (requires device token or admin authentication)"""
+    from models import ApkDownloadEvent
     
     device = None
     token_id_last4 = "anon"
     auth_source = "unknown"
     
-    # Try device token authentication first
-    if x_device_token:
+    # Try admin key authentication first
+    if x_admin_key:
+        admin_key = os.getenv("ADMIN_KEY", "")
+        if admin_key and x_admin_key == admin_key:
+            auth_source = "admin"
+            token_id_last4 = "admin"
+    
+    # Try device token authentication if not admin
+    if auth_source != "admin" and x_device_token:
         devices = db.query(Device).limit(100).all()
         for d in devices:
             if verify_token(x_device_token, d.token_hash):
@@ -4008,25 +4018,9 @@ async def download_apk_version(
                 auth_source = "device"
                 break
     
-    # Try enrollment token authentication if no device token
-    if not device and authorization:
-        try:
-            if authorization.startswith("Bearer "):
-                enroll_token_value = authorization[7:]
-                # Check if it's a valid enrollment token
-                enrollment_tokens = db.query(EnrollmentToken).filter(
-                    EnrollmentToken.status == 'active'
-                ).all()
-                for et in enrollment_tokens:
-                    if verify_token(enroll_token_value, et.token_hash):
-                        token_id_last4 = et.token_id[-4:]
-                        auth_source = "enrollment"
-                        break
-        except Exception as e:
-            print(f"[APK DOWNLOAD] Enrollment token validation error: {e}")
-    
-    if not device and auth_source != "enrollment":
-        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    # Require valid authentication (either admin key or device token)
+    if auth_source not in ["admin", "device"]:
+        raise HTTPException(status_code=401, detail="Invalid authentication")
     
     # Handle "latest" as special case
     if apk_id.lower() == "latest":
