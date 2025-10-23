@@ -25,17 +25,22 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch, X-Admin-Key for enrollment flow.
 - **Android Agent**: Dedicated Android application with an automated CI/CD pipeline (GitHub Actions) for secure deployment.
-- **Zero-Tap Enrollment (Simplified Oct 2025)**: True single-command device provisioning with streamlined admin-key authentication. The system provides **true 1-liner commands** (Windows CMD and Bash) that handle the complete enrollment workflow from factory-reset Android devices with fail-fast behavior and actionable error messages. **Enrollment tokens have been removed** - authentication now uses admin-key directly, eliminating the token creation step. Key features:
+- **Zero-Tap Enrollment v2 (Metrics-Ready + Hardening - Oct 2025)**: Production-hardened device provisioning with bloatware removal, system optimization, and comprehensive diagnostics. The system provides **true 1-liner commands** (Windows CMD and Bash) that handle the complete enrollment workflow from factory-reset Android devices with fail-fast behavior and actionable error messages. **Enrollment tokens have been removed** - authentication now uses admin-key directly, eliminating the token creation step. Key features:
   - **Simplified Authentication**: Scripts use admin-key directly; no enrollment token creation required
   - **JWT-Authenticated Script Generation**: Frontend generates scripts after JWT login with just an alias input
   - **Android ConfigReceiver**: Accepts 'admin_key' in broadcast intents for device registration
   - **Backend /v1/register**: Authenticates via X-Admin-Key header for streamlined registration
-  - **Enhanced Scripts**: All enrollment scripts (full .cmd/.sh and one-liners) feature 7-step progress tracking with ✅/❌ indicators, inline debug hints for failures, and specific exit codes (2-8) for each failure point
+  - **Enhanced Scripts**: All enrollment scripts (full .cmd/.sh and one-liners) feature 9-step progress tracking with ✅/❌ indicators, inline debug hints for failures, and specific exit codes (2-9) for each failure point
   - **Frontend Integration**: Simplified ADB setup page with one-click script generation and copy buttons for Windows and Bash one-liners
-  - **Enrollment Flow**: (1) Wait for device → (2) Download APK → (3) Install APK → (4) Set Device Owner → (5) Grant permissions → (6) Launch app & send broadcast → (7) Verify service
+  - **Enrollment Flow v2** (9 steps): (1) Wait for device → (2) Download APK → (3) Install APK → (4) Set Device Owner → (5) Grant permissions → (6) Disable bloatware → (7) Apply system tweaks → (8) Launch app & send broadcast → (9) Verify service & registration
+  - **Bloatware Removal**: Best-effort disabling of ~60 carrier/OEM/Google apps (Verizon bloat, YouTube, Maps, Calendar, Facebook, etc.) using `pm disable-user --user 0`. Non-blocking - continues enrollment if packages are missing
+  - **System Tweaks**: Disables app standby, battery restrictions, sets ambient wake (tilt/touch), and optimizes screen brightness for reliable 24/7 operation
+  - **Manual Step Guidance**: Clear post-enrollment instructions for Usage Access and Full-Screen Intents permissions with exact Settings paths for Android 13/14+
+  - **Diagnostic Logging**: On failure, automatically captures ADB logcat output filtered for NexMDM, usage stats, doze, and standby to `%TEMP%\mdm_enroll_diag.txt` (Windows) or `/tmp/mdm_enroll_diag.txt` (Bash) for troubleshooting
   - **Error Guidance**: Each failure point includes specific fix instructions (e.g., "Fix: Factory reset device" for Device Owner failures)
   - Supports four script types: Windows .cmd (full batch file), Bash .sh (Unix/Linux/macOS), Windows one-liner (CMD paste), and Bash one-liner (Terminal paste)
   - **Persistent Console Windows**: Windows scripts keep console open to display enrollment progress and errors
+  - **Metrics Verification**: Android agent automatically collects and sends battery %, network SSID, RAM usage, and uptime in heartbeats within 60 seconds of enrollment completion
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival with SHA-256 checksums.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics with latency histograms, connection pool monitoring.
 
