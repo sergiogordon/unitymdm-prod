@@ -399,6 +399,20 @@ class MonitoringDefaults(Base):
         Index('idx_monitoring_defaults_updated', 'updated_at'),
     )
 
+class BloatwarePackage(Base):
+    __tablename__ = "bloatware_packages"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    package_name: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_bloatware_enabled', 'enabled'),
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
 
 # Configure connection pool for better concurrency (handles 100+ devices)
