@@ -57,6 +57,9 @@ class Device(Base):
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     monitoring_use_defaults: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_relaunch_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_ping_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_ring_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ringing_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     
     __table_args__ = (
         Index('idx_device_status_query', 'last_seen'),
@@ -418,6 +421,44 @@ class BloatwarePackage(Base):
     
     __table_args__ = (
         Index('idx_bloatware_enabled', 'enabled'),
+    )
+
+class DeviceCommand(Base):
+    __tablename__ = "device_commands"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default='queued', nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    payload: Mapped[Optional[str]] = mapped_column(JSONB, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_device_command_status', 'device_id', 'status'),
+        Index('idx_device_command_type', 'type', 'created_at'),
+    )
+
+class DeviceMetric(Base):
+    __tablename__ = "device_metrics"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    charging: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    network_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    signal_dbm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    uptime_ms: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    app_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    
+    __table_args__ = (
+        Index('idx_device_metric_device_ts', 'device_id', 'ts'),
+        Index('idx_device_metric_source', 'source', 'ts'),
     )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
