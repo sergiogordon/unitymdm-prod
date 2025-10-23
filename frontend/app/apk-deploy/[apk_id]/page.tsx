@@ -8,7 +8,6 @@ import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { isAuthenticated } from "@/lib/api-client"
 
 interface Device {
   id: string
@@ -54,17 +53,6 @@ export default function ApkDeployPage() {
   const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "25" | "50" | "custom">("all")
   const [customPercentage, setCustomPercentage] = useState<number>(10)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
-  const [authChecked, setAuthChecked] = useState(false)
-
-  // Check authentication
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login')
-    } else {
-      setAuthChecked(true)
-    }
-  }, [router])
-
   useEffect(() => {
     if (isDark) {
       document.documentElement.classList.add("dark")
@@ -74,10 +62,8 @@ export default function ApkDeployPage() {
   }, [isDark])
 
   useEffect(() => {
-    if (authChecked) {
-      fetchData()
-    }
-  }, [apkId, authChecked])
+    fetchData()
+  }, [apkId])
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -324,6 +310,7 @@ export default function ApkDeployPage() {
                     selectedDevices.size === devices.filter(d => d.fcm_token).length
                   }
                   onCheckedChange={handleSelectAll}
+                  disabled={devices.filter(d => d.fcm_token).length === 0}
                 />
                 <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
                   Select All ({devices.filter(d => d.fcm_token).length} devices)
