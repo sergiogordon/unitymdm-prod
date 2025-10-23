@@ -25,14 +25,17 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for secure command dispatch, X-Admin-Key for enrollment flow.
 - **Android Agent**: Dedicated Android application with an automated CI/CD pipeline (GitHub Actions) for secure deployment.
-- **Zero-Tap Enrollment (Enhanced Oct 2025)**: True single-command device provisioning with enhanced debugging capabilities. The system now provides **true 1-liner commands** (Windows CMD and Bash) that handle the complete enrollment workflow from factory-reset Android devices with fail-fast behavior and actionable error messages. Key improvements:
-  - **Android ConfigReceiver**: Updated to accept 'admin_key' instead of 'token' in broadcast intents for simplified authentication
-  - **Backend /v1/register**: Now authenticates via X-Admin-Key header instead of enrollment tokens, streamlining the registration flow
+- **Zero-Tap Enrollment (Simplified Oct 2025)**: True single-command device provisioning with streamlined admin-key authentication. The system provides **true 1-liner commands** (Windows CMD and Bash) that handle the complete enrollment workflow from factory-reset Android devices with fail-fast behavior and actionable error messages. **Enrollment tokens have been removed** - authentication now uses admin-key directly, eliminating the token creation step. Key features:
+  - **Simplified Authentication**: Scripts use admin-key directly; no enrollment token creation required
+  - **JWT-Authenticated Script Generation**: Frontend generates scripts after JWT login with just an alias input
+  - **Android ConfigReceiver**: Accepts 'admin_key' in broadcast intents for device registration
+  - **Backend /v1/register**: Authenticates via X-Admin-Key header for streamlined registration
   - **Enhanced Scripts**: All enrollment scripts (full .cmd/.sh and one-liners) feature 7-step progress tracking with ✅/❌ indicators, inline debug hints for failures, and specific exit codes (2-8) for each failure point
-  - **Frontend Integration**: ADB setup page offers both Windows and Bash one-liner buttons for easy clipboard copy
+  - **Frontend Integration**: Simplified ADB setup page with one-click script generation and copy buttons for Windows and Bash one-liners
   - **Enrollment Flow**: (1) Wait for device → (2) Download APK → (3) Install APK → (4) Set Device Owner → (5) Grant permissions → (6) Launch app & send broadcast → (7) Verify service
   - **Error Guidance**: Each failure point includes specific fix instructions (e.g., "Fix: Factory reset device" for Device Owner failures)
-  - Supports three script types: Windows .cmd (full batch file), Bash .sh (Unix/Linux/macOS), Windows one-liner (CMD paste), and Bash one-liner (Terminal paste)
+  - Supports four script types: Windows .cmd (full batch file), Bash .sh (Unix/Linux/macOS), Windows one-liner (CMD paste), and Bash one-liner (Terminal paste)
+  - **Persistent Console Windows**: Windows scripts keep console open to display enrollment progress and errors
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival with SHA-256 checksums.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics with latency histograms, connection pool monitoring.
 
@@ -40,7 +43,6 @@ The frontend, developed with Next.js and shadcn/ui, provides a modern, responsiv
 - **Core Control Loop**: Secure device registration, heartbeat processing, FCM command dispatch, action result tracking, and HMAC signature validation.
 - **Device Management**: Real-time heartbeat monitoring, battery/memory tracking, remote command execution, auto-relaunch, and offline detection.
 - **Bulk Device Deletion**: Comprehensive hard delete system with multi-select UI, device selection snapshots (15-min TTL), token revocation (410 Gone on heartbeat), async historical data purging with advisory locks, rate limiting (10 ops/min), type-to-confirm safety modal, and optional purge history checkbox. Background workers execute purge jobs every 30 seconds with automatic partition support.
-- **Bulk Enrollment Token Deletion**: Multi-select UI with checkboxes for batch enrollment token deletion. Features select-all functionality, bulk actions bar showing selected count, type-to-confirm safety modal requiring `DELETE N` confirmation, and audit logging for all deletion operations. Backend endpoint `POST /v1/enroll-tokens/batch-delete` supports up to 500 tokens per request with detailed error reporting for failed deletions.
 - **Alert System**: Automated alerting for offline devices (>12m), low battery (<15%), Unity app down, and **configurable service monitoring** with Discord webhook integration, deduplication, rate limiting, and optional auto-remediation via FCM.
 - **Service Monitoring (NEW)**: Per-device configurable foreground monitoring for any Android package. Admin sets monitored package (e.g., Speedtest, Unity), display name, and threshold (1-120 min, default 10). Backend evaluates service up/down based on foreground recency from Android UsageStatsManager. Discord alerts fire on service_down transitions with service name, last foreground time, and threshold. Recovery alerts on service restoration. API endpoints: `GET/PATCH /admin/devices/{id}/monitoring`. Backward compatible with legacy Speedtest-specific detection. See `MONITORING_IMPLEMENTATION_STATUS.md` for full details.
 - **Security**: bcrypt hashing, HMAC SHA-256, JWT, IP-based rate limiting, and audit tracking.
