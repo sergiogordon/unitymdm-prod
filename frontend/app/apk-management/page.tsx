@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
-import { Package, Upload, Download, Trash2, RefreshCw } from "lucide-react"
+import { Package, Upload, Download, Trash2, RefreshCw, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { format } from "date-fns"
@@ -211,6 +211,15 @@ export default function ApkManagementPage() {
                               title="Download APK"
                             >
                               <Download className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => window.location.href = `/apk-deploy/${apk.build_id}`}
+                              title="Deploy to Devices"
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-950"
+                            >
+                              <Send className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
