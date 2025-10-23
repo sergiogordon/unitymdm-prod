@@ -70,6 +70,14 @@ async function proxyRequest(
       }
     })
 
+    // Inject admin key for admin endpoints (server-side only, for security)
+    if (path.startsWith('admin/')) {
+      const adminKey = process.env.ADMIN_KEY
+      if (adminKey) {
+        headers.set('X-Admin', adminKey)
+      }
+    }
+
     // Get request body for POST/PUT/PATCH - use arrayBuffer to preserve binary data
     let body: ArrayBuffer | undefined = undefined
     if (method !== 'GET' && method !== 'DELETE') {
