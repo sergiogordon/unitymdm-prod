@@ -2,16 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const alias = url.searchParams.get('alias');
-    
-    if (!alias) {
-      return NextResponse.json(
-        { detail: 'Alias parameter is required' },
-        { status: 400 }
-      );
-    }
-
     const adminKey = request.headers.get('X-Admin-Key');
     if (!adminKey) {
       return NextResponse.json(
@@ -21,24 +11,44 @@ export async function POST(request: NextRequest) {
     }
 
     let body = null;
+    let alias = null;
     const contentType = request.headers.get('Content-Type');
     
     if (contentType?.includes('application/json')) {
       try {
         body = await request.json();
+        alias = body?.alias;
       } catch (e) {
-        // No body or invalid JSON, proceed without body
+        // Invalid JSON, fall through to check query params
       }
     }
 
-    const backendUrl = `http://localhost:8000/v1/register?alias=${encodeURIComponent(alias)}`;
+    if (!alias) {
+      const url = new URL(request.url);
+      alias = url.searchParams.get('alias');
+    }
+
+    if (!alias) {
+      return NextResponse.json(
+        { detail: 'Alias is required in JSON body or query parameter' },
+        { status: 400 }
+      );
+    }
+
+    const requestBody = body || { alias };
+    
+    if (!requestBody.alias) {
+      requestBody.alias = alias;
+    }
+
+    const backendUrl = `http://localhost:8000/v1/register`;
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {
         'X-Admin-Key': adminKey,
         'Content-Type': 'application/json',
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
