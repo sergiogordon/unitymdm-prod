@@ -12,10 +12,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const adminKey = request.headers.get('X-Admin');
+    const adminKey = request.headers.get('X-Admin-Key');
     if (!adminKey) {
       return NextResponse.json(
-        { detail: 'X-Admin header is required' },
+        { detail: 'X-Admin-Key header is required' },
         { status: 401 }
       );
     }
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {
-        'X-Admin': adminKey,
+        'X-Admin-Key': adminKey,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
