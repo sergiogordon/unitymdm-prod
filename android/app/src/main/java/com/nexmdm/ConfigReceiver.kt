@@ -68,7 +68,7 @@ class ConfigReceiver : BroadcastReceiver() {
             val request = Request.Builder()
                 .url("$serverUrl/v1/register?alias=$alias")
                 .post("".toRequestBody("application/json".toMediaType()))
-                .addHeader("X-Admin", adminKey)
+                .addHeader("X-Admin-Key", adminKey)
                 .build()
             
             val response = client.newCall(request).execute()
