@@ -319,7 +319,10 @@ export default function ApkDeployPage() {
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="select-all"
-                  checked={selectedDevices.size === devices.filter(d => d.fcm_token).length && devices.length > 0}
+                  checked={
+                    devices.filter(d => d.fcm_token).length > 0 &&
+                    selectedDevices.size === devices.filter(d => d.fcm_token).length
+                  }
                   onCheckedChange={handleSelectAll}
                 />
                 <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
