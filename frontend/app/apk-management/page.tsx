@@ -164,7 +164,7 @@ export default function ApkManagementPage() {
       const versionCode = parseInt(uploadVersionName.replace(/\./g, '')) || Math.floor(Date.now() / 1000)
 
       // Step 1: Register the APK build
-      const registerResponse = await fetch('/admin/apk/register', {
+      const registerResponse = await fetch('/api/proxy/admin/apk/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -195,7 +195,7 @@ export default function ApkManagementPage() {
       formData.append('build_type', uploadBuildType)
       formData.append('package_name', 'com.nexmdm.agent')
 
-      const uploadResponse = await fetch('/admin/apk/upload', {
+      const uploadResponse = await fetch('/api/proxy/admin/apk/upload', {
         method: 'POST',
         body: formData
       })
