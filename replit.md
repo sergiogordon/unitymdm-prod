@@ -25,7 +25,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for command dispatch, X-Admin-Key for enrollment.
 - **Android Agent**: Dedicated Android application with automated CI/CD.
-- **Zero-Tap Enrollment v2**: Production-hardened provisioning with simplified authentication (admin-key directly), JWT-authenticated script generation, comprehensive 9-step enrollment scripts with progress tracking and diagnostic logging, bloatware removal, and system optimization.
+- **Zero-Tap Enrollment v2**: Production-hardened provisioning with simplified authentication (admin-key directly), JWT-authenticated script generation. One-liner enrollment commands (Windows CMD and Bash) with 9-step flow including bloatware removal (57 packages), system tweaks (app standby, ambient wake, battery optimizations), progress tracking, and diagnostic logging. Full enrollment scripts (.cmd/.sh) deprecated in favor of one-liners.
 - **Persistence**: Partitioned heartbeat storage (90-day retention), device_last_status for O(1) reads, automated archival.
 - **Observability**: Structured JSON logging, Prometheus-compatible metrics, connection pool monitoring.
 - **Core Control Loop**: Secure device registration, heartbeat processing, FCM command dispatch, action result tracking, HMAC signature validation.
