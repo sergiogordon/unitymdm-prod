@@ -34,6 +34,7 @@ export default function ApkManagementPage() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadVersionName, setUploadVersionName] = useState("")
+  const [uploadPackageName, setUploadPackageName] = useState("")
   const [uploadBuildType, setUploadBuildType] = useState<"debug" | "release">("release")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -149,8 +150,8 @@ export default function ApkManagementPage() {
   }
 
   const handleUploadApk = async () => {
-    if (!uploadFile || !uploadVersionName) {
-      alert('Please provide both file and version name')
+    if (!uploadFile || !uploadVersionName || !uploadPackageName) {
+      alert('Please provide file, version name, and package name')
       return
     }
 
@@ -175,7 +176,7 @@ export default function ApkManagementPage() {
           version_name: uploadVersionName,
           build_type: uploadBuildType,
           file_size_bytes: uploadFile.size,
-          package_name: "com.nexmdm.agent"
+          package_name: uploadPackageName
         })
       })
 
@@ -193,7 +194,7 @@ export default function ApkManagementPage() {
       formData.append('version_code', versionCode.toString())
       formData.append('version_name', uploadVersionName)
       formData.append('build_type', uploadBuildType)
-      formData.append('package_name', 'com.nexmdm.agent')
+      formData.append('package_name', uploadPackageName)
 
       const uploadResponse = await fetch('/api/proxy/admin/apk/upload', {
         method: 'POST',
@@ -212,6 +213,7 @@ export default function ApkManagementPage() {
         setShowUploadModal(false)
         setUploadFile(null)
         setUploadVersionName("")
+        setUploadPackageName("")
         setUploadBuildType("release")
         fetchApkBuilds()
       }, 500)
@@ -354,6 +356,7 @@ export default function ApkManagementPage() {
                   setShowUploadModal(false)
                   setUploadFile(null)
                   setUploadVersionName("")
+                  setUploadPackageName("")
                   setError(null)
                 }}
                 disabled={isUploading}
@@ -387,6 +390,24 @@ export default function ApkManagementPage() {
                     Selected: {uploadFile.name} ({formatFileSize(uploadFile.size)})
                   </p>
                 )}
+              </div>
+
+              {/* Package Name Input */}
+              <div>
+                <Label htmlFor="package-name" className="mb-2 block text-sm font-medium">
+                  Package Name
+                </Label>
+                <Input
+                  id="package-name"
+                  type="text"
+                  placeholder="e.g., org.zwanoo.android.speedtest"
+                  value={uploadPackageName}
+                  onChange={(e) => setUploadPackageName(e.target.value)}
+                  disabled={isUploading}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Android package name (e.g., com.example.app)
+                </p>
               </div>
 
               {/* Version Name Input */}
@@ -456,6 +477,7 @@ export default function ApkManagementPage() {
                     setShowUploadModal(false)
                     setUploadFile(null)
                     setUploadVersionName("")
+                    setUploadPackageName("")
                     setError(null)
                   }}
                   disabled={isUploading}
@@ -465,7 +487,7 @@ export default function ApkManagementPage() {
                 </Button>
                 <Button
                   onClick={handleUploadApk}
-                  disabled={!uploadFile || !uploadVersionName || isUploading}
+                  disabled={!uploadFile || !uploadVersionName || !uploadPackageName || isUploading}
                   className="flex-1 gap-2"
                 >
                   {isUploading ? (
