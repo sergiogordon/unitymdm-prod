@@ -1,0 +1,258 @@
+Milestone: “Zero-Tap Device Enrollment — 1-Liner (with Deep Debugging)”
+Objective
+
+Ship a single command that fully provisions a factory-reset Android device into UnityMDM (install → device owner → perms → auto-enroll → success banner) with zero user interaction — plus a step-by-step debug guide that pinpoints failures in seconds.
+
+Scope (must do)
+
+Wait for device → 2) Download latest APK → 3) Install → 4) Set Device Owner → 5) Grant core perms → 6) Launch & auto-enroll → 7) Print success banner.
+
+Plaintext BASE_URL, ADMIN_KEY, PACKAGE_NAME, ADMIN_RECEIVER, DEVICE_ALIAS are OK in the 1-liner for this milestone.
+
+Do / Do Not
+
+Do
+
+Keep everything in one Windows-friendly 1-liner (POSIX variant later).
+
+Fail fast with clear ❌ messages.
+
+Echo progress [Step X/5] and ✅ successes.
+
+Use static admin key + server URL.
+
+Do Not
+
+No UI taps / Play Services / accounts.
+
+No debloat / battery tweaks (Phase 2).
+
+No expiring tokens.
+
+Definition of Done
+
+One command enrolls a factory-reset device twice in a row with zero taps.
+
+Device Owner confirmed via dumpsys device_policy.
+
+Device appears in dashboard within 60s of completion.
+
+Each step prints ✅/❌ and a final success banner.
+
+Failures exit non-zero and are diagnosable via the debug playbook below.
+
+🔍 Debug Playbook (per step)
+Step 1 — Device discovery (adb wait-for-device)
+
+Success looks like: command proceeds to Step 2 within a few seconds.
+
+If it fails / hangs
+
+USB / driver: Replug cable; try another port/cable; install OEM USB driver.
+
+ADB auth: On device, ensure “USB debugging” enabled (factory-reset wizard must be completed only to enable debugging, then wipe again for Device Owner step).
+
+Multiple devices:
+
+adb devices → ensure exactly one device is device state (not unauthorized / offline).
+
+If multiple, set adb -s <serial> … in the command.
+
+Permissions on host: If using corporate laptop, disable “USB selective suspend” or use a clean host.
+
+Useful commands
+
+adb devices -l
+
+adb kill-server && adb start-server
+
+Windows Power: Get-PnpDevice -FriendlyName "*ADB*"
+
+Step 2 — Download latest APK (curl from CI)
+
+Success looks like: file saved to temp (non-zero size).
+
+Common failures & fixes
+
+HTTP 401/403: Confirm endpoint allows your static header or no auth is required for “latest APK”.
+
+Retry with verbose: curl -v "<URL>" -o %TEMP%\unity.apk
+
+TLS / cert issues: Check cert chain in curl -v; verify Replit URL hasn’t rotated.
+
+Wrong endpoint: Hit in browser to confirm a file downloads; ensure it’s an APK (MIME type).
+
+Useful checks
+
+Windows: dir %TEMP%\unity.apk
+
+Hash (sanity): certutil -hashfile %TEMP%\unity.apk SHA256
+
+Step 3 — Install APK (adb install -r)
+
+Success looks like: silent return to prompt, Step 4 begins.
+
+Typical ADB install errors
+
+INSTALL_FAILED_UPDATE_INCOMPATIBLE: Prior debug build signed with different key.
+Fix: adb uninstall <PACKAGE_NAME> then install again.
+
+INSTALL_FAILED_VERSION_DOWNGRADE: You’re installing older version.
+Fix: bump versionCode or uninstall first.
+
+INSTALL_PARSE_FAILED_NO_CERTIFICATES: Bad or corrupted APK.
+Fix: re-sign or re-download.
+
+INSTALL_FAILED_TEST_ONLY (rare): Add -t if testOnly; better: remove testOnly from manifest.
+
+Useful commands
+
+adb shell pm list packages | findstr <partial>
+
+adb uninstall <PACKAGE_NAME>
+
+adb shell pm dump <PACKAGE_NAME> | findstr version
+
+Step 4 — Set Device Owner (dpm set-device-owner <pkg>/<receiver>)
+
+Success looks like: Success: Device owner set to component... then Step 5 begins.
+
+Hard blockers (very common)
+
+Not allowed because device already provisioned: The device isn’t factory-fresh.
+Fix: Full factory reset, skip account & SIM, enable ADB if necessary via dev menu, then wipe again and run immediately after the setup wizard’s minimal steps. (Best: use QR/Zero-touch in production; for now, ensure it’s absolutely fresh.)
+
+Admin receiver not found: Wrong class name or package.
+Fix: Confirm you exported the receiver and it’s present in this build:
+
+adb shell dumpsys package <PACKAGE_NAME> | findstr -i receiver
+
+Receiver is not a DeviceAdmin: Manifest missing <device-admin> metadata.
+Fix: Ensure DeviceAdminReceiver subclass and correct <meta-data android:name="android.app.device_admin">.
+
+Preflight checks (before running 1-liner)
+
+adb shell settings get secure user_setup_complete → should be 0 before provisioning.
+
+adb shell settings get global device_provisioned → should be 0 before provisioning.
+
+adb shell dpm get-active-admins → should be null/empty.
+
+Post-success checks
+
+adb shell dumpsys device_policy | findstr -i "Active admin" | findstr <PACKAGE_NAME>
+
+adb shell dpm get-device-owner
+
+Step 5 — Grant core permissions (pm / appops / doze whitelist)
+
+Success looks like: all pm grant and appops return to prompt with no errors.
+
+Common issues
+
+Unknown permission: Typo or removed permission on your target SDK.
+Fix: Align requested runtime perms with your targetSdkVersion.
+
+SecurityException: Permission grant restricted: You cannot grant signature/privileged permissions.
+Fix: Only grant runtime ones your app declares and is allowed to receive.
+
+AppOps not sticking?
+
+Check bucket: adb shell cmd usagestats app-standby-bucket <PACKAGE_NAME>
+
+Minimal milestone does not fight OEM power managers; if enrollment fails due to background limits, test launching a foreground service on first run.
+
+Useful commands
+
+adb shell pm list permissions -g -d
+
+adb shell appops get <PACKAGE_NAME>
+
+Step 6 — Launch & Auto-Enroll (monkey + broadcast to ConfigReceiver)
+
+Success looks like: app shows initial screen (or foreground service), then enrollment succeeds; dashboard reflects device within ~60s.
+
+If enrollment doesn’t happen
+
+Broadcast not received:
+
+Confirm exact action & receiver component names.
+
+adb shell cmd package resolve-activity -a <ACTION> (for activities)
+
+For receivers, inspect manifest via dumpsys package.
+
+Exported receiver: On Android 12+, android:exported="true" MUST be set for intent-filter components.
+
+Receiver permission: If receiver requires a custom permission, you must declare it in sender or remove the protection for this milestone.
+
+Network: Device has no data/Wi-Fi. Ensure Wi-Fi connected or ignore if your enrollment is offline & queued.
+
+Enrollment contract mismatch: The app expects keys server_url, admin_key, alias (exact strings!). Verify they’re what the app parses.
+
+Collect logs (Windows-friendly)
+
+Filter to your tag(s) (set these in app when implementing):
+adb logcat -v time | findstr /I "UnityMDM EnrollmentSuccess EnrollmentError ConfigReceiver"
+
+Just your package:
+adb logcat --pid=$(adb shell pidof -s <PACKAGE_NAME>) (use a PowerShell wrapper if needed)
+
+All receiver activity:
+adb logcat -v brief ActivityManager:V BroadcastQueue:V *:S | findstr /I "<PACKAGE_NAME> <ACTION>"
+
+Backend checks
+
+Hit the dashboard/API directly (if available) filtering by DEVICE_ALIAS or device ID.
+
+If the app logs include an enrollment HTTP status, capture it:
+
+EnrollmentSuccess 200 vs EnrollmentError 401/403/500
+
+Step 7 — Final banner & verification
+
+Success looks like: big ✅ banner + guidance to check dashboard.
+
+If the banner printed but nothing in dashboard
+
+Re-run only Step 6 pieces manually:
+
+adb shell monkey -p <PACKAGE_NAME> -c android.intent.category.LAUNCHER 1
+
+Re-send broadcast with visible extras:
+
+adb shell am broadcast -a <ACTION> -n <PACKAGE_NAME>/<RECEIVER> --es server_url "<BASE_URL>" --es admin_key "<KEY>" --es alias "D07"
+
+Check device clock skew (TLS/expiry):
+
+adb shell date (if wildly off, HTTPS can fail)
+
+Reopen app and see if your app logs a retry queue; verify foreground service keeps process alive long enough to finish enrollment handshake (if applicable).
+
+QA Scenarios to Execute
+
+Happy path: brand-new device → full run → dashboard in ≤60s.
+
+Already provisioned: expect ❌ with “device already provisioned” guidance.
+
+Bad receiver: typo the receiver → expect ❌ and manifest/receiver debug hints.
+
+No network: enrollment should fail fast at Step 6 with a clear ❌ and a “Check connectivity” tip.
+
+Signature mismatch: install error path produces ❌ with uninstall hint.
+
+Handover Artifacts
+
+1-liner spec (values to be inlined by Replit agent).
+
+Operator runbook (this doc).
+
+Known-good strings: exact action name, receiver class, and the three broadcast extras names (server_url, admin_key, alias) that your app consumes.
+
+Risks & Mitigations
+
+Factory-reset requirement: Document it in bold; add a preflight check that fails fast if device looks provisioned.
+
+OEM quirks (Orbic Joy 2 / A13): Keep to minimal runtime permissions; if OEM power mgmt kills background work during enrollment, ensure your app uses a short-lived foreground service on first launch (safe & allowed) to finish the handshake.
+
+Human error in identifiers: Print the exact values used (pkg, receiver, alias) at the top of the run so operators can spot typos before the flow begins.
