@@ -162,8 +162,8 @@ jobs:
       - name: Extract APK metadata
         id: apk_metadata
         run: |
-          # Extract metadata from debug APK using aapt
-          APK_PATH="android/$DEBUG_APK_PATH"
+          # Extract metadata from RELEASE APK using aapt
+          APK_PATH="android/$RELEASE_APK_PATH"
           
           # Get file size
           FILE_SIZE=$(stat -c%s "$APK_PATH")
@@ -216,7 +216,7 @@ jobs:
           BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
           
           echo "================================================"
-          echo "🚀 Registering debug APK with NexMDM backend"
+          echo "🚀 Registering RELEASE APK with NexMDM backend"
           echo "================================================"
           echo "Build ID: $BUILD_ID"
           echo "Backend URL: $BACKEND_URL"
@@ -232,7 +232,7 @@ jobs:
             "build_id": "$BUILD_ID",
             "version_code": ${{ steps.version.outputs.version_code }},
             "version_name": "${{ steps.version.outputs.version_name }}",
-            "build_type": "debug",
+            "build_type": "release",
             "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
             "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
             "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
@@ -271,7 +271,7 @@ jobs:
           # Validate response
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
             echo ""
-            echo "✅ SUCCESS: Debug APK metadata registered with backend!"
+            echo "✅ SUCCESS: Release APK metadata registered with backend!"
             echo "View build at: $BACKEND_URL/apk-management"
           else
             echo ""
@@ -291,8 +291,8 @@ jobs:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
-          echo "📤 Uploading APK binary to backend via Next.js proxy..."
-          APK_PATH="android/${{ env.DEBUG_APK_PATH }}"
+          echo "📤 Uploading RELEASE APK binary to backend via Next.js proxy..."
+          APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
           
           echo "📍 Upload URL: $BACKEND_URL/api/apk/upload"
           echo "📦 APK file: $APK_PATH"
@@ -306,7 +306,7 @@ jobs:
             -F "build_id=gh_${{ github.run_id }}_${{ github.run_number }}" \
             -F "version_code=${{ steps.version.outputs.version_code }}" \
             -F "version_name=${{ steps.version.outputs.version_name }}" \
-            -F "build_type=debug" \
+            -F "build_type=release" \
             -F "package_name=com.nexmdm" \
             -w "\n%{http_code}" \
             -o /tmp/upload_response.txt \
@@ -320,11 +320,11 @@ jobs:
           echo "Response: $UPLOAD_RESPONSE"
           
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-            echo "✅ SUCCESS: APK file uploaded to backend!"
+            echo "✅ SUCCESS: Release APK file uploaded to backend!"
           else
             echo "⚠️  WARNING: File upload failed with HTTP $HTTP_CODE"
             echo "Build is registered but file download may not work"
-            echo "You can still download the APK from GitHub Actions artifacts"
+            echo "You can still download the release APK from GitHub Actions artifacts"
           fi
       
       - name: Upload Release APK as artifact
@@ -363,24 +363,25 @@ jobs:
           
           ### ✅ Artifacts Built
           
-          #### Debug APK
+          #### Release APK (Production)
           - **SHA256**: \`${{ steps.apk_metadata.outputs.SHA256 }}\`
           - **Size**: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes
           - **Signature**: Verified ✅
           - **Backend**: Registered ✅
           - **Dashboard**: [${{ secrets.NEXMDM_BACKEND_URL }}/apk-management](${{ secrets.NEXMDM_BACKEND_URL }}/apk-management)
-          
-          #### Release APK
-          - **Signature**: Verified ✅
           - **Available**: GitHub Artifacts (90 days)
           
-          #### Release AAB
+          #### Debug APK (Development Only)
+          - **Signature**: Verified ✅
+          - **Available**: GitHub Artifacts (30 days)
+          
+          #### Release AAB (Google Play)
           - **Available**: GitHub Artifacts (90 days)
           
           ### 🔐 Security
           - All APKs signed with production keystore
           - Signatures verified with apksigner
-          - Debug APK registered in APK Management system
+          - Release APK registered in APK Management system for fleet deployment
           
           ### 📥 Download
           - [Debug APK (30 days retention)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
