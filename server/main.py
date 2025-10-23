@@ -3599,7 +3599,7 @@ ALIAS="{alias}"
 RECEIVER=".NexDeviceAdminReceiver"
 BASE_URL="{server_url}"
 ADMIN_KEY="{admin_key}"
-APK_PATH="/tmp/unitymdm-agent.apk"
+APK_PATH="/tmp/unitymdm.apk"
 DEVICE_ALIAS="{alias}"
 
 echo "================================================"
