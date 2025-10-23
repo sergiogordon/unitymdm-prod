@@ -8,9 +8,9 @@ The GitHub Actions workflow automatically builds, signs, verifies, and distribut
 
 ### What Gets Automated
 
-- ✅ Debug APK builds (auto-uploaded to APK Management backend)
-- ✅ Release APK builds (uploaded as GitHub artifacts)
-- ✅ Release AAB builds (uploaded as GitHub artifacts)
+- ✅ Release APK builds (auto-uploaded to APK Management backend for fleet deployment)
+- ✅ Debug APK builds (uploaded as GitHub artifacts for development)
+- ✅ Release AAB builds (uploaded as GitHub artifacts for Google Play)
 - ✅ APK signature verification
 - ✅ Automatic versioning based on commit count
 - ✅ SHA256 checksum generation
@@ -102,17 +102,19 @@ Navigate to `Actions > Android Agent CI > Run workflow` in GitHub.
 
 ## Build Outputs
 
-### Debug APK
-- **Purpose:** Internal testing and device enrollment
-- **Signing:** Signed with release keystore (for consistent upgrades)
+### Release APK (Production)
+- **Purpose:** Production fleet deployment
+- **Signing:** Signed with production release keystore
 - **Distribution:** Auto-uploaded to APK Management backend
-- **Retention:** 30 days as GitHub artifact
+- **Retention:** Available in backend + 90 days as GitHub artifact
+- **Build Type:** `release` (optimized for production)
 
-### Release APK
-- **Purpose:** Production deployment
-- **Signing:** Signed with release keystore
+### Debug APK (Development)
+- **Purpose:** Internal testing and development only
+- **Signing:** Signed with release keystore (for consistent testing)
 - **Distribution:** Available as GitHub artifact
-- **Retention:** 90 days as GitHub artifact
+- **Retention:** 30 days as GitHub artifact
+- **Build Type:** `debug` (includes debugging symbols)
 
 ### Release AAB (Android App Bundle)
 - **Purpose:** Google Play Store distribution (if needed)
@@ -238,14 +240,17 @@ Access the summary at: `Actions > [workflow run] > Summary`
 
 ### Automatic Upload
 
-Debug APKs are automatically uploaded to the backend `/v1/apk/upload` endpoint with:
+Release APKs are automatically uploaded to the backend `/admin/apk/register` endpoint with:
 
 ```json
 {
   "package_name": "com.nexmdm",
   "version_name": "1.0.156-a3b2c1d",
   "version_code": 156,
-  "notes": "Auto-built by CI from commit a3b2c1d | Build #56 | Built at 2025-01-15T10:30:00Z"
+  "build_type": "release",
+  "signer_fingerprint": "AB:CD:EF:12:34:56:...",
+  "ci_run_id": "github_run_12345",
+  "git_sha": "a3b2c1d"
 }
 ```
 
@@ -253,8 +258,8 @@ Debug APKs are automatically uploaded to the backend `/v1/apk/upload` endpoint w
 
 1. Log into the NexMDM dashboard
 2. Navigate to "APK Management" page
-3. See the latest CI-built debug APK
-4. Deploy to devices with one click
+3. See the latest CI-built **release APK** (production-ready)
+4. Deploy to fleet devices with one click
 
 ## Best Practices
 
@@ -286,9 +291,10 @@ git push origin v1.0.5
 - [ ] Encode keystore to base64
 - [ ] Add all 6 required secrets to GitHub repository
 - [ ] Test workflow with a commit to main
-- [ ] Verify debug APK appears in backend
-- [ ] Download and test release APK artifact
+- [ ] Verify **release APK** appears in backend (check build_type: "release")
+- [ ] Download and test release APK from dashboard or GitHub artifacts
 - [ ] Tag a version and verify versioning works
+- [ ] Deploy to test device to confirm fleet deployment works
 
 ## Support
 
