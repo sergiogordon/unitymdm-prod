@@ -3514,7 +3514,7 @@ REM Launch app
 adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1
 echo.
 
-echo [Step 7/7] Verify enrollment...
+echo [Step 7/8] Verify service...
 timeout /t 3 /nobreak >nul
 adb shell pidof !PKG! >nul 2>&1
 if errorlevel 1 (
@@ -3526,11 +3526,49 @@ if errorlevel 1 (
 echo ✅ Service running
 echo.
 
+echo [Step 8/8] Verify registration...
+echo    Waiting 10 seconds for first heartbeat...
+timeout /t 10 /nobreak >nul
+
+echo    Checking backend for device "!ALIAS!"...
+set API_FILE=!TEMP!\mdm_api_response.txt
+curl -s -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/admin/devices?alias=!DEVICE_ALIAS!" -o "!API_FILE!" 2>nul
+
+REM Check if device alias appears in response
+findstr /C:"\"alias\":\"!DEVICE_ALIAS!\"" "!API_FILE!" >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Device NOT found in backend
+    echo    API Response:
+    type "!API_FILE!"
+    echo.
+    echo ================================================
+    echo ❌❌❌ ENROLLMENT FAILED ❌❌❌
+    echo ================================================
+    echo 📱 Device "!ALIAS!" did not register
+    echo 🔍 Check server logs for errors
+    echo    Debug: Check /v1/register endpoint
+    echo ================================================
+    del "!API_FILE!" >nul 2>&1
+    set EXITCODE=9
+    goto :end
+)
+
+echo ✅ Device registered in backend!
+
+REM Check for last_seen (optional, best effort)
+findstr /C:"last_seen" "!API_FILE!" >nul 2>&1
+if not errorlevel 1 (
+    echo    Device is sending heartbeats
+)
+
+del "!API_FILE!" >nul 2>&1
+echo.
+
 echo ================================================
-echo ✅✅✅ ENROLLMENT COMPLETE ✅✅✅
+echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅
 echo ================================================
-echo 📱 Device "!ALIAS!" enrolled successfully!
-echo 🔍 Check dashboard within 60 seconds
+echo 📱 Device "!ALIAS!" enrolled and verified!
+echo 🔍 Check dashboard now - device is online
 echo ================================================
 set EXITCODE=0
 
@@ -3732,7 +3770,7 @@ echo "✅ Auto-enrollment initiated"
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 echo
 
-echo "[Step 7/7] Verify enrollment..."
+echo "[Step 7/8] Verify service..."
 sleep 3
 if ! adb shell pidof "$PKG" 2>/dev/null; then
     echo "❌ Service not running"
@@ -3742,12 +3780,41 @@ fi
 echo "✅ Service running"
 echo
 
-echo "================================================"
-echo "✅✅✅ ENROLLMENT COMPLETE ✅✅✅"
-echo "================================================"
-echo "📱 Device \"$ALIAS\" enrolled successfully!"
-echo "🔍 Check dashboard within 60 seconds"
-echo "================================================"
+echo "[Step 8/8] Verify registration..."
+echo "   Waiting 10 seconds for first heartbeat..."
+sleep 10
+
+echo "   Checking backend for device \"$ALIAS\"..."
+API_RESPONSE=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$DEVICE_ALIAS" 2>/dev/null)
+
+if echo "$API_RESPONSE" | grep -q "\"alias\":\"$DEVICE_ALIAS\""; then
+    echo "✅ Device registered in backend!"
+    
+    # Extract last_seen if available (optional, best effort)
+    if echo "$API_RESPONSE" | grep -q "last_seen"; then
+        echo "   Device is sending heartbeats"
+    fi
+    
+    echo
+    echo "================================================"
+    echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅"
+    echo "================================================"
+    echo "📱 Device \"$ALIAS\" enrolled and verified!"
+    echo "🔍 Check dashboard now - device is online"
+    echo "================================================"
+else
+    echo "❌ Device NOT found in backend"
+    echo "   API Response: $API_RESPONSE"
+    echo
+    echo "================================================"
+    echo "❌❌❌ ENROLLMENT FAILED ❌❌❌"
+    echo "================================================"
+    echo "📱 Device \"$ALIAS\" did not register"
+    echo "🔍 Check server logs for errors"
+    echo "   Debug: Check /v1/register endpoint"
+    echo "================================================"
+    exit 9
+fi
 '''
     
     return Response(
@@ -3807,7 +3874,7 @@ async def get_windows_one_liner_script(
     # Use %TEMP% for APK path - it expands at runtime
     # Escape inner quotes with ^" for CMD parsing
     apk_path = "%TEMP%\\unitymdm.apk"
-    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment - {alias} & echo ============================================ & echo. & echo [Step 0/7] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/7] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/7] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download-latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/7] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/7] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/7] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/7] Auto-enroll and launch... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1) || (echo ❌ Broadcast failed) & echo. & echo [Step 7/7] Verify... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running) & echo. & echo ============================================ & echo ✅ ENROLLMENT COMPLETE & echo ============================================ & echo Device: {alias} & echo Check dashboard within 60 seconds & echo ============================================ & echo. & echo Window will stay open - Type 'exit' to close"'''
+    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment - {alias} & echo ============================================ & echo. & echo [Step 0/7] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/7] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/7] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download-latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/7] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/7] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/7] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/7] Auto-enroll and launch... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1) || (echo ❌ Broadcast failed) & echo. & echo [Step 7/8] Verify service... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 8) & echo. & echo [Step 8/8] Verify registration... & echo Waiting 10 seconds for first heartbeat... & timeout /t 10 /nobreak >nul & echo Checking backend for device ^"{alias}^"... & set API_FILE=%TEMP%\\mdm_verify.txt & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/devices?alias={alias}^" -o %API_FILE% 2>nul & findstr /C:^"\\"alias\\":\\"{alias}\\"^" %API_FILE% >nul 2>&1 && (echo ✅ Device registered in backend! & findstr /C:^"last_seen^" %API_FILE% >nul 2>&1 && echo Device is sending heartbeats & del %API_FILE% >nul 2>&1 & echo. & echo ============================================ & echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅ & echo ============================================ & echo Device: {alias} enrolled and verified! & echo Check dashboard now - device is online & echo ============================================) || (echo ❌ Device NOT found in backend & type %API_FILE% & del %API_FILE% >nul 2>&1 & echo. & echo ============================================ & echo ❌❌❌ ENROLLMENT FAILED ❌❌❌ & echo ============================================ & echo Device: {alias} did not register & echo Check server logs for errors & echo ============================================ & exit /b 9) & echo. & echo Window will stay open - Type 'exit' to close"'''
     
     return Response(
         content=one_liner,
@@ -3863,7 +3930,7 @@ async def get_bash_one_liner_script(
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "bash", "alias": alias})
     
     # Create Bash one-liner with proper debugging
-    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment - $ALIAS" && echo "================================================" && echo && echo "[Step 0/7] Check prerequisites..." && (command -v adb &>/dev/null && echo "✅ ADB found: $(adb version 2>&1 | head -1)") || (echo "❌ ADB not found in PATH" && echo "Fix: Install Android Platform Tools" && echo "Download: https://developer.android.com/tools/releases/platform-tools" && exit 1) && echo "Listing devices:" && adb devices -l && echo && echo "[Step 1/7] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && adb devices -l && exit 2) && echo && echo "[Step 2/7] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 3/7] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 4/7] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 5/7] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 6/7] Auto-enroll and launch..." && (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated" && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 7/7] Verify enrollment..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT COMPLETE ✅✅✅" && echo "================================================" && echo "📱 Device \\\"$ALIAS\\\" enrolled successfully!" && echo "🔍 Check dashboard within 60 seconds" && echo "================================================"'''
+    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment - $ALIAS" && echo "================================================" && echo && echo "[Step 0/7] Check prerequisites..." && (command -v adb &>/dev/null && echo "✅ ADB found: $(adb version 2>&1 | head -1)") || (echo "❌ ADB not found in PATH" && echo "Fix: Install Android Platform Tools" && echo "Download: https://developer.android.com/tools/releases/platform-tools" && exit 1) && echo "Listing devices:" && adb devices -l && echo && echo "[Step 1/7] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && adb devices -l && exit 2) && echo && echo "[Step 2/7] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 3/7] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 4/7] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 5/7] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 6/7] Auto-enroll and launch..." && (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated" && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 7/8] Verify service..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "[Step 8/8] Verify registration..." && echo "Waiting 10 seconds for first heartbeat..." && sleep 10 && echo "Checking backend for device \\"$ALIAS\\"..." && API_RESP=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$ALIAS" 2>/dev/null) && if echo "$API_RESP" | grep -q "\\"alias\\":\\"$ALIAS\\""; then echo "✅ Device registered in backend!" && (echo "$API_RESP" | grep -q "last_seen" && echo "Device is sending heartbeats") && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" enrolled and verified!" && echo "🔍 Check dashboard now - device is online" && echo "================================================"; else echo "❌ Device NOT found in backend" && echo "API Response: $API_RESP" && echo && echo "================================================" && echo "❌❌❌ ENROLLMENT FAILED ❌❌❌" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" did not register" && echo "🔍 Check server logs for errors" && echo "Debug: Check /v1/register endpoint" && echo "================================================" && exit 9; fi'''
     
     return Response(
         content=one_liner,
