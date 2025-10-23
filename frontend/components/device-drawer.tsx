@@ -74,7 +74,7 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
               </div>
 
               <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Unity</span>
+                <span className="text-sm text-muted-foreground">Agent</span>
                 <span className="text-sm font-medium">
                   {device.unity.version} ({device.unity.status})
                 </span>

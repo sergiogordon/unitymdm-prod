@@ -24,7 +24,7 @@ export function KpiTiles({ total, online, offline, alerts, devices }: KpiTilesPr
   const getAlertReasons = (device: Device) => {
     const reasons = []
     if (device.status === "offline") reasons.push("Offline")
-    if (device.unity.status === "down") reasons.push("Unity Down")
+    if (device.unity.status === "down") reasons.push("Agent Down")
     if (device.battery.percentage < 20) reasons.push("Low Battery")
     return reasons
   }
@@ -105,7 +105,7 @@ export function KpiTiles({ total, online, offline, alerts, devices }: KpiTilesPr
                             className="inline-flex items-center gap-1 rounded-md bg-status-warning/10 px-2 py-1 text-xs font-medium text-status-warning"
                           >
                             {reason === "Offline" && <WifiOff className="h-3 w-3" />}
-                            {reason === "Unity Down" && <XCircle className="h-3 w-3" />}
+                            {reason === "Agent Down" && <XCircle className="h-3 w-3" />}
                             {reason === "Low Battery" && <Battery className="h-3 w-3" />}
                             {reason}
                           </span>
@@ -123,7 +123,7 @@ export function KpiTiles({ total, online, offline, alerts, devices }: KpiTilesPr
                           {device.battery.percentage}%{device.battery.charging && " (Charging)"}
                         </div>
 
-                        <div className="text-muted-foreground">Unity:</div>
+                        <div className="text-muted-foreground">Agent:</div>
                         <div
                           className={`font-mono ${device.unity.status === "down" ? "text-status-offline font-semibold" : ""}`}
                         >

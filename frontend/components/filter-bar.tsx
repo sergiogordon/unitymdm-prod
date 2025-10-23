@@ -10,7 +10,7 @@ interface FilterBarProps {
 const filters: { value: FilterType; label: string }[] = [
   { value: "all", label: "All" },
   { value: "offline", label: "Offline" },
-  { value: "unity-down", label: "Unity Down" },
+  { value: "unity-down", label: "Agent Down" },
   { value: "low-battery", label: "Low Battery" },
   { value: "wrong-version", label: "Wrong Version" },
 ]

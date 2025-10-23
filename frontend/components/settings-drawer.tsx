@@ -303,7 +303,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
             <section className="mb-8">
               <h3 className="mb-4 text-sm font-semibold">Android Permissions</h3>
               <ol className="space-y-2 text-sm text-muted-foreground">
-                <li>1. Open Settings → Apps → Unity MDM</li>
+                <li>1. Open Settings → Apps → NexMDM Agent</li>
                 <li>2. Enable "Display over other apps"</li>
                 <li>3. Enable "Modify system settings"</li>
                 <li>4. Grant location permissions</li>

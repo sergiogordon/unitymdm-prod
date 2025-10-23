@@ -257,7 +257,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
                 <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Battery</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Network</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Unity</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Agent</th>
                 <th className="hidden px-4 py-3 text-right text-sm font-medium md:table-cell">RAM</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Uptime</th>
                 <th className="w-12 px-4 py-3"></th>
