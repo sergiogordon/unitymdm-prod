@@ -1,0 +1,259 @@
+# Milestone: “Ping & Ring actions on Device Dashboard”
+
+### Goal
+
+Add two action buttons next to every device on the main dashboard: **Ping** (requests an immediate heartbeat) and **Ring** (helps locate a device by waking, unlocking, flashing the torch, and playing a loud tone until stopped).
+
+---
+
+## Scope & Deliverables
+
+### 1) UI (Web)
+
+- **Add actions on device row:**
+    - Ping: icon button (e.g., signal/wifi), tooltip “Ping device (request heartbeat)”.
+    - Ring: icon button (bell), tooltip “Ring + Flashlight to locate”.
+- **States & feedback:**
+    - While request in-flight: show spinner on the clicked button; disable both actions for that device row.
+    - On success: toast “Command sent”.
+    - On error: toast with concise reason.
+- **Device status column updates:**
+    - Show `last_seen_at` live-updating (or after heartbeat arrives).
+    - Optionally show a transient badge “Ringing…” while device is active in ring mode (based on backend state).
+
+### 2) Backend API (FastAPI)
+
+Create a new **Command Controller** if not already present:
+
+- `POST /v1/devices/{device_id}/commands/ping`
+    - Auth: admin / operator with `devices:command` scope.
+    - Body: `{ "type":"PING" }` (optional).
+    - Behavior: enqueue FCM message and persist a `commands` row with status `queued`.
+    - Response: `{ "command_id": "...", "status":"queued" }`.
+- `POST /v1/devices/{device_id}/commands/ring`
+    - Auth: admin / operator with `devices:command`.
+    - Body: `{ "type":"RING", "duration_sec": 30, "volume": 1.0 }` (duration default 30s; max 120s).
+    - Behavior: enqueue FCM; persist command; set a `device_activity.ringing_until` for UI hint.
+    - Response: `{ "command_id": "...", "status":"queued" }`.
+- `POST /v1/devices/{device_id}/commands/ring/stop`
+    - Auth: same.
+    - Body: `{ "type":"RING_STOP" }`.
+    - Behavior: enqueue stop; clear `ringing_until`.
+- **Callback/ack endpoint** (from device):
+    - `POST /v1/devices/{device_id}/ack`
+        - Body examples:
+            - Ping ACK: `{ "correlation_id":"...", "type":"PING_ACK", "battery": 0.84, "network":"LTE", "rssi":-82, "ts": "..."}`
+            - Ring ACK start/stop: `{ "correlation_id":"...", "type":"RING_STARTED" }` / `{ "type":"RING_STOPPED" }`
+        - Updates `commands.status` (`acknowledged`, `completed`, `failed`) and writes to `device_metrics`.
+- **Validation & limits:**
+    - Rate-limit ring: max 1 active ring per device; cooldown 60s after stop.
+    - Require device to be device-owner enrolled and FCM-registered; if not, return `409` with reason.
+    - Idempotency: if a `correlation_id` repeats, ignore duplicate.
+
+### 3) FCM Message Contracts
+
+Send as **data messages** (high priority):
+
+- **PING**
+    
+    ```json
+    {
+      "action": "ping",
+      "correlation_id": "<uuid>",
+      "requested_at": "<iso8601>"
+    }
+    
+    ```
+    
+- **RING**
+    
+    ```json
+    {
+      "action": "ring",
+      "correlation_id": "<uuid>",
+      "duration_sec": 30,
+      "volume": 1.0
+    }
+    
+    ```
+    
+- **RING_STOP**
+    
+    ```json
+    {
+      "action": "ring_stop",
+      "correlation_id": "<uuid>"
+    }
+    
+    ```
+    
+
+### 4) Android Agent (Kotlin) — Required behaviors
+
+Assumes device is **Device Owner** and agent already has FCM + required permissions. Implement handlers:
+
+- **PING handler**
+    - On receive: immediately send a **manual heartbeat** to backend (`/ack` with `PING_ACK`) including useful telemetry (battery %, charging state, network type, signal level if available, uptime, app version).
+    - Also refresh agent’s scheduled heartbeat timer (so “next heartbeat” isn’t delayed by the manual one).
+- **RING handler**
+    - **Wake & unlock**:
+        - Acquire `WAKE_LOCK`, use `setTurnScreenOn(true)` or `WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON`, and dismiss keyguard via `KeyguardManager.requestDismissKeyguard(...)`.
+    - **Foreground service** (required on modern Android):
+        - Start a foreground service with persistent notification “Locating device — tap to stop”.
+        - Add a **full-screen intent** activity if needed for reliability.
+    - **Audio**:
+        - Temporarily set stream to `STREAM_ALARM` at requested volume (respect system caps), loop a loud tone via `RingtoneManager.getDefaultUri(TYPE_ALARM)` or bundled asset.
+        - If Do Not Disturb is active, attempt `setAlarmClock()` style or `CATEGORY_ALARM` notification channel (created with highest importance) if policy allows.
+    - **Flashlight**:
+        - Toggle torch on/off at ~4 Hz using `CameraManager.setTorchMode(...)`.
+    - **Auto-stop** after `duration_sec` or upon receiving `ring_stop`.
+    - **Safety**: ensure all resources (wake lock, camera, media) are released on stop.
+    - **ACKs**: POST `RING_STARTED` then `RING_STOPPED` on completion or stop.
+- **RING_STOP handler**
+    - Immediately stop tone/torch, release resources, send `RING_STOPPED`.
+
+**Android permissions checklist (verify present):**
+
+- `USE_FULL_SCREEN_INTENT`, `WAKE_LOCK`, `VIBRATE`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` (if used), `CAMERA` (for torch), notification channel with `IMPORTANCE_HIGH`.
+- Device Owner capability to dismiss keyguard / turn screen on.
+- Handle battery optimizations: ensure agent is whitelisted (you already have workflows for this).
+
+### 5) Data Model
+
+- `devices`: add/ensure fields
+    - `last_seen_at` (timestamp), `last_ping_at`, `last_ring_at`, `ringing_until` (nullable timestamp).
+- `commands` table:
+    - `id`, `device_id`, `type` (`PING|RING|RING_STOP`), `status` (`queued|sent|acknowledged|completed|failed|expired`), `correlation_id`, `payload` (jsonb), `created_at`, `updated_at`, `error` (nullable).
+- `device_metrics` (append-only):
+    - `device_id`, `ts`, `battery_pct`, `charging`, `network_type`, `signal_dbm`, `uptime_ms`, `app_version`, `source` (`heartbeat|ping_ack`).
+
+### 6) Observability & Audit
+
+- **Audit logs** (`audit_events`): record who triggered ping/ring, device, correlation_id, and result.
+- **Metrics/alerts**:
+    - Counters for commands queued/sent/acked/failed (by type).
+    - Alert if ring command fails on >20% of attempts in a 5-minute window.
+
+### 7) Security & Abuse Controls
+
+- RBAC: only roles with `devices:command` can invoke.
+- Rate limits:
+    - Ping: 1 per device per 15s (excess returns 429).
+    - Ring: one active at a time per device, global max concurrent rings (e.g., 20) to avoid noise spikes.
+- All endpoints require admin API key or OAuth with scopes; log user id.
+
+### 8) Testing Plan (E2E)
+
+- **Happy paths**
+    - Ping → device sends PING_ACK within 5s → UI `last_seen_at` updates.
+    - Ring 30s → device wakes, plays alarm, flashes → auto-stops → confirms RING_STOPPED.
+    - Ring Stop (manual) → stops within 2s.
+- **Edge cases**
+    - Device offline: command stays `queued` then `expired` after TTL (e.g., 5 min); UI shows error.
+    - No camera flash hardware: torch step is skipped, still rings; status includes `torch_unavailable=true`.
+    - DND enabled: ensure alarm channel category allows audible tone; if not, return `completed_with_limited_audio=true`.
+    - Battery saver: verify wake + sound still occur (agent should be exempted; if not, log actionable warning).
+    - Duplicate correlation_id: idempotent handling verified.
+- **Load/abuse**
+    - Burst 100 pings across devices; confirm rate-limits and no queue backlog.
+    - Attempt 2 simultaneous rings on same device; second is rejected cleanly.
+
+### 9) Rollback Plan
+
+- Feature-flag `pingEnabled` and `ringEnabled` (server & UI).
+- If issues, disable flags; DB schema is additive and can remain.
+
+---
+
+## Acceptance Criteria
+
+1. **UI** shows Ping and Ring buttons per device with proper loading/disabled states and toasts.
+2. **Ping**: Clicking Ping enqueues FCM and results in a heartbeat ACK updating `last_seen_at` and `last_ping_at` within 10s (on online device).
+3. **Ring**: Clicking Ring starts audible ring + torch flash + screen wake on device for the configured duration or until Stop is pressed, with `RING_STARTED` and `RING_STOPPED` ACKs recorded.
+4. **APIs** return `202` with `command_id` on queue; command lifecycle visible in logs/DB.
+5. **RBAC/rate limits** enforced; audit events captured for every action.
+6. **Telemetry** (battery/network) is included in Ping ACK and stored.
+
+---
+
+## Developer Notes (quick hooks)
+
+**Server → FCM send (pseudo):**
+
+```tsx
+// type: "PING" | "RING" | "RING_STOP"
+await fcm.send({
+  token: device.fcm_token,
+  android: { priority: "high" },
+  data: {
+    action,
+    correlation_id,
+    ...(action === "ring" ? { duration_sec: String(duration), volume: String(volume) } : {})
+  }
+});
+
+```
+
+**Example cURL triggers (admin):**
+
+```bash
+# Ping
+curl -X POST "$BASE/v1/devices/$DEVICE_ID/commands/ping" -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Ring for 30s
+curl -X POST "$BASE/v1/devices/$DEVICE_ID/commands/ring" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"duration_sec":30,"volume":1.0}'
+
+# Stop ring
+curl -X POST "$BASE/v1/devices/$DEVICE_ID/commands/ring/stop" -H "Authorization: Bearer $ADMIN_TOKEN"
+
+```
+
+**Android (very high-level sketch):**
+
+```kotlin
+when (data["action"]) {
+  "ping" -> handlePing(data)
+  "ring" -> startRingService(durationSec, volume)
+  "ring_stop" -> stopRingService()
+}
+
+```
+
+---
+
+## Task Breakdown (for Replit agent)
+
+1. **Backend**
+    - [ ]  DB migrations for `commands`, `device_metrics` updates, and optional `ringing_until`.
+    - [ ]  Implement the three endpoints + ack endpoint.
+    - [ ]  FCM send helper with correlation IDs, retry/backoff.
+    - [ ]  Rate limiting, RBAC checks, audit events, feature flags.
+    - [ ]  Unit tests for command lifecycle.
+2. **Android Agent**
+    - [ ]  FCM handlers for `ping`, `ring`, `ring_stop`.
+    - [ ]  Foreground service for Ring with wake, keyguard dismiss, alarm audio, torch blink, stop action.
+    - [ ]  ACK posts (`RING_STARTED`, `RING_STOPPED`, `PING_ACK`) with telemetry.
+    - [ ]  Permissions/channel verification; fallbacks for missing torch/DND.
+3. **Web UI**
+    - [ ]  Add Ping/Ring buttons in device table; loading/error toasts.
+    - [ ]  Show “Ringing…” state if `ringing_until` in future.
+    - [ ]  Update `last_seen_at` on ping ack via websocket/SSE or polling.
+4. **QA**
+    - [ ]  E2E tests on at least 3 devices (one with no torch).
+    - [ ]  Negative tests (offline device, permission missing).
+    - [ ]  Load tests for ping bursts.
+
+---
+
+## Definition of Done
+
+- All acceptance criteria met on staging with 3+ devices.
+- Documentation added to “Remote Commands” page (API and UI usage).
+- Feature flags default **on** in staging, **off** in prod until validation complete.
+
+---
+
+If you want, I can also generate the API docs and a tiny Postman collection for these four endpoints so you can hand it off with zero friction.
