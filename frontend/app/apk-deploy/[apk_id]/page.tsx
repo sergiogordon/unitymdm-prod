@@ -115,9 +115,7 @@ export default function ApkDeployPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allDeviceIds = devices
-        .filter(d => d.fcm_token)
-        .map(d => d.id)
+      const allDeviceIds = devices.map(d => d.id)
       setSelectedDevices(new Set(allDeviceIds))
     } else {
       setSelectedDevices(new Set())
@@ -305,15 +303,11 @@ export default function ApkDeployPage() {
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="select-all"
-                  checked={
-                    devices.filter(d => d.fcm_token).length > 0 &&
-                    selectedDevices.size === devices.filter(d => d.fcm_token).length
-                  }
+                  checked={devices.length > 0 && selectedDevices.size === devices.length}
                   onCheckedChange={handleSelectAll}
-                  disabled={devices.filter(d => d.fcm_token).length === 0}
                 />
                 <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
-                  Select All ({devices.filter(d => d.fcm_token).length} devices)
+                  Select All ({devices.length} devices)
                 </label>
               </div>
             </div>
@@ -332,26 +326,23 @@ export default function ApkDeployPage() {
               ) : (
                 devices.map((device) => {
                   const online = isDeviceOnline(device.last_seen)
-                  const canDeploy = device.fcm_token !== null
+                  const hasFcmToken = device.fcm_token !== null
                   
                   return (
                     <div
                       key={device.id}
-                      className={`flex items-center justify-between rounded-lg border border-border p-4 ${
-                        !canDeploy ? 'opacity-50' : ''
-                      }`}
+                      className="flex items-center justify-between rounded-lg border border-border p-4"
                     >
                       <div className="flex items-center gap-3">
                         <Checkbox
                           checked={selectedDevices.has(device.id)}
                           onCheckedChange={() => handleToggleDevice(device.id)}
-                          disabled={!canDeploy}
                         />
                         <div>
                           <div className="font-medium">{device.alias}</div>
                           <div className="text-sm text-muted-foreground">
                             {device.id}
-                            {!canDeploy && <span className="ml-2 text-red-500">(No FCM token)</span>}
+                            {!hasFcmToken && <span className="ml-2 text-orange-500">(⚠ No FCM token - deployment may fail)</span>}
                           </div>
                         </div>
                       </div>
