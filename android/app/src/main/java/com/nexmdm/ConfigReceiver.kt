@@ -65,9 +65,13 @@ class ConfigReceiver : BroadcastReceiver() {
     private fun registerDevice(serverUrl: String, adminKey: String, alias: String): String? {
         return try {
             val client = OkHttpClient()
+            
+            val jsonBody = JSONObject()
+            jsonBody.put("alias", alias)
+            
             val request = Request.Builder()
-                .url("$serverUrl/v1/register?alias=$alias")
-                .post("".toRequestBody("application/json".toMediaType()))
+                .url("$serverUrl/v1/register")
+                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
                 .addHeader("X-Admin-Key", adminKey)
                 .build()
             
