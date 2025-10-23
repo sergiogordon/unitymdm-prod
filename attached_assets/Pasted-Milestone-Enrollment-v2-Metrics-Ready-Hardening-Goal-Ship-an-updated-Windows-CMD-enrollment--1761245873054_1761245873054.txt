@@ -1,0 +1,134 @@
+Milestone: Enrollment v2 — Metrics-Ready + Hardening
+Goal
+Ship an updated Windows-CMD enrollment  (one-liner) that:
+✅ Preserves the current successful zero-tap flow
+✅ Adds all requested runtime permissions + doze/standby exemptions
+✅ (Optionally) disables known bloatware safely
+✅ Prints clear manual follow-ups for Usage Access and Full-Screen Intents
+✅ Verifies that Battery %, Network SSID, RAM %, and Uptime appear in the dashboard within ~60 seconds
+Apps to Disable (Safely)
+Carrier / OEM Bloat:
+com.vzw.hss.myverizon
+com.verizon.obdm_permissions
+com.vzw.apnlib
+com.verizon.mips.services
+com.vcast.mediamanager
+com.reliancecommunications.vvmclient
+
+​
+Google Apps (non-core):
+com.google.android.apps.youtube.music
+com.google.android.youtube
+com.google.android.apps.videos
+com.google.android.apps.docs
+com.google.android.apps.maps
+com.google.android.apps.photos
+com.google.android.apps.wallpaper
+com.google.android.apps.walletnfcrel
+com.google.android.apps.nbu.files
+com.google.android.apps.keep
+com.google.android.apps.googleassistant
+com.google.android.apps.tachyon
+com.google.android.apps.safetyhub
+com.google.android.apps.nbu.paisa.user
+com.google.android.apps.chromecast.app
+com.google.android.apps.wellbeing
+com.google.android.apps.customization.pixel
+
+​
+Google System / Utilities:
+com.google.android.deskclock
+com.google.android.calendar
+com.google.android.gm
+com.google.android.calculator
+com.google.android.projection.gearhead
+com.google.android.printservice.recommendation
+com.google.android.feedback
+com.google.android.marvin.talkback
+com.google.android.tts
+com.google.android.gms.supervision
+
+​
+Third-Party Apps:
+com.LogiaGroup.LogiaDeck
+com.dti.folderlauncher
+com.huub.viper
+us.sliide.viper
+com.example.sarswitch
+com.handmark.expressweather
+com.tripledot.solitaire
+com.facebook.katana
+com.facebook.appmanager
+com.discounts.viper
+
+​
+Android System / Misc:
+com.android.egg
+com.android.dreams.basic
+com.android.dreams.phototable
+com.android.musicfx
+com.android.soundrecorder
+com.android.protips
+com.android.wallpapercropper
+com.android.wallpaper.livepicker
+com.android.providers.partnerbookmarks
+com.android.bips
+com.android.printspooler
+com.android.wallpaperbackup
+com.android.soundpicker
+com.android.protips
+
+​
+System Tweaks
+ambient_tilt_to_wake=1
+ambient_touch_to_wake=1
+
+adb shell settings put global app_standby_enabled 0
+adb shell settings put global battery_tip_constants app_restriction_enabled=false
+
+​
+Permissions & Whitelist
+PACKAGE="com.nexmdm"
+
+adb shell pm grant $PACKAGE android.permission.POST_NOTIFICATIONS
+adb shell pm grant $PACKAGE android.permission.CAMERA
+adb shell pm grant $PACKAGE android.permission.ACCESS_FINE_LOCATION
+adb shell dumpsys deviceidle whitelist +$PACKAGE
+
+​
+Console Output
+echo "✅ Automated permissions granted!"
+echo "⚠️ Manual steps required:"
+echo "1. Enable Usage Access: Settings → Apps → Special app access → Usage access → NexMDM"
+echo "2. Enable Full Screen Intents (Android 14+): Settings → Apps → NexMDM → Notifications → Use full screen intents"
+
+​
+Acceptance Criteria
+When running the updated script on a fresh Orbic Joy 2 (Android 13/14):
+✅ Performs zero-tap install, sets Device Owner, grants runtime permissions, whitelists doze, and auto-enrolls
+✅ Prints clear manual steps for Usage Access and Full-Screen Intents
+✅ Optional bloatware block executes without breaking enrollment if a package is missing
+✅ Within 60 seconds of Step 6 completion, the dashboard shows Battery %, Network SSID, RAM %, and Uptime
+✅ Console outputs a local “Metrics snapshot” (battery level, SSID line, uptime seconds, “Used RAM…” line)
+✅ On failure, exits with a non-zero code and prints a human-readable hint
+Reversibility / Rollback
+All system tweaks are reversible:
+pm enable --user 0 <pkg>                → Re-enable disabled apps
+settings put global app_standby_enabled 1   → Restore standby
+dumpsys deviceidle whitelist -%PKG%          → Remove whitelist
+
+​
+The optional bloatware step should never block enrollment — it’s best-effort.
+Logging & Troubleshooting
+API verify response → %TEMP%\mdm_verify.txt
+On failure → dump
+adb logcat -d | findstr /i "nexmdm usage appops standby deviceidle"
+
+​
+into %TEMP%\mdm_enroll_diag.txt for quick triage
+Keep the window open at the end (already implemented) so operators can review hints
+Notes for the App Side (FYI)
+Once Usage Access is manually granted, the agent can reliably pull RAM/CPU/foreground stats
+If a broadcast or foreground service (e.g., %PKG%.REQUEST_METRICS) is later added,
+the script already supports triggering it automatically
+✅ End of Milestone — Enrollment v2: Metrics-Ready + Hardening
