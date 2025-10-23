@@ -3614,10 +3614,10 @@ async def get_windows_enroll_script(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate prefilled Windows ADB enrollment script"""
+    """Generate zero-tap Windows enrollment script with enhanced debugging"""
     from models import EnrollmentToken, EnrollmentEvent
-    import hashlib
     
+    # Validate enrollment token
     token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -3625,6 +3625,7 @@ async def get_windows_enroll_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
+    # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
         raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
@@ -3633,6 +3634,7 @@ async def get_windows_enroll_script(
     if not admin_key:
         raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
+    # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render',
         token_id=token_id,
@@ -3642,119 +3644,144 @@ async def get_windows_enroll_script(
     db.add(event)
     db.commit()
     
+    # Generate script with enhanced debugging and fail-fast behavior
     script_content = f'''@echo off
-REM NexMDM Windows ADB Enrollment Script
-REM Generated for: {alias}
-REM Token: {token_id}
+REM ============================================================
+REM UnityMDM Zero-Tap Device Enrollment Script (Windows)
+REM Device Alias: {alias}
+REM Package: {agent_pkg}
+REM ============================================================
 
 setlocal enabledelayedexpansion
 
 set PKG={agent_pkg}
 set ALIAS={alias}
-set SPEEDTEST_PKG={unity_pkg}
-set APK_PATH=%TEMP%\\nexmdm-latest.apk
+set RECEIVER=.NexDeviceAdminReceiver
 set BASE_URL={server_url}
-set DL_URL={server_url}/v1/apk/download/latest
-set ADMINKEY={admin_key}
+set ADMIN_KEY={admin_key}
+set APK_PATH=%TEMP%\\unityndm-agent.apk
+set DEVICE_ALIAS={alias}
 
-echo [NexMDM Deployment - Device: !ALIAS!]
+echo ================================================
+echo UnityMDM Zero-Tap Enrollment
+echo Device: !ALIAS!
+echo ================================================
 echo.
 
-echo [Step 0] Waiting for device...
-adb wait-for-device || (echo ❌ No device found & exit /b 2)
-
-echo [Step 1/7] Downloading latest APK...
-echo [DEBUG] URL: !DL_URL!
-curl -L -H ""X-Admin-Key: !ADMINKEY!"" ""!DL_URL!"" -o ""!APK_PATH!"" || (echo ❌ Download failed & exit /b 3)
-if not exist "!APK_PATH!" (echo ❌ APK missing at !APK_PATH! & exit /b 3)
-echo ✅ APK downloaded!
-echo.
-
-echo [Step 2/7] Installing APK (safe update w/ fallback)...
-adb install -r "!APK_PATH!"
+echo [Step 1/7] Wait for device...
+adb wait-for-device >nul 2>&1
 if errorlevel 1 (
-  echo [WARN] Update failed — attempting uninstall + clean install...
-  adb shell pm uninstall -k --user 0 !PKG! 1>nul 2>nul
-  adb install -t -d "!APK_PATH!" || (echo ❌ Clean install failed & exit /b 4)
+    echo ❌ No device found
+    echo    Fix: Check USB cable, ensure USB debugging enabled
+    echo    Run: adb devices -l
+    exit /b 2
 )
-echo ✅ APK installed/updated!
+echo ✅ Device connected
 echo.
 
-echo [Step 3/7] Ensuring Device Owner (DO)...
-for /f "tokens=2 delims=: " %%A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%%A
-for /f "tokens=2 delims=: " %%B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%%B
-
-REM Trim CR/LF
-set DEVPROV=!DEVPROV:~0,1!
-set USERSETUP=!USERSETUP:~0,1!
-
-adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:"!PKG!" >nul
+echo [Step 2/7] Download latest APK...
+curl -L -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/apk/download/latest" -o "!APK_PATH!" >nul 2>&1
 if errorlevel 1 (
-  echo [INFO] Device Owner not detected for !PKG!.
-  if "!DEVPROV!"=="1" if "!USERSETUP!"=="1" (
-    echo ❌ Cannot set Device Owner on a provisioned device.
-    echo     Device Owner requires a factory-reset / unprovisioned state.
-    echo     Please wipe the device (or use QR/NFC provisioning) and re-run.
+    echo ❌ Download failed
+    echo    Fix: Check network, verify SERVER_URL: !BASE_URL!
+    echo    Debug: curl -v "!BASE_URL!/v1/apk/download/latest"
+    exit /b 3
+)
+if not exist "!APK_PATH!" (
+    echo ❌ APK missing at !APK_PATH!
+    echo    Fix: Check temp directory permissions
+    exit /b 3
+)
+echo ✅ APK downloaded
+echo.
+
+echo [Step 3/7] Install APK...
+adb install -r -g "!APK_PATH!" >nul 2>&1
+if errorlevel 1 (
+    echo    Retry: Uninstalling existing version...
+    adb uninstall !PKG! >nul 2>&1
+    adb install -r -g -t "!APK_PATH!" >nul 2>&1
+    if errorlevel 1 (
+        echo ❌ Install failed
+        echo    Fix: Check adb install errors
+        echo    Debug: adb install -r -g "!APK_PATH!"
+        exit /b 4
+    )
+)
+echo ✅ APK installed
+echo.
+
+echo [Step 4/7] Set Device Owner...
+REM Check if device is provisioned
+for /f "tokens=*" %%A in ('adb shell settings get secure user_setup_complete 2^>nul') do set SETUP=%%A
+set SETUP=!SETUP:~0,1!
+
+if "!SETUP!"=="1" (
+    echo    WARN: Device appears provisioned (user_setup_complete=1)
+)
+
+adb shell dpm set-device-owner !PKG!/!RECEIVER! >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Device Owner setup failed
+    echo    Fix: Factory reset device or use QR provisioning
+    echo    Debug: adb shell dpm get-device-owner
+    echo    Note: Device must be unprovisioned (fresh or reset)
     exit /b 5
-  )
-  adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver 1>nul 2>nul || (
-    echo ❌ Failed to set Device Owner. Ensure device is factory-fresh and compatible.
-    exit /b 6
-  )
 )
 
-adb shell dumpsys device_policy | findstr /C:"!PKG!" >nul || (
-  echo ❌ Device Owner verification failed.
-  exit /b 7
-)
-echo ✅ Device Owner confirmed.
-echo.
-
-echo [Step 4/7] Permissions ^& Doze whitelist...
-adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS 2>nul
-adb shell pm grant !PKG! android.permission.CAMERA 2>nul
-adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION 2>nul
-adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow 2>nul
-adb shell appops set !PKG! AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul
-adb shell appops set !PKG! GET_USAGE_STATS allow 2>nul
-adb shell dumpsys deviceidle whitelist +!PKG! 1>nul
-echo ✅ Whitelisted ^& permissions set!
-echo.
-
-echo [Step 5/7] Applying full optimizations and bloat off...
-adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global ambient_tilt_to_wake 1; settings put global ambient_touch_to_wake 1; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put global app_restriction_enabled false; settings put global dynamic_power_savings_enabled 0; settings put global battery_tip_constants advertise_disable_apps_enabled=false; settings put secure location_mode 0; settings put global assisted_gps_enabled 0; settings put global wifi_scan_always_enabled 0; settings put global ble_scan_always_enabled 0; settings put global network_recommendations_enabled 0; settings put global wifi_networks_available_notification_on 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global heads_up_notifications_enabled 0; settings put global development_settings_enabled 1; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2; settings put global bluetooth_on 0"
-adb shell dumpsys deviceidle whitelist +!SPEEDTEST_PKG! 1>nul
-adb shell appops set !SPEEDTEST_PKG! RUN_ANY_IN_BACKGROUND allow 2>nul
-echo ✅ Optimizations applied!
-echo.
-
-echo [Step 6/7] Launch and configure...
-adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 1>nul 2>nul
-timeout /t 2 /nobreak >nul
-echo [DEBUG] Sending CONFIGURE broadcast (foreground)…
-adb shell am broadcast --receiver-foreground -a !PKG!.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url "!BASE_URL!" --es token "!ADMINKEY!" --es alias "!ALIAS!" --es speedtest_package "!SPEEDTEST_PKG!" --es unity_pkg "!SPEEDTEST_PKG!"
+REM Verify Device Owner
+adb shell dumpsys device_policy | findstr /C:"!PKG!" >nul 2>&1
 if errorlevel 1 (
-  echo ❌ CONFIGURE broadcast failed.
-  exit /b 8
+    echo ❌ Device Owner verification failed
+    echo    Debug: adb shell dumpsys device_policy
+    exit /b 6
 )
+echo ✅ Device Owner confirmed
+echo.
+
+echo [Step 5/7] Grant core permissions...
+adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS >nul 2>&1
+adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION >nul 2>&1
+adb shell pm grant !PKG! android.permission.CAMERA >nul 2>&1
+adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow >nul 2>&1
+adb shell appops set !PKG! GET_USAGE_STATS allow >nul 2>&1
+adb shell dumpsys deviceidle whitelist +!PKG! >nul 2>&1
+echo ✅ Permissions granted
+echo.
+
+echo [Step 6/7] Launch and auto-enroll...
+REM Launch app
+adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+REM Send configuration broadcast with admin_key instead of token
+adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url "!BASE_URL!" --es admin_key "!ADMIN_KEY!" --es alias "!DEVICE_ALIAS!" >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Configuration broadcast failed
+    echo    Debug: Check ConfigReceiver in manifest
+    echo    Fix: Verify receiver is exported
+    exit /b 7
+)
+echo ✅ Auto-enrollment initiated
+echo.
+
+echo [Step 7/7] Verify enrollment...
 timeout /t 3 /nobreak >nul
-echo ✅ Configuration broadcast sent!
-echo.
-
-echo [Step 7/7] Verifying service...
-adb shell pidof !PKG! 1>nul && (
-  echo ✅ Service running
-) || (
-  echo ❌ Service not running
-  exit /b 9
+adb shell pidof !PKG! >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Service not running
+    echo    Debug: adb logcat -d ^| findstr !PKG!
+    exit /b 8
 )
+echo ✅ Service running
+echo.
 
-echo.
-echo ==========================================
-echo ✅ ENROLLMENT COMPLETE
-echo ==========================================
-echo 📱 "!ALIAS!" should appear in the dashboard within ~60s.
-echo.
+echo ================================================
+echo ✅✅✅ ENROLLMENT COMPLETE ✅✅✅
+echo ================================================
+echo 📱 Device "!ALIAS!" enrolled successfully!
+echo 🔍 Check dashboard within 60 seconds
+echo ================================================
 '''
     
     return Response(
@@ -3775,9 +3802,10 @@ async def get_bash_enroll_script(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate prefilled Bash ADB enrollment script"""
+    """Generate zero-tap Bash enrollment script with enhanced debugging"""
     from models import EnrollmentToken, EnrollmentEvent
     
+    # Validate enrollment token
     token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -3785,6 +3813,7 @@ async def get_bash_enroll_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
+    # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
         raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
@@ -3793,6 +3822,7 @@ async def get_bash_enroll_script(
     if not admin_key:
         raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
+    # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render',
         token_id=token_id,
@@ -3802,119 +3832,135 @@ async def get_bash_enroll_script(
     db.add(event)
     db.commit()
     
+    # Generate script with enhanced debugging and fail-fast behavior
     script_content = f'''#!/bin/bash
-# NexMDM Bash ADB Enrollment Script
-# Generated for: {alias}
-# Token: {token_id}
+# ============================================================
+# UnityMDM Zero-Tap Device Enrollment Script (Bash/POSIX)
+# Device Alias: {alias}
+# Package: {agent_pkg}
+# ============================================================
 
-set -euo pipefail
+set -e
 
 PKG="{agent_pkg}"
 ALIAS="{alias}"
-SPEEDTEST_PKG="{unity_pkg}"
-APK_PATH="nexmdm-latest.apk"
+RECEIVER=".NexDeviceAdminReceiver"
 BASE_URL="{server_url}"
-DL_URL="{server_url}/v1/apk/download/latest"
-ADMINKEY="{admin_key}"
+ADMIN_KEY="{admin_key}"
+APK_PATH="/tmp/unitymdm-agent.apk"
+DEVICE_ALIAS="{alias}"
 
-echo "[NexMDM Deployment - Device: $ALIAS]"
-echo ""
+echo "================================================"
+echo "UnityMDM Zero-Tap Enrollment"
+echo "Device: $ALIAS"
+echo "================================================"
+echo
 
-echo "[Step 0] Waiting for device..."
-adb wait-for-device || {{ echo "❌ No device found"; exit 2; }}
+echo "[Step 1/7] Wait for device..."
+if ! adb wait-for-device 2>/dev/null; then
+    echo "❌ No device found"
+    echo "   Fix: Check USB cable, ensure USB debugging enabled"
+    echo "   Run: adb devices -l"
+    exit 2
+fi
+echo "✅ Device connected"
+echo
 
-echo "[Step 1/7] Downloading latest APK..."
-echo "[DEBUG] URL: $DL_URL"
-curl -L -H "X-Admin-Key: $ADMINKEY" "$DL_URL" -o "$APK_PATH" || {{ echo "❌ Download failed"; exit 3; }}
-if [ ! -f "$APK_PATH" ]; then
-    echo "❌ APK missing at $APK_PATH"
+echo "[Step 2/7] Download latest APK..."
+if ! curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download/latest" -o "$APK_PATH" 2>/dev/null; then
+    echo "❌ Download failed"
+    echo "   Fix: Check network, verify SERVER_URL: $BASE_URL"
+    echo "   Debug: curl -v '$BASE_URL/v1/apk/download/latest'"
     exit 3
 fi
-echo "✅ APK downloaded!"
-echo ""
+if [ ! -f "$APK_PATH" ]; then
+    echo "❌ APK missing at $APK_PATH"
+    echo "   Fix: Check temp directory permissions"
+    exit 3
+fi
+echo "✅ APK downloaded"
+echo
 
-echo "[Step 2/7] Installing APK (safe update w/ fallback)..."
-if ! adb install -r "$APK_PATH" 2>&1; then
-    echo "[WARN] Update failed — attempting uninstall + clean install..."
-    adb shell pm uninstall -k --user 0 "$PKG" 2>/dev/null || true
-    if ! adb install -t -d "$APK_PATH" 2>&1; then
-        echo "❌ Clean install failed"
+echo "[Step 3/7] Install APK..."
+if ! adb install -r -g "$APK_PATH" 2>/dev/null; then
+    echo "   Retry: Uninstalling existing version..."
+    adb uninstall "$PKG" 2>/dev/null || true
+    if ! adb install -r -g -t "$APK_PATH" 2>/dev/null; then
+        echo "❌ Install failed"
+        echo "   Fix: Check adb install errors"
+        echo "   Debug: adb install -r -g '$APK_PATH'"
         exit 4
     fi
 fi
-echo "✅ APK installed/updated!"
-echo ""
+echo "✅ APK installed"
+echo
 
-echo "[Step 3/7] Ensuring Device Owner (DO)..."
-DEVPROV=$(adb shell settings get secure device_provisioned | tr -d '\\r')
-USERSETUP=$(adb shell settings get secure user_setup_complete | tr -d '\\r')
+echo "[Step 4/7] Set Device Owner..."
+# Check if device is provisioned
+SETUP=$(adb shell settings get secure user_setup_complete 2>/dev/null | tr -d '\\r\\n')
 
-if ! adb shell dumpsys device_policy | grep -q "Device Owner.*$PKG"; then
-    echo "[INFO] Device Owner not detected for $PKG."
-    if [ "$DEVPROV" = "1" ] && [ "$USERSETUP" = "1" ]; then
-        echo "❌ Cannot set Device Owner on a provisioned device."
-        echo "    Device Owner requires a factory-reset / unprovisioned state."
-        echo "    Please wipe the device (or use QR/NFC provisioning) and re-run."
-        exit 5
-    fi
-    if ! adb shell dpm set-device-owner "$PKG"/.NexDeviceAdminReceiver 2>/dev/null; then
-        echo "❌ Failed to set Device Owner. Ensure device is factory-fresh and compatible."
-        exit 6
-    fi
+if [ "$SETUP" = "1" ]; then
+    echo "   WARN: Device appears provisioned (user_setup_complete=1)"
 fi
 
-if ! adb shell dumpsys device_policy | grep -q "$PKG"; then
-    echo "❌ Device Owner verification failed."
+if ! adb shell dpm set-device-owner "$PKG/$RECEIVER" 2>/dev/null; then
+    echo "❌ Device Owner setup failed"
+    echo "   Fix: Factory reset device or use QR provisioning"
+    echo "   Debug: adb shell dpm get-device-owner"
+    echo "   Note: Device must be unprovisioned (fresh or reset)"
+    exit 5
+fi
+
+# Verify Device Owner
+if ! adb shell dumpsys device_policy 2>/dev/null | grep -q "$PKG"; then
+    echo "❌ Device Owner verification failed"
+    echo "   Debug: adb shell dumpsys device_policy"
+    exit 6
+fi
+echo "✅ Device Owner confirmed"
+echo
+
+echo "[Step 5/7] Grant core permissions..."
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
+adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
+adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
+adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
+adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
+adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null || true
+echo "✅ Permissions granted"
+echo
+
+echo "[Step 6/7] Launch and auto-enroll..."
+# Launch app
+adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+sleep 2
+
+# Send configuration broadcast with admin_key instead of token
+if ! adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$DEVICE_ALIAS" 2>/dev/null; then
+    echo "❌ Configuration broadcast failed"
+    echo "   Debug: Check ConfigReceiver in manifest"
+    echo "   Fix: Verify receiver is exported"
     exit 7
 fi
-echo "✅ Device Owner confirmed."
-echo ""
+echo "✅ Auto-enrollment initiated"
+echo
 
-echo "[Step 4/7] Permissions & Doze whitelist..."
-adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
-adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
-adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
-adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
-adb shell appops set "$PKG" AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>/dev/null || true
-adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
-adb shell dumpsys deviceidle whitelist +"$PKG" >/dev/null
-echo "✅ Whitelisted & permissions set!"
-echo ""
-
-echo "[Step 5/7] Applying full optimizations and bloat off..."
-adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2"
-adb shell dumpsys deviceidle whitelist +"$SPEEDTEST_PKG" >/dev/null
-adb shell appops set "$SPEEDTEST_PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
-echo "✅ Optimizations applied!"
-echo ""
-
-echo "[Step 6/7] Launch and configure..."
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-sleep 2
-echo "[DEBUG] Sending CONFIGURE broadcast (foreground)..."
-adb shell am broadcast --receiver-foreground -a "$PKG".CONFIGURE -n "$PKG"/.ConfigReceiver --es server_url "$BASE_URL" --es token "$ADMINKEY" --es alias "$ALIAS" --es speedtest_package "$SPEEDTEST_PKG" --es unity_pkg "$SPEEDTEST_PKG"
-if [ $? -ne 0 ]; then
-    echo "❌ CONFIGURE broadcast failed."
+echo "[Step 7/7] Verify enrollment..."
+sleep 3
+if ! adb shell pidof "$PKG" 2>/dev/null; then
+    echo "❌ Service not running"
+    echo "   Debug: adb logcat -d | grep $PKG"
     exit 8
 fi
-sleep 3
-echo "✅ Configuration broadcast sent!"
-echo ""
+echo "✅ Service running"
+echo
 
-echo "[Step 7/7] Verifying service..."
-if adb shell pidof "$PKG" >/dev/null 2>&1; then
-    echo "✅ Service running"
-else
-    echo "❌ Service not running"
-    exit 9
-fi
-
-echo ""
-echo "=========================================="
-echo "✅ ENROLLMENT COMPLETE"
-echo "=========================================="
-echo "📱 \"$ALIAS\" should appear in the dashboard within ~60s."
-echo ""
+echo "================================================"
+echo "✅✅✅ ENROLLMENT COMPLETE ✅✅✅"
+echo "================================================"
+echo "📱 Device \"$ALIAS\" enrolled successfully!"
+echo "🔍 Check dashboard within 60 seconds"
+echo "================================================"
 '''
     
     return Response(
@@ -3935,9 +3981,10 @@ async def get_windows_one_liner_script(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate single-line Windows CMD enrollment command"""
+    """Generate zero-tap Windows one-liner enrollment command with enhanced debugging"""
     from models import EnrollmentToken, EnrollmentEvent
     
+    # Validate enrollment token
     token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
     if not token:
         raise HTTPException(status_code=404, detail="Token not found")
@@ -3945,6 +3992,7 @@ async def get_windows_one_liner_script(
     if token.status != 'active':
         raise HTTPException(status_code=400, detail=f"Token is {token.status}")
     
+    # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
     if not server_url:
         raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
@@ -3953,6 +4001,7 @@ async def get_windows_one_liner_script(
     if not admin_key:
         raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
     
+    # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render_one_liner',
         token_id=token_id,
@@ -3971,9 +4020,7 @@ async def get_windows_one_liner_script(
     
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
     
-    apk_endpoint = f"{server_url}/v1/apk/download/latest"
-    
-    one_liner = f'''cmd.exe /V:ON /C "set PKG={agent_pkg} & set ALIAS={alias} & set SPEEDTEST_PKG={unity_pkg} & set APK_PATH=%TEMP%\\nexmdm-latest.apk & set BASE_URL={server_url} & set DL_URL={server_url}/v1/apk/download/latest & set ADMINKEY={admin_key} & echo [NexMDM Deployment - Device: !ALIAS!] & echo. & echo [Step 0] Waiting for device... & adb wait-for-device || (echo ❌ No device found & exit /b 2) & echo [Step 1/7] Downloading latest APK... & curl -L -H ^"X-Admin-Key: !ADMINKEY!^" ^"!DL_URL!^" -o ^"!APK_PATH!^" || (echo ❌ Download failed & exit /b 3) & if not exist ^"!APK_PATH!^" (echo ❌ APK missing & exit /b 3) & echo ✅ APK downloaded! & echo. & echo [Step 2/7] Installing APK... & adb install -r ^"!APK_PATH!^" & if errorlevel 1 (adb shell pm uninstall -k --user 0 !PKG! 1>nul 2>nul & adb install -t -d ^"!APK_PATH!^" || (echo ❌ Clean install failed & exit /b 4)) & echo ✅ APK installed! & echo. & echo [Step 3/7] Ensuring Device Owner... & for /f "tokens=2 delims=: " %A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%A & for /f "tokens=2 delims=: " %B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%B & set DEVPROV=!DEVPROV:~0,1! & set USERSETUP=!USERSETUP:~0,1! & adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:^"!PKG!^" >nul & if errorlevel 1 (if "!DEVPROV!"=="1" if "!USERSETUP!"=="1" (echo ❌ Cannot set DO on provisioned device. Factory reset required. & exit /b 5) & adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver 1>nul 2>nul || (echo ❌ Failed to set Device Owner & exit /b 6)) & echo ✅ Device Owner confirmed. & echo. & echo [Step 4/7] Permissions... & adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS 2>nul & adb shell pm grant !PKG! android.permission.CAMERA 2>nul & adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION 2>nul & adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow 2>nul & adb shell appops set !PKG! AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul & adb shell appops set !PKG! GET_USAGE_STATS allow 2>nul & adb shell dumpsys deviceidle whitelist +!PKG! 1>nul & echo ✅ Permissions set! & echo. & echo [Step 5/7] Optimizations... & adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global wifi_sleep_policy 2" & adb shell dumpsys deviceidle whitelist +!SPEEDTEST_PKG! 1>nul & echo ✅ Optimizations applied! & echo. & echo [Step 6/7] Launch and configure... & adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 1>nul 2>nul & timeout /t 2 /nobreak >nul & adb shell am broadcast --receiver-foreground -a !PKG!.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url ^"!BASE_URL!^" --es token ^"!ADMINKEY!^" --es alias ^"!ALIAS!^" --es speedtest_package ^"!SPEEDTEST_PKG!^" --es unity_pkg ^"!SPEEDTEST_PKG!^" & timeout /t 3 /nobreak >nul & echo ✅ Configuration sent! & echo. & echo [Step 7/7] Verifying... & adb shell pidof !PKG! 1>nul && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 9) & echo. & echo ✅ ENROLLMENT COMPLETE - ^"!ALIAS!^" should appear in dashboard within ~60s. & exit /b 0"'''
+    one_liner = f'''cmd.exe /V:ON /C "set PKG={agent_pkg} & set ALIAS={alias} & set SPEEDTEST_PKG={unity_pkg} & set APK_PATH=%TEMP%\\nexmdm-latest.apk & set BASE_URL={server_url} & set DL_URL={server_url}/v1/apk/download/latest & set ADMINKEY={admin_key} & echo [NexMDM Deployment - Device: !ALIAS!] & echo. & echo [Step 0] Waiting for device... & adb wait-for-device || (echo ❌ No device found & exit /b 2) & echo [Step 1/7] Downloading latest APK... & curl -L -H ^"X-Admin-Key: !ADMINKEY!^" ^"!DL_URL!^" -o ^"!APK_PATH!^" || (echo ❌ Download failed & exit /b 3) & if not exist ^"!APK_PATH!^" (echo ❌ APK missing & exit /b 3) & echo ✅ APK downloaded! & echo. & echo [Step 2/7] Installing APK... & adb install -r ^"!APK_PATH!^" & if errorlevel 1 (adb shell pm uninstall -k --user 0 !PKG! 1>nul 2>nul & adb install -t -d ^"!APK_PATH!^" || (echo ❌ Clean install failed & exit /b 4)) & echo ✅ APK installed! & echo. & echo [Step 3/7] Ensuring Device Owner... & for /f "tokens=2 delims=: " %A in ('adb shell settings get secure device_provisioned') do set DEVPROV=%A & for /f "tokens=2 delims=: " %B in ('adb shell settings get secure user_setup_complete') do set USERSETUP=%B & set DEVPROV=!DEVPROV:~0,1! & set USERSETUP=!USERSETUP:~0,1! & adb shell dumpsys device_policy | findstr /C:"Device Owner" /C:^"!PKG!^" >nul & if errorlevel 1 (if "!DEVPROV!"=="1" if "!USERSETUP!"=="1" (echo ❌ Cannot set DO on provisioned device. Factory reset required. & exit /b 5) & adb shell dpm set-device-owner !PKG!/.NexDeviceAdminReceiver 1>nul 2>nul || (echo ❌ Failed to set Device Owner & exit /b 6)) & echo ✅ Device Owner confirmed. & echo. & echo [Step 4/7] Permissions... & adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS 2>nul & adb shell pm grant !PKG! android.permission.CAMERA 2>nul & adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION 2>nul & adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow 2>nul & adb shell appops set !PKG! AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul & adb shell appops set !PKG! GET_USAGE_STATS allow 2>nul & adb shell dumpsys deviceidle whitelist +!PKG! 1>nul & echo ✅ Permissions set! & echo. & echo [Step 5/7] Optimizations... & adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global app_standby_enabled 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put system screen_off_timeout 2147483647; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global wifi_sleep_policy 2" & adb shell dumpsys deviceidle whitelist +!SPEEDTEST_PKG! 1>nul & echo ✅ Optimizations applied! & echo. & echo [Step 6/7] Launch and configure... & adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 1>nul 2>nul & timeout /t 2 /nobreak >nul & adb shell am broadcast --receiver-foreground -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --es server_url ^"!BASE_URL!^" --es admin_key ^"!ADMINKEY!^" --es alias ^"!ALIAS!^" & timeout /t 3 /nobreak >nul & echo ✅ Configuration sent! & echo. & echo [Step 7/7] Verifying... & adb shell pidof !PKG! 1>nul && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 9) & echo. & echo ✅ ENROLLMENT COMPLETE - ^"!ALIAS!^" should appear in dashboard within ~60s. & exit /b 0"'''
     
     return Response(
         content=one_liner,
