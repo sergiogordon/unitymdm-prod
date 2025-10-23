@@ -2848,14 +2848,15 @@ async def update_fcm_token(
     
     return {"ok": True, "message": "FCM token updated successfully"}
 
-@app.post("/v1/devices/{device_id}/ping")
+@app.post("/v1/devices/{device_id}/commands/ping")
 async def ping_device(
     device_id: str,
     x_admin: str = Header(None),
+    user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=401, detail="Admin key required")
+    if not user and not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
@@ -2864,22 +2865,39 @@ async def ping_device(
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
     
-    if device.last_ping_sent:
-        time_since_last_ping = (datetime.now(timezone.utc) - ensure_utc(device.last_ping_sent)).total_seconds()
-        if time_since_last_ping < 120:
+    if device.last_ping_at:
+        time_since_last_ping = (datetime.now(timezone.utc) - ensure_utc(device.last_ping_at)).total_seconds()
+        if time_since_last_ping < 15:
             raise HTTPException(
                 status_code=429, 
-                detail=f"Rate limit: Please wait {int(120 - time_since_last_ping)} seconds before pinging again"
+                detail=f"Rate limit: Please wait {int(15 - time_since_last_ping)} seconds before pinging again"
             )
     
-    import uuid
-    request_id = str(uuid.uuid4())
+    correlation_id = str(uuid.uuid4())
+    
+    command = DeviceCommand(
+        device_id=device_id,
+        type="PING",
+        status="queued",
+        correlation_id=correlation_id,
+        payload=None,
+        created_by=user.username if user else "admin"
+    )
+    db.add(command)
+    db.flush()
+    
+    username = user.username if user else "admin"
+    log_device_event(db, device.id, "ping_initiated", {
+        "correlation_id": correlation_id,
+        "username": username
+    })
     
     structured_logger.log_event(
         "dispatch.request",
-        request_id=request_id,
+        request_id=correlation_id,
         device_id=device_id,
-        action="ping"
+        action="ping",
+        username=username
     )
     
     import httpx
@@ -2897,14 +2915,14 @@ async def ping_device(
     }
     
     timestamp = datetime.now(timezone.utc).isoformat()
-    hmac_signature = compute_hmac_signature(request_id, device_id, "ping", timestamp)
+    hmac_signature = compute_hmac_signature(correlation_id, device_id, "ping", timestamp)
     
     message = {
         "message": {
             "token": device.fcm_token,
             "data": {
                 "action": "ping",
-                "request_id": request_id,
+                "correlation_id": correlation_id,
                 "device_id": device_id,
                 "ts": timestamp,
                 "hmac": hmac_signature,
@@ -2933,7 +2951,7 @@ async def ping_device(
                 structured_logger.log_event(
                     "dispatch.fail",
                     level="ERROR",
-                    request_id=request_id,
+                    request_id=correlation_id,
                     device_id=device_id,
                     action="ping",
                     fcm_http_code=response.status_code,
@@ -2941,17 +2959,18 @@ async def ping_device(
                     latency_ms=int(latency_ms)
                 )
                 
-                return {
-                    "ok": False,
-                    "error": f"FCM request failed with status {response.status_code}",
-                    "fcm_response": fcm_result
-                }
+                command.status = "failed"
+                command.error = f"FCM request failed with status {response.status_code}"
+                device.last_ping_at = datetime.now(timezone.utc)
+                db.commit()
+                
+                raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
             
             fcm_result = response.json()
             
             structured_logger.log_event(
                 "dispatch.sent",
-                request_id=request_id,
+                request_id=correlation_id,
                 device_id=device_id,
                 action="ping",
                 fcm_http_code=response.status_code,
@@ -2963,17 +2982,13 @@ async def ping_device(
                 "action": "ping"
             })
             
-            device.last_ping_sent = datetime.now(timezone.utc)
-            device.ping_request_id = request_id
+            device.last_ping_at = datetime.now(timezone.utc)
             db.commit()
             
-            log_device_event(db, device.id, "ping_sent", {"request_id": request_id})
-            
             return {
-                "ok": True,
-                "request_id": request_id,
-                "message": "Ping sent successfully",
-                "fcm_response": fcm_result
+                "command_id": str(command.id),
+                "status": "queued",
+                "correlation_id": correlation_id
             }
             
         except httpx.TimeoutException:
@@ -2981,20 +2996,24 @@ async def ping_device(
             structured_logger.log_event(
                 "dispatch.fail",
                 level="ERROR",
-                request_id=request_id,
+                request_id=correlation_id,
                 device_id=device_id,
                 action="ping",
                 fcm_http_code=504,
                 fcm_status="timeout",
                 latency_ms=int(latency_ms)
             )
+            command.status = "failed"
+            command.error = "FCM request timed out"
+            device.last_ping_at = datetime.now(timezone.utc)
+            db.commit()
             raise HTTPException(status_code=504, detail="FCM request timed out")
         except Exception as e:
             latency_ms = (time.time() - fcm_start_time) * 1000
             structured_logger.log_event(
                 "dispatch.fail",
                 level="ERROR",
-                request_id=request_id,
+                request_id=correlation_id,
                 device_id=device_id,
                 action="ping",
                 fcm_http_code=500,
@@ -3002,17 +3021,26 @@ async def ping_device(
                 error=str(e),
                 latency_ms=int(latency_ms)
             )
+            command.status = "failed"
+            command.error = str(e)
+            device.last_ping_at = datetime.now(timezone.utc)
+            db.commit()
             raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
 
-@app.post("/v1/devices/{device_id}/ring")
+class RingCommandRequest(BaseModel):
+    duration_sec: int = 30
+    volume: float = 1.0
+
+@app.post("/v1/devices/{device_id}/commands/ring")
 async def ring_device(
     device_id: str,
-    duration_seconds: int = 30,
+    payload: RingCommandRequest,
     x_admin: str = Header(None),
+    user: User = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=401, detail="Admin key required")
+    if not user and not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Authentication required")
     
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
@@ -3021,8 +3049,39 @@ async def ring_device(
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
     
-    if duration_seconds < 5 or duration_seconds > 120:
-        raise HTTPException(status_code=400, detail="Duration must be between 5 and 120 seconds")
+    if payload.duration_sec < 5 or payload.duration_sec > 120:
+        raise HTTPException(status_code=400, detail="duration_sec must be between 5 and 120 seconds")
+    
+    if payload.volume < 0.0 or payload.volume > 1.0:
+        raise HTTPException(status_code=400, detail="volume must be between 0.0 and 1.0")
+    
+    now = datetime.now(timezone.utc)
+    if device.ringing_until and device.ringing_until > now:
+        raise HTTPException(
+            status_code=409,
+            detail="Device is already ringing. Please stop the current ring before starting a new one."
+        )
+    
+    correlation_id = str(uuid.uuid4())
+    
+    command = DeviceCommand(
+        device_id=device_id,
+        type="RING",
+        status="queued",
+        correlation_id=correlation_id,
+        payload=json.dumps({"duration_sec": payload.duration_sec, "volume": payload.volume}),
+        created_by=user.username if user else "admin"
+    )
+    db.add(command)
+    db.flush()
+    
+    username = user.username if user else "admin"
+    log_device_event(db, device.id, "ring_initiated", {
+        "correlation_id": correlation_id,
+        "duration_sec": payload.duration_sec,
+        "volume": payload.volume,
+        "username": username
+    })
     
     import httpx
     
@@ -3038,12 +3097,20 @@ async def ring_device(
         "Content-Type": "application/json"
     }
     
+    timestamp = datetime.now(timezone.utc).isoformat()
+    hmac_signature = compute_hmac_signature(correlation_id, device_id, "ring", timestamp)
+    
     message = {
         "message": {
             "token": device.fcm_token,
             "data": {
                 "action": "ring",
-                "duration": str(duration_seconds)
+                "correlation_id": correlation_id,
+                "device_id": device_id,
+                "duration_sec": str(payload.duration_sec),
+                "volume": str(payload.volume),
+                "ts": timestamp,
+                "hmac": hmac_signature
             },
             "android": {
                 "priority": "high"
@@ -3061,27 +3128,216 @@ async def ring_device(
                 except:
                     fcm_result = {"raw_response": response.text}
                 
-                return {
-                    "ok": False,
-                    "error": f"FCM request failed with status {response.status_code}",
-                    "fcm_response": fcm_result
-                }
+                command.status = "failed"
+                command.error = f"FCM request failed with status {response.status_code}"
+                db.commit()
+                
+                raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
             
-            fcm_result = response.json()
-            
-            log_device_event(db, device.id, "ring_sent", {"duration": duration_seconds})
+            device.ringing_until = now + timedelta(seconds=payload.duration_sec)
+            device.last_ring_at = now
+            db.commit()
             
             return {
-                "ok": True,
-                "message": f"Ring command sent to {device.alias}",
-                "duration": duration_seconds,
-                "fcm_response": fcm_result
+                "command_id": str(command.id),
+                "status": "queued",
+                "correlation_id": correlation_id
             }
             
         except httpx.TimeoutException:
+            command.status = "failed"
+            command.error = "FCM request timed out"
+            db.commit()
             raise HTTPException(status_code=504, detail="FCM request timed out")
         except Exception as e:
+            command.status = "failed"
+            command.error = str(e)
+            db.commit()
             raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
+
+@app.post("/v1/devices/{device_id}/commands/ring/stop")
+async def stop_ring_device(
+    device_id: str,
+    x_admin: str = Header(None),
+    user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    if not user and not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    if not device.fcm_token:
+        raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
+    
+    now = datetime.now(timezone.utc)
+    if not device.ringing_until or device.ringing_until <= now:
+        raise HTTPException(status_code=400, detail="Device is not currently ringing")
+    
+    correlation_id = str(uuid.uuid4())
+    
+    command = DeviceCommand(
+        device_id=device_id,
+        type="RING_STOP",
+        status="queued",
+        correlation_id=correlation_id,
+        payload=None,
+        created_by=user.username if user else "admin"
+    )
+    db.add(command)
+    db.flush()
+    
+    username = user.username if user else "admin"
+    log_device_event(db, device.id, "ring_stop_initiated", {
+        "correlation_id": correlation_id,
+        "username": username
+    })
+    
+    import httpx
+    
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    timestamp = datetime.now(timezone.utc).isoformat()
+    hmac_signature = compute_hmac_signature(correlation_id, device_id, "ring_stop", timestamp)
+    
+    message = {
+        "message": {
+            "token": device.fcm_token,
+            "data": {
+                "action": "ring_stop",
+                "correlation_id": correlation_id,
+                "device_id": device_id,
+                "ts": timestamp,
+                "hmac": hmac_signature
+            },
+            "android": {
+                "priority": "high"
+            }
+        }
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            
+            if response.status_code != 200:
+                try:
+                    fcm_result = response.json()
+                except:
+                    fcm_result = {"raw_response": response.text}
+                
+                command.status = "failed"
+                command.error = f"FCM request failed with status {response.status_code}"
+                db.commit()
+                
+                raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
+            
+            device.ringing_until = None
+            db.commit()
+            
+            return {
+                "command_id": str(command.id),
+                "status": "queued"
+            }
+            
+        except httpx.TimeoutException:
+            command.status = "failed"
+            command.error = "FCM request timed out"
+            db.commit()
+            raise HTTPException(status_code=504, detail="FCM request timed out")
+        except Exception as e:
+            command.status = "failed"
+            command.error = str(e)
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
+
+class AckRequest(BaseModel):
+    correlation_id: str
+    type: str
+    battery: Optional[float] = None
+    network: Optional[str] = None
+    rssi: Optional[int] = None
+    charging: Optional[bool] = None
+    uptime_ms: Optional[int] = None
+
+@app.post("/v1/devices/{device_id}/ack")
+async def acknowledge_command(
+    device_id: str,
+    payload: AckRequest,
+    device: Device = Depends(verify_device_token),
+    db: Session = Depends(get_db)
+):
+    if device.id != device_id:
+        raise HTTPException(status_code=403, detail="Device can only acknowledge its own commands")
+    
+    command = db.query(DeviceCommand).filter(
+        DeviceCommand.correlation_id == payload.correlation_id
+    ).first()
+    
+    if not command:
+        raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
+    
+    if command.device_id != device_id:
+        raise HTTPException(status_code=403, detail="Command does not belong to this device")
+    
+    if payload.type == "PING_ACK":
+        command.status = "acknowledged"
+        
+        metric = DeviceMetric(
+            device_id=device_id,
+            ts=datetime.now(timezone.utc),
+            battery_pct=int(payload.battery * 100) if payload.battery is not None else None,
+            charging=payload.charging,
+            network_type=payload.network,
+            signal_dbm=payload.rssi,
+            uptime_ms=payload.uptime_ms,
+            app_version=device.app_version,
+            source="ping_ack"
+        )
+        db.add(metric)
+        
+        log_device_event(db, device_id, "ping_acknowledged", {
+            "correlation_id": payload.correlation_id,
+            "battery": payload.battery,
+            "network": payload.network,
+            "rssi": payload.rssi
+        })
+        
+    elif payload.type == "RING_STARTED":
+        command.status = "acknowledged"
+        
+        log_device_event(db, device_id, "ring_started", {
+            "correlation_id": payload.correlation_id
+        })
+        
+    elif payload.type == "RING_STOPPED":
+        command.status = "completed"
+        
+        if device.ringing_until:
+            device.ringing_until = None
+        
+        log_device_event(db, device_id, "ring_stopped", {
+            "correlation_id": payload.correlation_id
+        })
+        
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
+    
+    db.commit()
+    
+    return {"ok": True}
 
 @app.post("/v1/devices/{device_id}/grant-permissions")
 async def grant_device_permissions(
