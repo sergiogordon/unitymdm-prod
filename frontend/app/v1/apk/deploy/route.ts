@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
 const API_URL = 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    // Check if this is a demo mode request
-    if (isDemoRequest(request)) {
-      return handleDemoRequest(request, '/v1/apk/deploy', 'POST')
-    }
-
     // Get JWT token from Authorization header
     const authHeader = request.headers.get('Authorization')
     
