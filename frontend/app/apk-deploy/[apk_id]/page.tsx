@@ -461,7 +461,7 @@ export default function ApkDeployPage() {
             <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
               <h2 className="mb-4 text-lg font-semibold text-card-foreground">Deployment Results</h2>
               
-              <div className="mb-4 grid grid-cols-3 gap-4 text-center">
+              <div className="mb-6 grid grid-cols-3 gap-4 text-center">
                 <div className="rounded-lg bg-muted p-4">
                   <div className="text-2xl font-bold">{deploymentResult.total}</div>
                   <div className="text-sm text-muted-foreground">Total</div>
@@ -476,32 +476,67 @@ export default function ApkDeployPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                {deploymentResult.details.map((detail, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-lg border border-border p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      {detail.success ? (
-                        <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                      )}
-                      <div>
-                        <div className="font-medium">{detail.alias}</div>
-                        {detail.reason && (
-                          <div className="text-sm text-muted-foreground">{detail.reason}</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              {/* Detailed Results Table */}
+              <div className="mb-6 overflow-hidden rounded-lg border border-border">
+                <table className="w-full">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-muted-foreground">Status</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-muted-foreground">Device</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-muted-foreground">Device ID</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-muted-foreground">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {deploymentResult.details.map((detail, idx) => (
+                      <tr key={idx} className="hover:bg-muted/50">
+                        <td className="px-4 py-3">
+                          {detail.success ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                              <span className="text-sm font-medium text-green-600 dark:text-green-400">Success</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                              <span className="text-sm font-medium text-red-600 dark:text-red-400">Failed</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-card-foreground">{detail.alias || 'Unknown'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {detail.device_id ? detail.device_id.substring(0, 8) + '...' : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {detail.success ? (
+                            <span className="text-sm text-muted-foreground">APK deployed successfully</span>
+                          ) : (
+                            <span className="text-sm text-red-600 dark:text-red-400">
+                              {detail.reason || 'Deployment failed'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="mt-4 text-center">
+              <div className="flex justify-center gap-3">
                 <Button
                   variant="outline"
+                  onClick={() => {
+                    setDeploymentResult(null)
+                    setSelectedDevices(new Set())
+                  }}
+                >
+                  Deploy Another
+                </Button>
+                <Button
                   onClick={() => router.push('/apk-management')}
                 >
                   Back to APK Management
