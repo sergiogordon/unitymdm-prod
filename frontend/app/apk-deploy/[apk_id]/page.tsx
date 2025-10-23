@@ -169,11 +169,20 @@ export default function ApkDeployPage() {
     const devicesToDeploy = getDeploymentDevices()
 
     try {
+      // Get auth token from localStorage
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      }
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
       const response = await fetch('/v1/apk/deploy', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           apk_id: parseInt(apkId),
           device_ids: devicesToDeploy
