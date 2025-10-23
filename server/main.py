@@ -2001,6 +2001,40 @@ async def delete_device(
     
     return {"ok": True, "message": f"Device {device_alias} deleted successfully"}
 
+@app.get("/admin/devices")
+async def get_admin_devices(
+    alias: Optional[str] = Query(None),
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get devices with optional alias filtering.
+    Used by enrollment scripts for device verification.
+    Requires admin key authentication.
+    """
+    if not verify_admin_key(x_admin_key or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    query = db.query(Device)
+    
+    if alias:
+        query = query.filter(Device.alias == alias)
+    
+    devices = query.all()
+    
+    result = []
+    for device in devices:
+        result.append({
+            "id": device.id,
+            "alias": device.alias,
+            "last_seen": device.last_seen.isoformat() + "Z" if device.last_seen else None,
+            "model": device.model,
+            "manufacturer": device.manufacturer,
+            "status": "online" if device.last_seen and (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds() < 900 else "offline"
+        })
+    
+    return result
+
 @app.post("/admin/devices/selection")
 async def create_selection(
     request: Request,
