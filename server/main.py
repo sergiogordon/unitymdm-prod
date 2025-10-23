@@ -27,7 +27,7 @@ from schemas import (
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
     hash_password, verify_password, create_session, get_current_user, get_current_user_optional,
-    compute_token_id, verify_enrollment_token, security
+    compute_token_id, verify_enrollment_token, verify_admin_key_header, security
 )
 from alerts import alert_scheduler, alert_manager
 from background_tasks import background_tasks
@@ -1286,10 +1286,10 @@ async def admin_generate_reset_token(
 async def register_device(
     payload: dict,
     request: Request,
-    enrollment_token = Depends(verify_enrollment_token),
+    admin_key_verified = Depends(verify_admin_key_header),
     db: Session = Depends(get_db)
 ):
-    """Register a device using an enrollment token"""
+    """Register a device using admin key authentication"""
     from models import EnrollmentToken, EnrollmentEvent
     
     alias = payload.get("alias")
@@ -1301,7 +1301,7 @@ async def register_device(
     structured_logger.log_event(
         "register.request",
         alias=alias,
-        token_id=enrollment_token.token_id,
+        auth_method="admin_key",
         route="/v1/register"
     )
     
@@ -1333,23 +1333,13 @@ async def register_device(
         
         db.add(device)
         
-        # Increment enrollment token usage counter (BUG FIX #2)
-        enrollment_token.uses_consumed += 1
-        enrollment_token.last_used_at = datetime.now(timezone.utc)
-        enrollment_token.device_id = device_id
-        enrollment_token.used_at = datetime.now(timezone.utc)
-        
-        # Mark as exhausted if all uses consumed
-        if enrollment_token.uses_consumed >= enrollment_token.uses_allowed:
-            enrollment_token.status = 'exhausted'
-        
-        # Log enrollment event
+        # Log enrollment event (using admin key authentication)
         event = EnrollmentEvent(
             event_type='device.registered',
-            token_id=enrollment_token.token_id,
+            token_id="admin_key",
             alias=alias,
             device_id=device_id,
-            metadata={"hardware_id": hardware_id}
+            metadata={"hardware_id": hardware_id, "auth_method": "admin_key"}
         )
         db.add(event)
         
@@ -1357,14 +1347,14 @@ async def register_device(
         
         log_device_event(db, device_id, "device_enrolled", {
             "alias": alias,
-            "enrollment_token_id": enrollment_token.token_id
+            "auth_method": "admin_key"
         })
         
         structured_logger.log_event(
             "register.success",
             device_id=device_id,
             alias=alias,
-            enrollment_token_id=enrollment_token.token_id,
+            auth_method="admin_key",
             token_id=token_id[-4:] if token_id else None,
             result="success"
         )

@@ -191,6 +191,24 @@ async def get_current_user_optional(
     except:
         return None
 
+async def verify_admin_key_header(
+    x_admin_key: str | None = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Verify admin key from X-Admin-Key header for device registration
+    """
+    import os
+    
+    if not x_admin_key:
+        raise HTTPException(status_code=401, detail="Missing X-Admin-Key header")
+    
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or x_admin_key != admin_key:
+        raise HTTPException(status_code=401, detail="Invalid admin key")
+    
+    return {"admin_key_verified": True}
+
 async def verify_enrollment_token(
     credentials: HTTPAuthorizationCredentials | None = Security(security),
     required_scope: str = "register",
