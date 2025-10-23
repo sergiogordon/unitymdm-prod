@@ -2517,6 +2517,84 @@ async def update_monitoring_defaults(
         "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 
+@app.get("/admin/bloatware-list")
+async def get_bloatware_list(
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of enabled bloatware packages for enrollment scripts.
+    Returns plain text, one package name per line.
+    Used by enrollment one-liner scripts to download current bloatware list.
+    """
+    verify_admin_key(admin_key)
+    
+    packages = db.query(BloatwarePackage).filter(BloatwarePackage.enabled == True).order_by(BloatwarePackage.package_name).all()
+    
+    package_names = [pkg.package_name for pkg in packages]
+    plain_text = "\n".join(package_names)
+    
+    structured_logger.log_event(
+        "bloatware.list.download",
+        count=len(package_names),
+        source="enrollment_script"
+    )
+    
+    return Response(
+        content=plain_text,
+        media_type="text/plain"
+    )
+
+class UpdateBloatwareListRequest(BaseModel):
+    packages: list[str]
+
+@app.post("/admin/bloatware-list")
+async def update_bloatware_list(
+    request: UpdateBloatwareListRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the bloatware packages list.
+    Replaces all existing packages with the provided list.
+    Requires admin authentication.
+    """
+    if not request.packages or len(request.packages) == 0:
+        raise HTTPException(status_code=422, detail="Packages list cannot be empty")
+    
+    # Validate package names
+    import re
+    for pkg in request.packages:
+        if not pkg or not pkg.strip():
+            raise HTTPException(status_code=422, detail="Package names cannot be empty")
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', pkg.strip()):
+            raise HTTPException(status_code=422, detail=f"Invalid package name format: {pkg}")
+    
+    # Delete all existing packages
+    db.query(BloatwarePackage).delete()
+    
+    # Insert new packages
+    for pkg_name in request.packages:
+        pkg = BloatwarePackage(
+            package_name=pkg_name.strip(),
+            enabled=True
+        )
+        db.add(pkg)
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "bloatware.list.update",
+        user=current_user.username,
+        count=len(request.packages)
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Updated bloatware list with {len(request.packages)} packages",
+        "count": len(request.packages)
+    }
+
 @app.post("/v1/devices/settings/bulk")
 async def update_all_devices_settings(
     request: UpdateDeviceSettingsRequest,
