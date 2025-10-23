@@ -1,6 +1,6 @@
 "use client"
 
-import { Battery, Wifi, Smartphone, Search, Settings2 } from "lucide-react"
+import { Battery, Wifi, Smartphone, Search, Settings2, Bell, BellOff, Radio } from "lucide-react"
 import type { Device } from "@/lib/mock-data"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -9,7 +9,7 @@ import { BulkActionsBar } from "@/components/bulk-actions-bar"
 import { BulkDeleteModal } from "@/components/bulk-delete-modal"
 import { DeviceMonitoringModal } from "@/components/device-monitoring-modal"
 import { useToast } from "@/hooks/use-toast"
-import { bulkDeleteDevices } from "@/lib/api-client"
+import { bulkDeleteDevices, pingDevice, ringDevice, stopRingingDevice } from "@/lib/api-client"
 
 interface DevicesTableProps {
   devices: Device[]
@@ -22,6 +22,8 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [monitoringDevice, setMonitoringDevice] = useState<Device | null>(null)
+  const [pingLoading, setPingLoading] = useState<Set<string>>(new Set())
+  const [ringLoading, setRingLoading] = useState<Set<string>>(new Set())
   const { toast } = useToast()
 
   const filteredDevices = devices.filter((device) => {
@@ -103,6 +105,87 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
     }
   }
 
+  const handlePing = async (deviceId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setPingLoading(prev => new Set([...prev, deviceId]))
+    
+    try {
+      await pingDevice(deviceId)
+      toast({
+        title: "Ping sent",
+        description: "Device will respond with telemetry data",
+        variant: "default"
+      })
+    } catch (error) {
+      toast({
+        title: "Ping failed",
+        description: error instanceof Error ? error.message : "Failed to ping device",
+        variant: "destructive"
+      })
+    } finally {
+      setPingLoading(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(deviceId)
+        return newSet
+      })
+    }
+  }
+
+  const handleRing = async (deviceId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRingLoading(prev => new Set([...prev, deviceId]))
+    
+    try {
+      await ringDevice(deviceId, 30, 1.0)
+      toast({
+        title: "Ring command sent",
+        description: "Device will ring for 30 seconds",
+        variant: "default"
+      })
+      // Refresh device list to show updated ringing status
+      onDevicesDeleted?.()
+    } catch (error) {
+      toast({
+        title: "Ring failed",
+        description: error instanceof Error ? error.message : "Failed to ring device",
+        variant: "destructive"
+      })
+    } finally {
+      setRingLoading(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(deviceId)
+        return newSet
+      })
+    }
+  }
+
+  const handleStopRing = async (deviceId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRingLoading(prev => new Set([...prev, deviceId]))
+    
+    try {
+      await stopRingingDevice(deviceId)
+      toast({
+        title: "Stop ring sent",
+        description: "Device will stop ringing",
+        variant: "default"
+      })
+      onDevicesDeleted?.()
+    } catch (error) {
+      toast({
+        title: "Stop ring failed",
+        description: error instanceof Error ? error.message : "Failed to stop ring",
+        variant: "destructive"
+      })
+    } finally {
+      setRingLoading(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(deviceId)
+        return newSet
+      })
+    }
+  }
+
   const selectedDevices = devices.filter(d => selectedIds.has(d.id))
   const sampleAliases = selectedDevices.slice(0, 10).map(d => d.alias)
 
@@ -171,6 +254,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
                 <th className="px-4 py-3 text-left text-sm font-medium">Alias</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Service</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Last Seen</th>
+                <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                 <th className="px-4 py-3 text-right text-sm font-medium">Battery</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Network</th>
                 <th className="px-4 py-3 text-left text-sm font-medium">Unity</th>
@@ -182,7 +266,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
             <tbody>
               {filteredDevices.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center">
+                  <td colSpan={12} className="px-4 py-12 text-center">
                     <p className="text-sm text-muted-foreground">No devices found matching "{searchQuery}"</p>
                   </td>
                 </tr>
@@ -247,6 +331,51 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.lastSeen}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          {device.ringing_until && new Date(device.ringing_until) > new Date() ? (
+                            <>
+                              <span className="flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-1 text-xs text-orange-600">
+                                <Bell className="h-3 w-3" />
+                                Ringing...
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handleStopRing(device.id, e)}
+                                disabled={ringLoading.has(device.id)}
+                                className="h-7 w-7"
+                                title="Stop ringing"
+                              >
+                                <BellOff className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handlePing(device.id, e)}
+                                disabled={pingLoading.has(device.id) || device.status === 'offline'}
+                                className="h-7 w-7"
+                                title="Ping device (request heartbeat)"
+                              >
+                                <Radio className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handleRing(device.id, e)}
+                                disabled={ringLoading.has(device.id) || device.status === 'offline'}
+                                className="h-7 w-7"
+                                title="Ring + Flashlight to locate"
+                              >
+                                <Bell className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right cursor-pointer" onClick={() => onSelectDevice(device)}>
                         <div className="flex items-center justify-end gap-1.5">
                           <span className={`text-sm ${device.battery.percentage < 20 ? "text-status-offline" : ""}`}>
