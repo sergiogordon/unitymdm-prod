@@ -18,7 +18,7 @@ class ConfigReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "com.nexmdm.CONFIGURE") {
             val serverUrl = intent.getStringExtra("server_url") ?: return
-            val adminKey = intent.getStringExtra("token") ?: return
+            val adminKey = intent.getStringExtra("admin_key") ?: return
             val alias = intent.getStringExtra("alias") ?: "Device"
             val speedtestPackage = intent.getStringExtra("speedtest_package") ?: "org.zwanoo.android.speedtest"
             val hmacPrimaryKey = intent.getStringExtra("hmac_primary_key") ?: ""
