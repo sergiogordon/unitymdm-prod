@@ -8,6 +8,7 @@ import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { isAuthenticated } from "@/lib/api-client"
 
 interface Device {
   id: string
@@ -53,6 +54,16 @@ export default function ApkDeployPage() {
   const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "25" | "50" | "custom">("all")
   const [customPercentage, setCustomPercentage] = useState<number>(10)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+
+  // Check authentication
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.push('/login')
+    } else {
+      setAuthChecked(true)
+    }
+  }, [router])
 
   useEffect(() => {
     if (isDark) {
@@ -63,18 +74,32 @@ export default function ApkDeployPage() {
   }, [isDark])
 
   useEffect(() => {
-    fetchData()
-  }, [apkId])
+    if (authChecked) {
+      fetchData()
+    }
+  }, [apkId, authChecked])
 
   const fetchData = async () => {
     setIsLoading(true)
     setError(null)
     
     try {
+      // Get auth token from localStorage
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+      
+      if (!token) {
+        throw new Error('Authentication required')
+      }
+
       // Fetch APK details and devices in parallel
       const [apkRes, devicesRes] = await Promise.all([
-        fetch(`/admin/apk/builds?build_id=${apkId}`),
-        fetch('/v1/devices')
+        fetch(`/admin/apk/builds?limit=100&order=desc`),
+        fetch('/api/proxy/v1/devices', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
       ])
 
       if (!apkRes.ok || !devicesRes.ok) {
@@ -84,8 +109,11 @@ export default function ApkDeployPage() {
       const apkData = await apkRes.json()
       const devicesData = await devicesRes.json()
 
-      if (apkData.builds && apkData.builds.length > 0) {
-        setApk(apkData.builds[0])
+      // Find the specific APK by build_id
+      const targetApk = apkData.builds?.find((b: ApkBuild) => b.build_id === parseInt(apkId))
+      
+      if (targetApk) {
+        setApk(targetApk)
       } else {
         throw new Error('APK not found')
       }
