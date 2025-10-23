@@ -609,76 +609,72 @@ def seed_bloatware_packages():
         if count > 0:
             return
         
-        # Default bloatware packages from enrollment v2
+        # Default bloatware packages from baseline (disabled_list_1761250623211.txt)
         default_packages = [
-            # Verizon bloat
-            ("com.vzw.hss.myverizon", "Verizon My Verizon app"),
-            ("com.verizon.obdm_permissions", "Verizon OBDM permissions"),
-            ("com.vzw.apnlib", "Verizon APN library"),
-            ("com.verizon.mips.services", "Verizon MIPS services"),
-            ("com.vcast.mediamanager", "Verizon VCast media manager"),
-            ("com.reliancecommunications.vvmclient", "Visual voicemail client"),
-            # Google apps
-            ("com.google.android.apps.youtube.music", "YouTube Music"),
-            ("com.google.android.youtube", "YouTube"),
-            ("com.google.android.apps.videos", "Google Play Movies"),
-            ("com.google.android.apps.docs", "Google Docs"),
-            ("com.google.android.apps.maps", "Google Maps"),
-            ("com.google.android.apps.photos", "Google Photos"),
-            ("com.google.android.apps.wallpaper", "Google Wallpapers"),
-            ("com.google.android.apps.walletnfcrel", "Google Wallet"),
-            ("com.google.android.apps.nbu.files", "Files by Google"),
-            ("com.google.android.apps.keep", "Google Keep"),
-            ("com.google.android.apps.googleassistant", "Google Assistant"),
-            ("com.google.android.apps.tachyon", "Google Duo"),
-            ("com.google.android.apps.safetyhub", "Google Safety Hub"),
-            ("com.google.android.apps.nbu.paisa.user", "Google Pay"),
-            ("com.google.android.apps.chromecast.app", "Google Home"),
-            ("com.google.android.apps.wellbeing", "Digital Wellbeing"),
-            ("com.google.android.apps.customization.pixel", "Pixel Customization"),
-            ("com.google.android.deskclock", "Google Clock"),
-            ("com.google.android.calendar", "Google Calendar"),
-            ("com.google.android.gm", "Gmail"),
-            ("com.google.android.calculator", "Google Calculator"),
-            ("com.google.android.projection.gearhead", "Android Auto"),
-            ("com.google.android.printservice.recommendation", "Print service"),
-            ("com.google.android.feedback", "Google Feedback"),
-            ("com.google.android.marvin.talkback", "Talkback"),
-            ("com.google.android.tts", "Text-to-speech"),
-            ("com.google.android.gms.supervision", "Family Link supervision"),
-            # Third-party bloat
-            ("com.LogiaGroup.LogiaDeck", "LogiaDeck"),
-            ("com.dti.folderlauncher", "Folder launcher"),
-            ("com.huub.viper", "Viper launcher"),
-            ("us.sliide.viper", "Sliide Viper"),
-            ("com.example.sarswitch", "SAR switch"),
-            ("com.handmark.expressweather", "Express Weather"),
-            ("com.tripledot.solitaire", "Solitaire game"),
-            ("com.facebook.katana", "Facebook"),
-            ("com.facebook.appmanager", "Facebook App Manager"),
-            ("com.discounts.viper", "Discounts Viper"),
-            # Android system bloat
-            ("com.android.egg", "Android Easter Egg"),
-            ("com.android.dreams.basic", "Basic Dreams"),
-            ("com.android.dreams.phototable", "Photo Screensavers"),
-            ("com.android.musicfx", "Music effects"),
-            ("com.android.soundrecorder", "Sound recorder"),
-            ("com.android.protips", "Android tips"),
-            ("com.android.wallpapercropper", "Wallpaper cropper"),
-            ("com.android.wallpaper.livepicker", "Live wallpaper picker"),
-            ("com.android.providers.partnerbookmarks", "Partner bookmarks"),
-            ("com.android.bips", "Built-in print service"),
-            ("com.android.printspooler", "Print spooler"),
-            ("com.android.wallpaperbackup", "Wallpaper backup"),
-            ("com.android.soundpicker", "Sound picker"),
+            "com.vzw.hss.myverizon",
+            "com.verizon.obdm_permissions",
+            "com.vzw.apnlib",
+            "com.verizon.mips.services",
+            "com.vcast.mediamanager",
+            "com.reliancecommunications.vvmclient",
+            "com.google.android.apps.youtube.music",
+            "com.google.android.youtube",
+            "com.google.android.apps.videos",
+            "com.google.android.apps.docs",
+            "com.google.android.apps.maps",
+            "com.google.android.apps.photos",
+            "com.google.android.apps.wallpaper",
+            "com.google.android.apps.walletnfcrel",
+            "com.google.android.apps.nbu.files",
+            "com.google.android.apps.keep",
+            "com.google.android.apps.googleassistant",
+            "com.google.android.apps.tachyon",
+            "com.google.android.apps.safetyhub",
+            "com.google.android.apps.nbu.paisa.user",
+            "com.google.android.apps.chromecast.app",
+            "com.google.android.apps.wellbeing",
+            "com.google.android.apps.customization.pixel",
+            "com.google.android.deskclock",
+            "com.google.android.calendar",
+            "com.google.android.gm",
+            "com.google.android.calculator",
+            "com.google.android.projection.gearhead",
+            "com.google.android.printservice.recommendation",
+            "com.google.android.feedback",
+            "com.google.android.marvin.talkback",
+            "com.google.android.tts",
+            "com.google.android.gms.supervision",
+            "com.LogiaGroup.LogiaDeck",
+            "com.dti.folderlauncher",
+            "com.huub.viper",
+            "us.sliide.viper",
+            "com.example.sarswitch",
+            "com.handmark.expressweather",
+            "com.tripledot.solitaire",
+            "com.facebook.katana",
+            "com.facebook.appmanager",
+            "com.discounts.viper",
+            "com.android.egg",
+            "com.android.dreams.basic",
+            "com.android.dreams.phototable",
+            "com.android.musicfx",
+            "com.android.soundrecorder",
+            "com.android.protips",
+            "com.android.wallpapercropper",
+            "com.android.wallpaper.livepicker",
+            "com.android.providers.partnerbookmarks",
+            "com.android.bips",
+            "com.android.printspooler",
+            "com.android.wallpaperbackup",
+            "com.android.soundpicker",
         ]
         
         # Insert all packages
-        for package_name, description in default_packages:
+        for package_name in default_packages:
             pkg = BloatwarePackage(
                 package_name=package_name,
                 enabled=True,
-                description=description
+                description=None
             )
             db.add(pkg)
         
@@ -2593,6 +2589,197 @@ async def update_bloatware_list(
         "ok": True,
         "message": f"Updated bloatware list with {len(request.packages)} packages",
         "count": len(request.packages)
+    }
+
+@app.get("/admin/bloatware-list/json")
+async def get_bloatware_list_json(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of bloatware packages in JSON format.
+    Returns array of package objects with id, package_name, enabled.
+    Used by admin UI for management.
+    """
+    packages = db.query(BloatwarePackage).order_by(BloatwarePackage.package_name).all()
+    
+    return {
+        "packages": [
+            {
+                "id": pkg.id,
+                "package_name": pkg.package_name,
+                "enabled": pkg.enabled,
+                "description": pkg.description
+            }
+            for pkg in packages
+        ],
+        "count": len(packages)
+    }
+
+class AddBloatwarePackageRequest(BaseModel):
+    package_name: str
+
+@app.post("/admin/bloatware-list/add")
+async def add_bloatware_package(
+    request: AddBloatwarePackageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Add a single bloatware package to the list"""
+    import re
+    
+    package_name = request.package_name.strip()
+    
+    if not package_name:
+        raise HTTPException(status_code=422, detail="Package name cannot be empty")
+    
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', package_name):
+        raise HTTPException(status_code=422, detail=f"Invalid package name format: {package_name}")
+    
+    # Check if already exists
+    existing = db.query(BloatwarePackage).filter(BloatwarePackage.package_name == package_name).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Package {package_name} already exists")
+    
+    # Add package
+    pkg = BloatwarePackage(
+        package_name=package_name,
+        enabled=True
+    )
+    db.add(pkg)
+    db.commit()
+    
+    structured_logger.log_event(
+        "bloatware.package.add",
+        user=current_user.username,
+        package=package_name
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Added package {package_name}",
+        "package": {
+            "id": pkg.id,
+            "package_name": pkg.package_name,
+            "enabled": pkg.enabled
+        }
+    }
+
+@app.delete("/admin/bloatware-list/{package_name}")
+async def delete_bloatware_package(
+    package_name: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a single bloatware package from the list"""
+    pkg = db.query(BloatwarePackage).filter(BloatwarePackage.package_name == package_name).first()
+    
+    if not pkg:
+        raise HTTPException(status_code=404, detail=f"Package {package_name} not found")
+    
+    db.delete(pkg)
+    db.commit()
+    
+    structured_logger.log_event(
+        "bloatware.package.delete",
+        user=current_user.username,
+        package=package_name
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Deleted package {package_name}"
+    }
+
+@app.post("/admin/bloatware-list/reset")
+async def reset_bloatware_list(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Reset bloatware list to default baseline packages"""
+    # Default bloatware packages from baseline
+    default_packages = [
+        "com.vzw.hss.myverizon",
+        "com.verizon.obdm_permissions",
+        "com.vzw.apnlib",
+        "com.verizon.mips.services",
+        "com.vcast.mediamanager",
+        "com.reliancecommunications.vvmclient",
+        "com.google.android.apps.youtube.music",
+        "com.google.android.youtube",
+        "com.google.android.apps.videos",
+        "com.google.android.apps.docs",
+        "com.google.android.apps.maps",
+        "com.google.android.apps.photos",
+        "com.google.android.apps.wallpaper",
+        "com.google.android.apps.walletnfcrel",
+        "com.google.android.apps.nbu.files",
+        "com.google.android.apps.keep",
+        "com.google.android.apps.googleassistant",
+        "com.google.android.apps.tachyon",
+        "com.google.android.apps.safetyhub",
+        "com.google.android.apps.nbu.paisa.user",
+        "com.google.android.apps.chromecast.app",
+        "com.google.android.apps.wellbeing",
+        "com.google.android.apps.customization.pixel",
+        "com.google.android.deskclock",
+        "com.google.android.calendar",
+        "com.google.android.gm",
+        "com.google.android.calculator",
+        "com.google.android.projection.gearhead",
+        "com.google.android.printservice.recommendation",
+        "com.google.android.feedback",
+        "com.google.android.marvin.talkback",
+        "com.google.android.tts",
+        "com.google.android.gms.supervision",
+        "com.LogiaGroup.LogiaDeck",
+        "com.dti.folderlauncher",
+        "com.huub.viper",
+        "us.sliide.viper",
+        "com.example.sarswitch",
+        "com.handmark.expressweather",
+        "com.tripledot.solitaire",
+        "com.facebook.katana",
+        "com.facebook.appmanager",
+        "com.discounts.viper",
+        "com.android.egg",
+        "com.android.dreams.basic",
+        "com.android.dreams.phototable",
+        "com.android.musicfx",
+        "com.android.soundrecorder",
+        "com.android.protips",
+        "com.android.wallpapercropper",
+        "com.android.wallpaper.livepicker",
+        "com.android.providers.partnerbookmarks",
+        "com.android.bips",
+        "com.android.printspooler",
+        "com.android.wallpaperbackup",
+        "com.android.soundpicker",
+    ]
+    
+    # Delete all existing packages
+    db.query(BloatwarePackage).delete()
+    
+    # Insert default packages
+    for pkg_name in default_packages:
+        pkg = BloatwarePackage(
+            package_name=pkg_name,
+            enabled=True
+        )
+        db.add(pkg)
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "bloatware.list.reset",
+        user=current_user.username,
+        count=len(default_packages)
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Reset bloatware list to {len(default_packages)} default packages",
+        "count": len(default_packages)
     }
 
 @app.post("/v1/devices/settings/bulk")

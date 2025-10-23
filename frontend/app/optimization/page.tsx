@@ -4,11 +4,11 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { Gauge, Check, Plus, Send, Package } from "lucide-react"
+import { Gauge, Check, Plus, Send, Package, Trash2, RotateCcw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
-import { isAuthenticated, updateBloatwareList } from "@/lib/api-client"
+import { Input } from "@/components/ui/input"
+import { isAuthenticated, getBloatwareList, addBloatwarePackage, deleteBloatwarePackage, resetBloatwareList } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
 
 export default function OptimizationPage() {
@@ -16,8 +16,10 @@ export default function OptimizationPage() {
   const { toast } = useToast()
   const [isDark, setIsDark] = useState(false)
   const [whitelistApps, setWhitelistApps] = useState([{ name: "Speedtest", package: "org.zwanoo.android.speedtest" }])
-  const [bloatwarePackages, setBloatwarePackages] = useState("")
-  const [isSavingBloatware, setIsSavingBloatware] = useState(false)
+  const [bloatwarePackages, setBloatwarePackages] = useState<Array<{ id: number; package_name: string; enabled: boolean }>>([])
+  const [isLoadingBloatware, setIsLoadingBloatware] = useState(true)
+  const [newPackageName, setNewPackageName] = useState("")
+  const [isAddingPackage, setIsAddingPackage] = useState(false)
 
   // Check authentication
   useEffect(() => {
@@ -34,38 +36,92 @@ export default function OptimizationPage() {
     }
   }, [isDark])
 
-  const handleSaveBloatware = async () => {
-    setIsSavingBloatware(true)
-    try {
-      // Parse packages (one per line, trim whitespace)
-      const packages = bloatwarePackages
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0)
-      
-      if (packages.length === 0) {
-        toast({
-          title: "Error",
-          description: "Please enter at least one package name",
-          variant: "destructive"
-        })
-        return
-      }
+  // Load bloatware packages on mount
+  useEffect(() => {
+    loadBloatwarePackages()
+  }, [])
 
-      await updateBloatwareList(packages)
-      
-      toast({
-        title: "Success",
-        description: `Updated bloatware list with ${packages.length} packages`
-      })
+  const loadBloatwarePackages = async () => {
+    setIsLoadingBloatware(true)
+    try {
+      const data = await getBloatwareList()
+      setBloatwarePackages(data.packages)
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to update bloatware list",
+        description: error.message || "Failed to load bloatware list",
         variant: "destructive"
       })
     } finally {
-      setIsSavingBloatware(false)
+      setIsLoadingBloatware(false)
+    }
+  }
+
+  const handleAddPackage = async () => {
+    if (!newPackageName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a package name",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setIsAddingPackage(true)
+    try {
+      await addBloatwarePackage(newPackageName.trim())
+      toast({
+        title: "Success",
+        description: `Added package ${newPackageName.trim()}`
+      })
+      setNewPackageName("")
+      await loadBloatwarePackages()
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add package",
+        variant: "destructive"
+      })
+    } finally {
+      setIsAddingPackage(false)
+    }
+  }
+
+  const handleDeletePackage = async (packageName: string) => {
+    try {
+      await deleteBloatwarePackage(packageName)
+      toast({
+        title: "Success",
+        description: `Deleted package ${packageName}`
+      })
+      await loadBloatwarePackages()
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete package",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleResetToDefaults = async () => {
+    if (!confirm("Are you sure you want to reset to default bloatware list? This will remove all custom packages.")) {
+      return
+    }
+
+    try {
+      const result = await resetBloatwareList()
+      toast({
+        title: "Success",
+        description: result.message
+      })
+      await loadBloatwarePackages()
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset bloatware list",
+        variant: "destructive"
+      })
     }
   }
 
@@ -208,37 +264,97 @@ export default function OptimizationPage() {
 
         {/* Bloatware Management Section */}
         <Card className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="rounded-lg bg-red-500/10 p-2">
-              <Package className="h-5 w-5 text-red-600 dark:text-red-500" />
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-red-500/10 p-2">
+                <Package className="h-5 w-5 text-red-600 dark:text-red-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-card-foreground">Bloatware Management</h2>
+                <p className="text-xs text-muted-foreground">
+                  {isLoadingBloatware ? "Loading..." : `${bloatwarePackages.length} packages`}
+                </p>
+              </div>
             </div>
-            <h2 className="text-lg font-semibold text-card-foreground">Bloatware Management</h2>
+            <Button 
+              onClick={handleResetToDefaults}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Reset to Defaults
+            </Button>
           </div>
+          
           <p className="mb-6 text-sm text-muted-foreground">
             Manage the global list of bloatware packages that will be automatically disabled during device enrollment. 
-            Enter one package name per line. This list applies to all new device enrollments.
+            This list applies to all new device enrollments.
           </p>
 
-          <div className="space-y-4">
-            <Textarea
-              value={bloatwarePackages}
-              onChange={(e) => setBloatwarePackages(e.target.value)}
-              placeholder="com.example.bloatware&#10;com.vzw.hss.myverizon&#10;com.google.android.youtube&#10;..."
-              className="min-h-[300px] font-mono text-xs"
+          {/* Add Package Input */}
+          <div className="mb-6 flex gap-2">
+            <Input
+              value={newPackageName}
+              onChange={(e) => setNewPackageName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddPackage()}
+              placeholder="com.example.bloatware"
+              className="font-mono text-sm"
+              disabled={isAddingPackage}
             />
-            
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                {bloatwarePackages.split('\n').filter(line => line.trim().length > 0).length} packages
-              </p>
-              <Button 
-                onClick={handleSaveBloatware}
-                disabled={isSavingBloatware}
-                className="gap-2"
-              >
-                {isSavingBloatware ? "Saving..." : "Save Bloatware List"}
-              </Button>
-            </div>
+            <Button 
+              onClick={handleAddPackage}
+              disabled={isAddingPackage || !newPackageName.trim()}
+              className="gap-2 whitespace-nowrap"
+            >
+              {isAddingPackage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              Add Package
+            </Button>
+          </div>
+
+          {/* Package List */}
+          <div className="rounded-lg border border-border">
+            {isLoadingBloatware ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : bloatwarePackages.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No packages configured. Add packages above to get started.
+              </div>
+            ) : (
+              <div className="max-h-[400px] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 border-b border-border bg-muted/50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Package Name</th>
+                      <th className="w-20 px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bloatwarePackages.map((pkg) => (
+                      <tr key={pkg.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                        <td className="px-4 py-3 font-mono text-xs text-card-foreground">{pkg.package_name}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            onClick={() => handleDeletePackage(pkg.package_name)}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-500 dark:hover:text-red-400"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </Card>
       </main>
