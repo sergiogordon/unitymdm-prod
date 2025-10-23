@@ -10,7 +10,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { AlertTriangle } from "lucide-react"
@@ -30,16 +29,10 @@ export function BulkDeleteModal({
   deviceCount,
   sampleAliases
 }: BulkDeleteModalProps) {
-  const [confirmText, setConfirmText] = useState("")
   const [purgeHistory, setPurgeHistory] = useState(true)
   const [isDeleting, setIsDeleting] = useState(false)
-  
-  const expectedText = `DELETE ${deviceCount}`
-  const canDelete = confirmText.trim() === expectedText
 
   const handleConfirm = async () => {
-    if (!canDelete) return
-    
     setIsDeleting(true)
     try {
       await onConfirm(purgeHistory)
@@ -52,7 +45,6 @@ export function BulkDeleteModal({
   }
 
   const handleClose = () => {
-    setConfirmText("")
     setPurgeHistory(true)
     onClose()
   }
@@ -75,7 +67,7 @@ export function BulkDeleteModal({
           {sampleAliases.length > 0 && (
             <div>
               <Label className="text-sm font-medium">Devices to be deleted:</Label>
-              <div className="mt-2 rounded-md border border-border bg-muted/50 p-3">
+              <div className="mt-2 rounded-md border border-border bg-muted/50 p-3 max-h-[200px] overflow-y-auto">
                 <ul className="text-sm space-y-1">
                   {sampleAliases.map((alias, i) => (
                     <li key={i} className="text-muted-foreground">• {alias}</li>
@@ -109,22 +101,6 @@ export function BulkDeleteModal({
               </p>
             </div>
           </div>
-
-          {/* Type to confirm */}
-          <div>
-            <Label htmlFor="confirm-text" className="text-sm font-medium">
-              Type <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">{expectedText}</code> to confirm
-            </Label>
-            <Input
-              id="confirm-text"
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder={expectedText}
-              className="mt-2 font-mono"
-              disabled={isDeleting}
-              autoComplete="off"
-            />
-          </div>
         </div>
 
         <DialogFooter>
@@ -138,7 +114,7 @@ export function BulkDeleteModal({
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={!canDelete || isDeleting}
+            disabled={isDeleting}
           >
             {isDeleting ? "Deleting..." : `Delete ${deviceCount} Device${deviceCount !== 1 ? 's' : ''}`}
           </Button>

@@ -226,8 +226,27 @@ def bulk_delete_devices(
             
             # Delete in correct order to respect foreign key constraints
             
-            # 1. Delete heartbeats (must happen before device deletion, handled by purge_jobs later)
-            # Note: Heartbeats are in partitioned tables, deleted later by purge job
+            # 1. Delete heartbeats FIRST (required due to foreign key constraint)
+            # Use raw SQL for efficiency with partitioned tables
+            try:
+                db.execute(
+                    text("DELETE FROM device_heartbeats WHERE device_id = :device_id"),
+                    {"device_id": device_id}
+                )
+                structured_logger.log_event(
+                    "device.delete.cascade.heartbeats",
+                    request_id=request_id,
+                    device_id=device_id,
+                    level="DEBUG"
+                )
+            except Exception as e:
+                structured_logger.log_event(
+                    "device.delete.heartbeats_warning",
+                    request_id=request_id,
+                    device_id=device_id,
+                    error=str(e),
+                    level="WARN"
+                )
             
             # 2. Delete alert states
             deleted_alerts = db.query(AlertState).filter(
