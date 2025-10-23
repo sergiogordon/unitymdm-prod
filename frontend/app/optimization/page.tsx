@@ -4,18 +4,20 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { SettingsDrawer } from "@/components/settings-drawer"
-import { Gauge, Check, Plus, Send } from "lucide-react"
+import { Gauge, Check, Plus, Send, Package } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { isAuthenticated } from "@/lib/api-client"
+import { Textarea } from "@/components/ui/textarea"
+import { isAuthenticated, updateBloatwareList } from "@/lib/api-client"
+import { useToast } from "@/hooks/use-toast"
 
 export default function OptimizationPage() {
   const router = useRouter()
+  const { toast } = useToast()
   const [isDark, setIsDark] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState(Date.now())
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [whitelistApps, setWhitelistApps] = useState([{ name: "Speedtest", package: "org.zwanoo.android.speedtest" }])
+  const [bloatwarePackages, setBloatwarePackages] = useState("")
+  const [isSavingBloatware, setIsSavingBloatware] = useState(false)
 
   // Check authentication
   useEffect(() => {
@@ -32,19 +34,46 @@ export default function OptimizationPage() {
     }
   }, [isDark])
 
-  const handleRefresh = () => {
-    setLastUpdated(Date.now())
+  const handleSaveBloatware = async () => {
+    setIsSavingBloatware(true)
+    try {
+      // Parse packages (one per line, trim whitespace)
+      const packages = bloatwarePackages
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+      
+      if (packages.length === 0) {
+        toast({
+          title: "Error",
+          description: "Please enter at least one package name",
+          variant: "destructive"
+        })
+        return
+      }
+
+      await updateBloatwareList(packages)
+      
+      toast({
+        title: "Success",
+        description: `Updated bloatware list with ${packages.length} packages`
+      })
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update bloatware list",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSavingBloatware(false)
+    }
   }
 
   return (
     <div className="min-h-screen">
       <Header
-        lastUpdated={lastUpdated}
-        alertCount={0}
         isDark={isDark}
         onToggleDark={() => setIsDark(!isDark)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={handleRefresh}
       />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
@@ -176,9 +205,43 @@ export default function OptimizationPage() {
             </div>
           </Card>
         </div>
-      </main>
 
-      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        {/* Bloatware Management Section */}
+        <Card className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="mb-6 flex items-center gap-3">
+            <div className="rounded-lg bg-red-500/10 p-2">
+              <Package className="h-5 w-5 text-red-600 dark:text-red-500" />
+            </div>
+            <h2 className="text-lg font-semibold text-card-foreground">Bloatware Management</h2>
+          </div>
+          <p className="mb-6 text-sm text-muted-foreground">
+            Manage the global list of bloatware packages that will be automatically disabled during device enrollment. 
+            Enter one package name per line. This list applies to all new device enrollments.
+          </p>
+
+          <div className="space-y-4">
+            <Textarea
+              value={bloatwarePackages}
+              onChange={(e) => setBloatwarePackages(e.target.value)}
+              placeholder="com.example.bloatware&#10;com.vzw.hss.myverizon&#10;com.google.android.youtube&#10;..."
+              className="min-h-[300px] font-mono text-xs"
+            />
+            
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                {bloatwarePackages.split('\n').filter(line => line.trim().length > 0).length} packages
+              </p>
+              <Button 
+                onClick={handleSaveBloatware}
+                disabled={isSavingBloatware}
+                className="gap-2"
+              >
+                {isSavingBloatware ? "Saving..." : "Save Bloatware List"}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </main>
     </div>
   )
 }
