@@ -4919,6 +4919,7 @@ async def deploy_apk_to_devices(
     # Step 3: Process results
     success_count = 0
     installation_ids = []
+    installations = []
     
     for result in results:
         if isinstance(result, Exception):
@@ -4932,6 +4933,16 @@ async def deploy_apk_to_devices(
         if result.get("success"):
             success_count += 1
             installation_ids.append(result["installation_id"])
+            # Include device details for successful deployments
+            device = result.get("device")
+            if device:
+                installations.append({
+                    "installation_id": result["installation_id"],
+                    "device": {
+                        "id": device.id,
+                        "alias": device.alias or "Unknown"
+                    }
+                })
         else:
             failed_devices.append({
                 "device_id": result["device"].id,
@@ -4948,6 +4959,7 @@ async def deploy_apk_to_devices(
         "total_devices": len(devices),
         "success_count": success_count,
         "failed_count": len(failed_devices),
+        "installations": installations,
         "failed_devices": failed_devices,
         "installation_ids": installation_ids,
         "apk": {
