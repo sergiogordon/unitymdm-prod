@@ -1,7 +1,7 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal, Download, FileCode, Command } from "lucide-react"
+import { Copy, Check, Terminal, Download, Command } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -85,45 +85,6 @@ function ADBSetupContent() {
     }
   }
 
-  const downloadScript = async (platform: 'windows' | 'bash') => {
-    if (!alias.trim()) {
-      alert("Please enter a device alias")
-      return
-    }
-
-    const authToken = localStorage.getItem('auth_token')
-    const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
-    const url = `${endpoint}?alias=${encodeURIComponent(alias.trim())}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
-    
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${authToken}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to download script")
-      }
-      
-      const blob = await response.blob()
-      const downloadUrl = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = downloadUrl
-      a.download = `enroll-${alias.trim()}.${platform === 'windows' ? 'cmd' : 'sh'}`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(downloadUrl)
-      document.body.removeChild(a)
-
-      const buttonId = `${platform}-download`
-      setCopiedButton(buttonId)
-      setTimeout(() => setCopiedButton(null), 2000)
-    } catch (error) {
-      alert(`Failed to download ${platform} script`)
-      console.error(error)
-    }
-  }
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -210,65 +171,6 @@ function ADBSetupContent() {
                   <>
                     <Copy className="h-4 w-4 mr-2" />
                     Bash
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Full Script Downloads */}
-        <div className="bg-card rounded-lg border border-border p-6 space-y-4">
-          <div>
-            <h2 className="text-xl font-semibold mb-2 flex items-center gap-2">
-              <FileCode className="h-5 w-5" />
-              Full Enrollment Scripts
-            </h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Download complete enrollment scripts as files. These include detailed progress tracking and error messages.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Windows Script (.cmd)</Label>
-              <Button
-                onClick={() => downloadScript('windows')}
-                className="w-full"
-                variant="outline"
-                disabled={!alias.trim()}
-              >
-                {copiedButton === 'windows-download' ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Downloaded!
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    .cmd
-                  </>
-                )}
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Bash Script (.sh)</Label>
-              <Button
-                onClick={() => downloadScript('bash')}
-                className="w-full"
-                variant="outline"
-                disabled={!alias.trim()}
-              >
-                {copiedButton === 'bash-download' ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Downloaded!
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    .sh
                   </>
                 )}
               </Button>
