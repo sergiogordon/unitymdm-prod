@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, BloatwarePackage, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -528,6 +528,7 @@ async def startup_event():
     validate_configuration()
     init_db()
     migrate_database()
+    seed_bloatware_packages()
     
     # Start background tasks with defensive error handling
     try:
@@ -598,6 +599,96 @@ def migrate_database():
                         raise
         except Exception as e:
             print(f"[MIGRATION] Error: {e}")
+
+def seed_bloatware_packages():
+    """Seed database with default bloatware packages if empty"""
+    db = SessionLocal()
+    try:
+        # Check if already seeded
+        count = db.query(BloatwarePackage).count()
+        if count > 0:
+            return
+        
+        # Default bloatware packages from enrollment v2
+        default_packages = [
+            # Verizon bloat
+            ("com.vzw.hss.myverizon", "Verizon My Verizon app"),
+            ("com.verizon.obdm_permissions", "Verizon OBDM permissions"),
+            ("com.vzw.apnlib", "Verizon APN library"),
+            ("com.verizon.mips.services", "Verizon MIPS services"),
+            ("com.vcast.mediamanager", "Verizon VCast media manager"),
+            ("com.reliancecommunications.vvmclient", "Visual voicemail client"),
+            # Google apps
+            ("com.google.android.apps.youtube.music", "YouTube Music"),
+            ("com.google.android.youtube", "YouTube"),
+            ("com.google.android.apps.videos", "Google Play Movies"),
+            ("com.google.android.apps.docs", "Google Docs"),
+            ("com.google.android.apps.maps", "Google Maps"),
+            ("com.google.android.apps.photos", "Google Photos"),
+            ("com.google.android.apps.wallpaper", "Google Wallpapers"),
+            ("com.google.android.apps.walletnfcrel", "Google Wallet"),
+            ("com.google.android.apps.nbu.files", "Files by Google"),
+            ("com.google.android.apps.keep", "Google Keep"),
+            ("com.google.android.apps.googleassistant", "Google Assistant"),
+            ("com.google.android.apps.tachyon", "Google Duo"),
+            ("com.google.android.apps.safetyhub", "Google Safety Hub"),
+            ("com.google.android.apps.nbu.paisa.user", "Google Pay"),
+            ("com.google.android.apps.chromecast.app", "Google Home"),
+            ("com.google.android.apps.wellbeing", "Digital Wellbeing"),
+            ("com.google.android.apps.customization.pixel", "Pixel Customization"),
+            ("com.google.android.deskclock", "Google Clock"),
+            ("com.google.android.calendar", "Google Calendar"),
+            ("com.google.android.gm", "Gmail"),
+            ("com.google.android.calculator", "Google Calculator"),
+            ("com.google.android.projection.gearhead", "Android Auto"),
+            ("com.google.android.printservice.recommendation", "Print service"),
+            ("com.google.android.feedback", "Google Feedback"),
+            ("com.google.android.marvin.talkback", "Talkback"),
+            ("com.google.android.tts", "Text-to-speech"),
+            ("com.google.android.gms.supervision", "Family Link supervision"),
+            # Third-party bloat
+            ("com.LogiaGroup.LogiaDeck", "LogiaDeck"),
+            ("com.dti.folderlauncher", "Folder launcher"),
+            ("com.huub.viper", "Viper launcher"),
+            ("us.sliide.viper", "Sliide Viper"),
+            ("com.example.sarswitch", "SAR switch"),
+            ("com.handmark.expressweather", "Express Weather"),
+            ("com.tripledot.solitaire", "Solitaire game"),
+            ("com.facebook.katana", "Facebook"),
+            ("com.facebook.appmanager", "Facebook App Manager"),
+            ("com.discounts.viper", "Discounts Viper"),
+            # Android system bloat
+            ("com.android.egg", "Android Easter Egg"),
+            ("com.android.dreams.basic", "Basic Dreams"),
+            ("com.android.dreams.phototable", "Photo Screensavers"),
+            ("com.android.musicfx", "Music effects"),
+            ("com.android.soundrecorder", "Sound recorder"),
+            ("com.android.protips", "Android tips"),
+            ("com.android.wallpapercropper", "Wallpaper cropper"),
+            ("com.android.wallpaper.livepicker", "Live wallpaper picker"),
+            ("com.android.providers.partnerbookmarks", "Partner bookmarks"),
+            ("com.android.bips", "Built-in print service"),
+            ("com.android.printspooler", "Print spooler"),
+            ("com.android.wallpaperbackup", "Wallpaper backup"),
+            ("com.android.soundpicker", "Sound picker"),
+        ]
+        
+        # Insert all packages
+        for package_name, description in default_packages:
+            pkg = BloatwarePackage(
+                package_name=package_name,
+                enabled=True,
+                description=description
+            )
+            db.add(pkg)
+        
+        db.commit()
+        print(f"[SEED] Added {len(default_packages)} default bloatware packages")
+    except Exception as e:
+        print(f"[SEED] Error seeding bloatware packages: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 def log_device_event(db: Session, device_id: str, event_type: str, details: Optional[dict] = None):
     """Log a device event to the database"""
