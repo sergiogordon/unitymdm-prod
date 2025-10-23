@@ -4,6 +4,7 @@ from models import ApkVersion
 from datetime import datetime, timezone
 from typing import Optional
 from object_storage import get_storage_service, ObjectNotFoundError
+import hashlib
 
 async def save_apk_file(
     file: UploadFile, 
@@ -36,6 +37,9 @@ async def save_apk_file(
         content = await file.read()
         file_size = len(content)
         
+        # Calculate SHA-256 hash for caching and verification
+        sha256_hash = hashlib.sha256(content).hexdigest()
+        
         # Upload to App Storage
         storage = get_storage_service()
         final_filename = f"{package_name}_{version_code}.apk"
@@ -55,7 +59,8 @@ async def save_apk_file(
             uploaded_at=datetime.now(timezone.utc),
             uploaded_by=uploaded_by,
             is_active=True,
-            notes=notes
+            notes=notes,
+            sha256=sha256_hash
         )
         
         db.add(apk_version)

@@ -40,6 +40,7 @@ import bulk_delete
 from purge_jobs import purge_manager
 from rate_limiter import rate_limiter
 from monitoring_defaults_cache import monitoring_defaults_cache
+from apk_download_service import download_apk_optimized, get_cache_statistics
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -4801,7 +4802,8 @@ async def send_fcm_to_device(device, installation, apk, download_url, current_us
         "package_name": apk.package_name,
         "version_name": apk.version_name,
         "version_code": str(apk.version_code),
-        "file_size": str(apk.file_size)
+        "file_size": str(apk.file_size),
+        "sha256": apk.sha256 or ""
     }
     
     access_token = get_access_token()
@@ -6274,6 +6276,67 @@ async def apply_battery_whitelist_to_device(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send FCM: {str(e)}")
+
+@app.get("/v1/apk/download-optimized/{apk_id}")
+async def download_apk_optimized_endpoint(
+    apk_id: int,
+    request: Request,
+    x_device_token: Optional[str] = Header(None),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    installation_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Optimized APK download endpoint with caching and telemetry.
+    
+    Features:
+    - In-memory caching (200MB, 1hr TTL)
+    - Download telemetry tracking  
+    - SHA-256 in response headers for client-side caching
+    - No rate limiting for deployments
+    
+    Requires device token or admin key authentication.
+    """
+    device = None
+    device_id = None
+    
+    # Authenticate
+    if x_admin_key and verify_admin_key(x_admin_key):
+        pass  # Admin authenticated
+    elif x_device_token:
+        devices = db.query(Device).limit(100).all()
+        for d in devices:
+            if verify_token(x_device_token, d.token_hash):
+                device = d
+                device_id = d.id
+                break
+        if not device:
+            raise HTTPException(status_code=401, detail="Invalid device token")
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    # Use optimized download service
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        device_id=device_id,
+        installation_id=installation_id,
+        use_cache=True
+    )
+
+@app.get("/admin/cache/stats")
+async def get_apk_cache_stats(
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
+    """Get APK cache statistics for monitoring"""
+    if not x_admin_key or not verify_admin_key(x_admin_key):
+        raise HTTPException(status_code=401, detail="Admin key required")
+    
+    stats = get_cache_statistics()
+    return {
+        "cache_stats": stats,
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
+    }
 
 @app.get("/download/nexmdm.apk")
 async def download_apk():

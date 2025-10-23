@@ -161,13 +161,14 @@ class AppStorageService:
             )
             raise
     
-    def download_file(self, storage_path: str) -> Tuple[bytes, str, int]:
+    def download_file(self, storage_path: str, use_cache: bool = True) -> Tuple[bytes, str, int]:
         """
         Download a file from Replit Object Storage.
         
         Args:
             storage_path: Path in format storage://apk/debug/{uuid}_{filename}
                          or just apk/debug/{uuid}_{filename}
+            use_cache: If True, check in-memory cache first (default: True)
             
         Returns:
             Tuple of (file_data, content_type, file_size)
@@ -178,6 +179,21 @@ class AppStorageService:
         """
         # Parse storage path
         storage_key = storage_path.replace("storage://", "")
+        
+        # Try cache first if enabled
+        if use_cache:
+            try:
+                from apk_cache import get_apk_cache
+                cache = get_apk_cache()
+                cached = cache.get(f"storage:{storage_key}")
+                if cached:
+                    self._log_event(
+                        "storage.download.cache_hit",
+                        key=storage_key
+                    )
+                    return cached
+            except Exception:
+                pass  # Cache miss or cache not available
         
         self._log_event(
             "storage.download.start",
@@ -200,6 +216,15 @@ class AppStorageService:
             
             file_size = len(file_data)
             content_type = "application/vnd.android.package-archive"
+            
+            # Cache the result for future requests
+            if use_cache:
+                try:
+                    from apk_cache import get_apk_cache
+                    cache = get_apk_cache()
+                    cache.put(f"storage:{storage_key}", file_data, content_type, file_size)
+                except Exception:
+                    pass  # Continue even if caching fails
             
             self._log_event(
                 "storage.download.success",

@@ -113,6 +113,7 @@ class ApkVersion(Base):
     git_sha: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     signer_fingerprint: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     storage_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     
     is_current: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     staged_rollout_percent: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
@@ -141,6 +142,12 @@ class ApkInstallation(Base):
     download_progress: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     initiated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    download_start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    download_end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    bytes_downloaded: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    avg_speed_kbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cache_hit: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
     
     __table_args__ = (
         Index('idx_installation_status', 'device_id', 'status'),
