@@ -162,35 +162,6 @@ class BatteryWhitelist(Base):
         Index('idx_whitelist_enabled', 'enabled'),
     )
 
-class EnrollmentToken(Base):
-    __tablename__ = "enrollment_tokens"
-    
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    token_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    alias: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    scope: Mapped[str] = mapped_column(String, default='register', nullable=False)
-    
-    issued_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    issued_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    
-    uses_allowed: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    uses_consumed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    
-    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String, default='active', nullable=False, index=True)
-    
-    device_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    
-    __table_args__ = (
-        Index('idx_enrollment_token_status', 'status', 'expires_at'),
-        Index('idx_enrollment_token_lookup', 'token_id'),
-        Index('idx_enrollment_issued_by', 'issued_by', 'issued_at'),
-    )
-
 class EnrollmentEvent(Base):
     __tablename__ = "enrollment_events"
     

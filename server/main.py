@@ -19,15 +19,12 @@ from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersio
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
-    UpdateDeviceSettingsRequest, CreateEnrollmentTokensRequest, CreateEnrollmentTokensResponse,
-    EnrollmentTokenResponse, ListEnrollmentTokensResponse, EnrollmentTokenListItem,
-    BatchDeleteEnrollmentTokensRequest, BatchDeleteEnrollmentTokensResponse,
-    ActionResultRequest
+    UpdateDeviceSettingsRequest, ActionResultRequest
 )
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
     hash_password, verify_password, create_session, get_current_user, get_current_user_optional,
-    compute_token_id, verify_enrollment_token, verify_admin_key_header, security
+    compute_token_id, verify_admin_key_header, security
 )
 from alerts import alert_scheduler, alert_manager
 from background_tasks import background_tasks
@@ -3316,304 +3313,16 @@ async def get_enrollment_qr_payload(alias: str):
         "alias": alias.strip()
     }
 
-@app.post("/v1/enroll-tokens", response_model=CreateEnrollmentTokensResponse)
-async def create_enrollment_tokens(
-    request: CreateEnrollmentTokensRequest,
-    req: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Generate enrollment tokens for batch device provisioning"""
-    from models import EnrollmentToken, EnrollmentEvent
-    import secrets
-    import hashlib
-    from datetime import timedelta
-    
-    if not request.aliases or len(request.aliases) == 0:
-        raise HTTPException(status_code=400, detail="At least one alias is required")
-    
-    if len(request.aliases) > 100:
-        raise HTTPException(status_code=400, detail="Maximum 100 tokens per request")
-    
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=request.expires_in_sec)
-    tokens_response = []
-    
-    for alias in request.aliases:
-        alias = alias.strip()
-        if not alias:
-            continue
-        
-        raw_token = secrets.token_urlsafe(32)
-        token_id = compute_token_id(raw_token)
-        token_hash = hash_token(raw_token)
-        
-        enrollment_token = EnrollmentToken(
-            token_id=token_id,
-            alias=alias,
-            token_hash=token_hash,
-            issued_by=current_user.username,
-            expires_at=expires_at,
-            uses_allowed=request.uses_allowed,
-            uses_consumed=0,
-            note=request.note,
-            status='active',
-            scope='register'
-        )
-        
-        db.add(enrollment_token)
-        
-        event = EnrollmentEvent(
-            event_type='token.create',
-            token_id=token_id,
-            alias=alias,
-            ip_address=req.client.host if req.client else None,
-            details=json.dumps({
-                "issued_by": current_user.username,
-                "expires_in_sec": request.expires_in_sec,
-                "uses_allowed": request.uses_allowed,
-                "note": request.note
-            })
-        )
-        db.add(event)
-        
-        structured_logger.log_event(
-            "sec.token.create",
-            token_id=token_id,
-            alias=alias,
-            issued_by=current_user.username,
-            expires_in_sec=request.expires_in_sec,
-            uses_allowed=request.uses_allowed
-        )
-        
-        tokens_response.append(EnrollmentTokenResponse(
-            token_id=token_id,
-            alias=alias,
-            token=raw_token,
-            expires_at=expires_at
-        ))
-    
-    db.commit()
-    
-    print(f"[ENROLL-TOKENS] Generated {len(tokens_response)} tokens for user {current_user.username}")
-    
-    return CreateEnrollmentTokensResponse(tokens=tokens_response)
-
-@app.get("/v1/enroll-tokens", response_model=ListEnrollmentTokensResponse)
-async def list_enrollment_tokens(
-    status: Optional[str] = Query(None),
-    limit: int = Query(100, le=500),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """List enrollment tokens with optional filtering"""
-    from models import EnrollmentToken
-    
-    query = db.query(EnrollmentToken)
-    
-    if status:
-        query = query.filter(EnrollmentToken.status == status)
-    
-    now = datetime.now(timezone.utc)
-    
-    tokens = query.order_by(EnrollmentToken.issued_at.desc()).limit(limit).all()
-    
-    token_items = []
-    for token in tokens:
-        current_status = token.status
-        if token.status == 'active':
-            token_expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
-            if token_expires_at < now:
-                token.status = 'expired'
-                current_status = 'expired'
-                structured_logger.log_event(
-                    "sec.token.expired",
-                    token_id=token.token_id,
-                    alias=token.alias,
-                    expired_at=token.expires_at.isoformat()
-                )
-            elif token.uses_consumed >= token.uses_allowed:
-                token.status = 'exhausted'
-                current_status = 'exhausted'
-        
-        token_items.append(EnrollmentTokenListItem(
-            token_id=token.token_id,
-            alias=token.alias,
-            token_last4=token.token_hash[-4:],
-            status=current_status,
-            expires_at=token.expires_at,
-            uses_allowed=token.uses_allowed,
-            uses_consumed=token.uses_consumed,
-            note=token.note,
-            issued_at=token.issued_at,
-            issued_by=token.issued_by
-        ))
-    
-    db.commit()
-    
-    return ListEnrollmentTokensResponse(
-        tokens=token_items,
-        total=len(token_items)
-    )
-
-@app.delete("/v1/enroll-tokens/{token_id}")
-async def revoke_enrollment_token(
-    token_id: str,
-    req: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Revoke an enrollment token"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-    
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    now = datetime.now(timezone.utc)
-    
-    if token.status == 'revoked':
-        return {
-            "ok": True,
-            "message": "Token already revoked",
-            "token_id": token_id,
-            "status": "revoked"
-        }
-    
-    if token.status == 'exhausted':
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot revoke exhausted token"
-        )
-    
-    if token.status == 'expired' or token.expires_at < now:
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot revoke expired token"
-        )
-    
-    token.status = 'revoked'
-    db.commit()
-    
-    event = EnrollmentEvent(
-        event_type='token.revoke',
-        token_id=token_id,
-        alias=token.alias,
-        ip_address=req.client.host if req.client else None,
-        details=json.dumps({
-            "revoked_by": current_user.username
-        })
-    )
-    db.add(event)
-    db.commit()
-    
-    structured_logger.log_event(
-        "sec.token.revoke",
-        token_id=token_id,
-        alias=token.alias,
-        revoked_by=current_user.username
-    )
-    
-    return {
-        "ok": True,
-        "message": "Token revoked successfully",
-        "token_id": token_id,
-        "status": "revoked"
-    }
-
-@app.post("/v1/enroll-tokens/batch-delete", response_model=BatchDeleteEnrollmentTokensResponse)
-async def batch_delete_enrollment_tokens(
-    request: BatchDeleteEnrollmentTokensRequest,
-    req: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Delete multiple enrollment tokens in batch"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    if not request.token_ids or len(request.token_ids) == 0:
-        raise HTTPException(status_code=400, detail="token_ids is required and must not be empty")
-    
-    if len(request.token_ids) > 500:
-        raise HTTPException(status_code=400, detail="Cannot delete more than 500 tokens at once")
-    
-    deleted_count = 0
-    failed_count = 0
-    errors = []
-    
-    for token_id in request.token_ids:
-        try:
-            token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-            
-            if not token:
-                failed_count += 1
-                errors.append({
-                    "token_id": token_id,
-                    "error": "Token not found"
-                })
-                continue
-            
-            db.delete(token)
-            
-            event = EnrollmentEvent(
-                event_type='token.delete',
-                token_id=token_id,
-                alias=token.alias,
-                ip_address=req.client.host if req.client else None,
-                details=json.dumps({
-                    "deleted_by": current_user.username,
-                    "status": token.status
-                })
-            )
-            db.add(event)
-            
-            structured_logger.log_event(
-                "sec.token.delete",
-                token_id=token_id,
-                alias=token.alias,
-                deleted_by=current_user.username
-            )
-            
-            deleted_count += 1
-            
-        except Exception as e:
-            failed_count += 1
-            errors.append({
-                "token_id": token_id,
-                "error": str(e)
-            })
-            continue
-    
-    db.commit()
-    
-    print(f"[BATCH-DELETE-TOKENS] Deleted {deleted_count} tokens, {failed_count} failed by user {current_user.username}")
-    
-    return BatchDeleteEnrollmentTokensResponse(
-        deleted_count=deleted_count,
-        failed_count=failed_count,
-        errors=errors
-    )
-
 @app.get("/v1/scripts/enroll.cmd")
 async def get_windows_enroll_script(
     alias: str = Query(...),
-    token_id: str = Query(...),
-    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate zero-tap Windows enrollment script with enhanced debugging"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    # Validate enrollment token
-    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    if token.status != 'active':
-        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    from models import EnrollmentEvent
     
     # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
@@ -3627,9 +3336,14 @@ async def get_windows_enroll_script(
     # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render',
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        details=json.dumps({"platform": "windows", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+        details=json.dumps({
+            "platform": "windows",
+            "agent_pkg": agent_pkg,
+            "unity_pkg": unity_pkg,
+            "generated_by": current_user.username
+        })
     )
     db.add(event)
     db.commit()
@@ -3799,23 +3513,13 @@ exit /b !EXITCODE!
 @app.get("/v1/scripts/enroll.sh")
 async def get_bash_enroll_script(
     alias: str = Query(...),
-    token_id: str = Query(...),
-    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate zero-tap Bash enrollment script with enhanced debugging"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    # Validate enrollment token
-    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    if token.status != 'active':
-        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    from models import EnrollmentEvent
     
     # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
@@ -3829,9 +3533,14 @@ async def get_bash_enroll_script(
     # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render',
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        details=json.dumps({"platform": "bash", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+        details=json.dumps({
+            "platform": "bash",
+            "agent_pkg": agent_pkg,
+            "unity_pkg": unity_pkg,
+            "generated_by": current_user.username
+        })
     )
     db.add(event)
     db.commit()
@@ -3978,23 +3687,13 @@ echo "================================================"
 @app.get("/v1/scripts/enroll.one-liner.cmd")
 async def get_windows_one_liner_script(
     alias: str = Query(...),
-    token_id: str = Query(...),
-    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate zero-tap Windows one-liner enrollment command with enhanced debugging"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    # Validate enrollment token
-    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    if token.status != 'active':
-        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    from models import EnrollmentEvent
     
     # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
@@ -4008,18 +3707,24 @@ async def get_windows_one_liner_script(
     # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render_one_liner',
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        details=json.dumps({"platform": "windows_oneliner", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+        details=json.dumps({
+            "platform": "windows_oneliner",
+            "agent_pkg": agent_pkg,
+            "unity_pkg": unity_pkg,
+            "generated_by": current_user.username
+        })
     )
     db.add(event)
     db.commit()
     
     structured_logger.log_event(
         "script.render_one_liner",
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        platform="windows"
+        platform="windows",
+        generated_by=current_user.username
     )
     
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
@@ -4038,23 +3743,13 @@ async def get_windows_one_liner_script(
 @app.get("/v1/scripts/enroll.one-liner.sh")
 async def get_bash_one_liner_script(
     alias: str = Query(...),
-    token_id: str = Query(...),
-    raw_token: Optional[str] = Query(None),
     agent_pkg: str = Query("com.nexmdm"),
     unity_pkg: str = Query("org.zwanoo.android.speedtest"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Generate zero-tap Bash one-liner enrollment command with enhanced debugging"""
-    from models import EnrollmentToken, EnrollmentEvent
-    
-    # Validate enrollment token
-    token = db.query(EnrollmentToken).filter(EnrollmentToken.token_id == token_id).first()
-    if not token:
-        raise HTTPException(status_code=404, detail="Token not found")
-    
-    if token.status != 'active':
-        raise HTTPException(status_code=400, detail=f"Token is {token.status}")
+    from models import EnrollmentEvent
     
     # Get server configuration
     server_url = os.getenv("SERVER_URL", "")
@@ -4068,18 +3763,24 @@ async def get_bash_one_liner_script(
     # Log script generation event
     event = EnrollmentEvent(
         event_type='script.render_one_liner',
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        details=json.dumps({"platform": "bash_oneliner", "agent_pkg": agent_pkg, "unity_pkg": unity_pkg})
+        details=json.dumps({
+            "platform": "bash_oneliner",
+            "agent_pkg": agent_pkg,
+            "unity_pkg": unity_pkg,
+            "generated_by": current_user.username
+        })
     )
     db.add(event)
     db.commit()
     
     structured_logger.log_event(
         "script.render_one_liner",
-        token_id=token_id,
+        token_id=None,
         alias=alias,
-        platform="bash"
+        platform="bash",
+        generated_by=current_user.username
     )
     
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "bash", "alias": alias})

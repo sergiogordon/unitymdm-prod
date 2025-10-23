@@ -107,45 +107,6 @@ class UpdateDeviceSettingsRequest(BaseModel):
     monitor_enabled: Optional[bool] = None
     auto_relaunch_enabled: Optional[bool] = None
 
-class CreateEnrollmentTokensRequest(BaseModel):
-    aliases: list[str]
-    expires_in_sec: int = 1800
-    uses_allowed: int = 1
-    note: Optional[str] = None
-
-class EnrollmentTokenResponse(BaseModel):
-    token_id: str
-    alias: str
-    token: str
-    expires_at: datetime
-
-class CreateEnrollmentTokensResponse(BaseModel):
-    tokens: list[EnrollmentTokenResponse]
-
-class EnrollmentTokenListItem(BaseModel):
-    token_id: str
-    alias: str
-    token_last4: str
-    status: str
-    expires_at: datetime
-    uses_allowed: int
-    uses_consumed: int
-    note: Optional[str] = None
-    issued_at: datetime
-    issued_by: Optional[str] = None
-
-class ListEnrollmentTokensResponse(BaseModel):
-    tokens: list[EnrollmentTokenListItem]
-    total: int
-
-class BatchDeleteEnrollmentTokensRequest(BaseModel):
-    token_ids: list[str]
-
-class BatchDeleteEnrollmentTokensResponse(BaseModel):
-    deleted_count: int
-    failed_count: int
-    errors: list[dict]
-
 class ActionResultRequest(BaseModel):
     request_id: str
     device_id: str

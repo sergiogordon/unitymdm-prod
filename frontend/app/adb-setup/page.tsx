@@ -1,43 +1,12 @@
 "use client"
 import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
-import { Copy, Check, Terminal, Download, Eye, EyeOff, RefreshCw, ChevronDown, ChevronUp, FileCode, Command } from "lucide-react"
+import { Copy, Check, Terminal, Download, FileCode, Command } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
 import { SettingsDrawer } from "@/components/settings-drawer"
-import { Checkbox } from "@/components/ui/checkbox"
-import { BulkActionsBarEnrollmentTokens } from "@/components/bulk-actions-bar-enrollment-tokens"
-import { BulkDeleteEnrollmentTokensModal } from "@/components/bulk-delete-enrollment-tokens-modal"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-
-interface EnrollmentToken {
-  token_id: string
-  alias: string
-  token_last4: string
-  status: string
-  expires_at: string
-  uses_allowed: number
-  uses_consumed: number
-  note: string | null
-  issued_at: string
-  issued_by: string | null
-  full_token?: string
-}
 
 export default function ADBSetupPage() {
   return (
@@ -48,17 +17,10 @@ export default function ADBSetupPage() {
 }
 
 function ADBSetupContent() {
-  const [aliases, setAliases] = useState("")
-  const [note, setNote] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [tokens, setTokens] = useState<EnrollmentToken[]>([])
-  const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set())
-  const [expandedScripts, setExpandedScripts] = useState<Set<string>>(new Set())
-  const [scriptContents, setScriptContents] = useState<Record<string, { bash: string, windows: string }>>({})
+  const [alias, setAlias] = useState("")
   const [isDark, setIsDark] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [selectedTokenIds, setSelectedTokenIds] = useState<Set<string>>(new Set())
-  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false)
+  const [copiedButton, setCopiedButton] = useState<string | null>(null)
 
   useEffect(() => {
     if (isDark) {
@@ -73,208 +35,25 @@ function ADBSetupContent() {
     setIsDark(isDarkMode)
   }, [])
 
-  useEffect(() => {
-    fetchTokens()
-  }, [])
-
-  const fetchTokens = async () => {
-    try {
-      const token = localStorage.getItem('auth_token')
-      const response = await fetch("/api/proxy/v1/enroll-tokens?limit=50", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        setTokens(data.tokens || [])
-      }
-    } catch (error) {
-      console.error("Failed to fetch tokens:", error)
-    }
+  const toggleDarkMode = () => {
+    const newMode = !isDark
+    setIsDark(newMode)
+    localStorage.setItem('darkMode', String(newMode))
   }
 
-  const generateTokens = async () => {
-    if (!aliases.trim()) {
-      alert("Please enter at least one alias")
+  const copyOneLiner = async (platform: 'windows' | 'bash') => {
+    if (!alias.trim()) {
+      alert("Please enter a device alias")
       return
     }
 
-    setLoading(true)
-    try {
-      const aliasArray = aliases.split(/[,\s]+/).filter(a => a.trim())
-      const token = localStorage.getItem('auth_token')
-      
-      const response = await fetch("/api/proxy/v1/enroll-tokens", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          aliases: aliasArray,
-          expires_in_sec: 31536000,
-          uses_allowed: 1,
-          note: note.trim() || null
-        }),
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to generate tokens")
-      }
-      
-      const data = await response.json()
-      
-      const newTokens = data.tokens.map((t: any) => ({
-        token_id: t.token_id,
-        alias: t.alias,
-        token_last4: t.token.slice(-4),
-        status: 'active',
-        expires_at: t.expires_at,
-        uses_allowed: 1,
-        uses_consumed: 0,
-        note: note.trim() || null,
-        issued_at: new Date().toISOString(),
-        issued_by: null,
-        full_token: t.token
-      }))
-      
-      setTokens([...newTokens, ...tokens])
-      setAliases("")
-      setNote("")
-    } catch (error) {
-      alert("Failed to generate tokens. Please try again.")
-      console.error(error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const toggleTokenReveal = (tokenId: string) => {
-    const newRevealed = new Set(revealedTokens)
-    if (newRevealed.has(tokenId)) {
-      newRevealed.delete(tokenId)
-    } else {
-      newRevealed.add(tokenId)
-    }
-    setRevealedTokens(newRevealed)
-  }
-
-  const copyToken = async (token: EnrollmentToken) => {
-    if (token.full_token) {
-      await navigator.clipboard.writeText(token.full_token)
-      alert("Token copied to clipboard!")
-    } else {
-      alert("Token value not available. Only newly generated tokens can be copied.")
-    }
-  }
-
-  const fetchScriptContent = async (token: EnrollmentToken) => {
     const authToken = localStorage.getItem('auth_token')
-    
-    setScriptContents(prev => ({
-      ...prev,
-      [token.token_id]: {
-        bash: 'Loading...',
-        windows: 'Loading...'
-      }
-    }))
-    
-    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
-    
-    try {
-      const [bashResponse, windowsResponse] = await Promise.all([
-        fetch(`/api/proxy/v1/scripts/enroll.sh?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`, {
-          headers: { "Authorization": `Bearer ${authToken}` }
-        }),
-        fetch(`/api/proxy/v1/scripts/enroll.cmd?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`, {
-          headers: { "Authorization": `Bearer ${authToken}` }
-        })
-      ])
-
-      if (!bashResponse.ok || !windowsResponse.ok) {
-        throw new Error('Failed to fetch scripts')
-      }
-
-      const bashText = await bashResponse.text()
-      const windowsText = await windowsResponse.text()
-
-      setScriptContents(prev => ({
-        ...prev,
-        [token.token_id]: {
-          bash: bashText,
-          windows: windowsText
-        }
-      }))
-    } catch (error) {
-      console.error("Failed to fetch script content:", error)
-      setScriptContents(prev => ({
-        ...prev,
-        [token.token_id]: {
-          bash: 'Error loading script. Please try downloading instead.',
-          windows: 'Error loading script. Please try downloading instead.'
-        }
-      }))
-    }
-  }
-
-  const toggleScriptExpand = (token: EnrollmentToken) => {
-    setExpandedScripts(prev => {
-      const newExpanded = new Set(prev)
-      if (newExpanded.has(token.token_id)) {
-        newExpanded.delete(token.token_id)
-      } else {
-        newExpanded.add(token.token_id)
-        if (!scriptContents[token.token_id]) {
-          fetchScriptContent(token)
-        }
-      }
-      return newExpanded
-    })
-  }
-
-  const downloadScript = async (token: EnrollmentToken, platform: 'windows' | 'bash') => {
-    const authToken = localStorage.getItem('auth_token')
-    const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
-    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
-    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
-    
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "Authorization": `Bearer ${authToken}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to download script")
-      }
-      
-      const blob = await response.blob()
-      const downloadUrl = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = downloadUrl
-      a.download = `enroll-${token.alias}.${platform === 'windows' ? 'cmd' : 'sh'}`
-      document.body.appendChild(a)
-      a.click()
-      window.URL.revokeObjectURL(downloadUrl)
-      document.body.removeChild(a)
-    } catch (error) {
-      alert(`Failed to download ${platform} script`)
-      console.error(error)
-    }
-  }
-
-  const copyOneLiner = async (token: EnrollmentToken, platform: 'windows' | 'bash' = 'windows') => {
-    const authToken = localStorage.getItem('auth_token')
-    const rawTokenParam = token.full_token ? `&raw_token=${encodeURIComponent(token.full_token)}` : ''
     
     const endpoint = platform === 'windows' 
       ? `/api/proxy/v1/scripts/enroll.one-liner.cmd`
       : `/api/proxy/v1/scripts/enroll.one-liner.sh`
     
-    const url = `${endpoint}?alias=${encodeURIComponent(token.alias)}&token_id=${encodeURIComponent(token.token_id)}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest${rawTokenParam}`
+    const url = `${endpoint}?alias=${encodeURIComponent(alias.trim())}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
     
     try {
       const response = await fetch(url, {
@@ -291,386 +70,259 @@ function ADBSetupContent() {
       const oneLinerCommand = await response.text()
       await navigator.clipboard.writeText(oneLinerCommand)
       
+      const buttonId = `${platform}-oneliner`
+      setCopiedButton(buttonId)
+      setTimeout(() => setCopiedButton(null), 2000)
+      
       const message = platform === 'windows'
-        ? `✅ Windows one-liner copied to clipboard!\n\nPaste into Command Prompt (cmd.exe) to enroll device "${token.alias}"`
-        : `✅ Bash one-liner copied to clipboard!\n\nPaste into Terminal (Linux/Mac) to enroll device "${token.alias}"`
+        ? `✅ Windows one-liner copied to clipboard!\n\nPaste into Command Prompt (cmd.exe) to enroll device "${alias.trim()}"`
+        : `✅ Bash one-liner copied to clipboard!\n\nPaste into Terminal (Linux/Mac) to enroll device "${alias.trim()}"`
       
       alert(message)
     } catch (error) {
-      alert(`Failed to copy ${platform} one-liner: ${error}`)
+      alert(`Failed to copy ${platform} one-liner. Please try again.`)
       console.error(error)
     }
   }
 
-  const copyScriptToClipboard = async (scriptContent: string, platform: string) => {
-    try {
-      await navigator.clipboard.writeText(scriptContent)
-      alert(`${platform} script copied to clipboard!`)
-    } catch (error) {
-      console.error("Failed to copy:", error)
-      alert("Failed to copy script to clipboard")
+  const downloadScript = async (platform: 'windows' | 'bash') => {
+    if (!alias.trim()) {
+      alert("Please enter a device alias")
+      return
     }
-  }
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: any, label: string }> = {
-      'active': { variant: 'default', label: 'Active' },
-      'exhausted': { variant: 'secondary', label: 'Exhausted' },
-      'expired': { variant: 'destructive', label: 'Expired' },
-      'revoked': { variant: 'outline', label: 'Revoked' }
-    }
-    
-    const config = variants[status] || variants['active']
-    return <Badge variant={config.variant}>{config.label}</Badge>
-  }
-
-  const formatDateTime = (dateStr: string) => {
-    const date = new Date(dateStr)
-    return date.toLocaleString()
-  }
-
-  const handleToggleDark = () => {
-    const newDarkMode = !isDark
-    setIsDark(newDarkMode)
-    localStorage.setItem('darkMode', String(newDarkMode))
-  }
-
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedTokenIds(new Set(tokens.map(t => t.token_id)))
-    } else {
-      setSelectedTokenIds(new Set())
-    }
-  }
-
-  const handleSelectToken = (tokenId: string, checked: boolean) => {
-    const newSelected = new Set(selectedTokenIds)
-    if (checked) {
-      newSelected.add(tokenId)
-    } else {
-      newSelected.delete(tokenId)
-    }
-    setSelectedTokenIds(newSelected)
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedTokenIds.size === 0) return
+    const authToken = localStorage.getItem('auth_token')
+    const endpoint = platform === 'windows' ? '/api/proxy/v1/scripts/enroll.cmd' : '/api/proxy/v1/scripts/enroll.sh'
+    const url = `${endpoint}?alias=${encodeURIComponent(alias.trim())}&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest`
     
     try {
-      const token = localStorage.getItem('auth_token')
-      const response = await fetch("/api/proxy/v1/enroll-tokens/batch-delete", {
-        method: "POST",
+      const response = await fetch(url, {
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          token_ids: Array.from(selectedTokenIds)
-        })
+          "Authorization": `Bearer ${authToken}`
+        }
       })
       
       if (!response.ok) {
-        throw new Error("Failed to delete tokens")
+        throw new Error("Failed to download script")
       }
       
-      const result = await response.json()
-      
-      if (result.failed_count > 0) {
-        console.warn(`${result.failed_count} tokens failed to delete:`, result.errors)
-      }
-      
-      await fetchTokens()
-      setSelectedTokenIds(new Set())
-      
-      alert(`Successfully deleted ${result.deleted_count} token(s)`)
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = `enroll-${alias.trim()}.${platform === 'windows' ? 'cmd' : 'sh'}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(downloadUrl)
+      document.body.removeChild(a)
+
+      const buttonId = `${platform}-download`
+      setCopiedButton(buttonId)
+      setTimeout(() => setCopiedButton(null), 2000)
     } catch (error) {
-      console.error("Bulk delete failed:", error)
-      alert("Failed to delete tokens. Please try again.")
+      alert(`Failed to download ${platform} script`)
+      console.error(error)
     }
   }
 
   return (
-    <div className="min-h-screen">
-      <Header 
-        isDark={isDark} 
-        onToggleDark={handleToggleDark}
-      />
+    <div className="flex flex-col min-h-screen">
+      <Header onToggleDark={toggleDarkMode} onOpenSettings={() => setIsSettingsOpen(true)} />
+      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       
-      <main className="mx-auto max-w-[1280px] space-y-6 px-6 pb-12 pt-[84px] md:px-8">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Terminal className="h-6 w-6" />
-            <h1 className="text-3xl font-bold tracking-tight">ADB Setup</h1>
-          </div>
+      <div className="flex-1 p-8 space-y-8 max-w-5xl mx-auto w-full">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">ADB Setup & Device Enrollment</h1>
           <p className="text-muted-foreground">
-            Enroll devices with one-click ADB scripts. Each script downloads the latest APK, grants required permissions, applies optimizations, and auto-registers the device—typically visible in the dashboard within ~60 seconds.
+            Generate enrollment scripts for Android devices using ADB (Android Debug Bridge)
           </p>
         </div>
 
-        <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-4">Device Enrollment</h2>
-          <div className="space-y-4">
+        {/* Device Alias Input */}
+        <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Device Information</h2>
             <div className="space-y-2">
-              <Label htmlFor="aliases">Device Aliases</Label>
+              <Label htmlFor="alias">Device Alias</Label>
               <Input
-                id="aliases"
-                placeholder="e.g., D01, D02, D03 or Device-01 Device-02"
-                value={aliases}
-                onChange={(e) => setAliases(e.target.value)}
+                id="alias"
+                placeholder="e.g., device-001, lobby-tablet, etc."
+                value={alias}
+                onChange={(e) => setAlias(e.target.value)}
+                className="max-w-md"
               />
-              <p className="text-xs text-muted-foreground">
-                Comma or space separated. Supports batch generation.
+              <p className="text-sm text-muted-foreground">
+                Enter a unique identifier for this device
               </p>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="note">Note (Optional)</Label>
-              <Input
-                id="note"
-                placeholder="e.g., Oct-ops batch A"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </div>
-
-            <Button onClick={generateTokens} disabled={loading || !aliases.trim()}>
-              {loading ? "Generating..." : "Generate Scripts"}
-            </Button>
           </div>
         </div>
 
-        {tokens.length > 0 && (
-          <div className="rounded-lg border bg-card p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Enrollment Tokens</h2>
+        {/* One-Liner Commands */}
+        <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold mb-2 flex items-center gap-2">
+              <Command className="h-5 w-5" />
+              One-Liner Commands
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Copy and paste these commands directly into your terminal. The console window will stay open so you can see the results.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Windows (Command Prompt)</Label>
               <Button
+                onClick={() => copyOneLiner('windows')}
+                className="w-full"
                 variant="outline"
-                size="sm"
-                onClick={fetchTokens}
-                className="gap-2"
+                disabled={!alias.trim()}
               >
-                <RefreshCw className="h-4 w-4" />
-                Refresh
+                {copiedButton === 'windows-oneliner' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Win
+                  </>
+                )}
               </Button>
             </div>
-            
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">
-                      <Checkbox
-                        checked={selectedTokenIds.size === tokens.length && tokens.length > 0}
-                        onCheckedChange={handleSelectAll}
-                        aria-label="Select all"
-                      />
-                    </TableHead>
-                    <TableHead>Alias</TableHead>
-                    <TableHead>Token</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead>Uses</TableHead>
-                    <TableHead>Note</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tokens.map((token) => (
-                    <>
-                      <TableRow key={token.token_id}>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedTokenIds.has(token.token_id)}
-                            onCheckedChange={(checked) => handleSelectToken(token.token_id, checked as boolean)}
-                            aria-label={`Select ${token.alias}`}
-                          />
-                        </TableCell>
-                        <TableCell className="font-medium">{token.alias}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <code className="text-xs">
-                              {revealedTokens.has(token.token_id) && token.full_token
-                                ? token.full_token
-                                : `****${token.token_last4}`}
-                            </code>
-                            {token.full_token && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleTokenReveal(token.token_id)}
-                              >
-                                {revealedTokens.has(token.token_id) ? (
-                                  <EyeOff className="h-3 w-3" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>{getStatusBadge(token.status)}</TableCell>
-                        <TableCell className="text-xs">{formatDateTime(token.expires_at)}</TableCell>
-                        <TableCell className="text-xs">{token.uses_consumed}/{token.uses_allowed}</TableCell>
-                        <TableCell className="text-xs">{token.note || '-'}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2 flex-wrap">
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => copyOneLiner(token, 'windows')}
-                              title="Copy Windows One-Liner - Paste into Command Prompt (cmd.exe). Requires ADB in PATH."
-                              disabled={token.status !== 'active'}
-                              className="gap-1"
-                            >
-                              <Command className="h-3 w-3" />
-                              Win
-                            </Button>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => copyOneLiner(token, 'bash')}
-                              title="Copy Bash One-Liner - Paste into Terminal (Linux/Mac). Requires ADB in PATH."
-                              disabled={token.status !== 'active'}
-                              className="gap-1"
-                            >
-                              <Terminal className="h-3 w-3" />
-                              Bash
-                            </Button>
-                            {token.full_token && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => copyToken(token)}
-                                title="Copy Token"
-                              >
-                                <Copy className="h-3 w-3" />
-                              </Button>
-                            )}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadScript(token, 'windows')}
-                              title="Download Windows Script"
-                            >
-                              <Download className="h-3 w-3 mr-1" />
-                              .cmd
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadScript(token, 'bash')}
-                              title="Download Bash Script"
-                            >
-                              <Download className="h-3 w-3 mr-1" />
-                              .sh
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => toggleScriptExpand(token)}
-                              title="View Script Contents"
-                            >
-                              {expandedScripts.has(token.token_id) ? (
-                                <ChevronUp className="h-3 w-3" />
-                              ) : (
-                                <ChevronDown className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                      {expandedScripts.has(token.token_id) && (
-                        <TableRow>
-                          <TableCell colSpan={8} className="bg-muted/30 p-4">
-                            <div className="space-y-4">
-                              <div className="flex items-center gap-2 mb-2">
-                                <FileCode className="h-4 w-4" />
-                                <h4 className="font-semibold">Enrollment Scripts Preview</h4>
-                              </div>
-                              
-                              {scriptContents[token.token_id] ? (
-                                <div className="space-y-4">
-                                  <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <Label className="text-sm font-medium">Bash Script (.sh)</Label>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => copyScriptToClipboard(scriptContents[token.token_id].bash, 'Bash')}
-                                      >
-                                        <Copy className="h-3 w-3 mr-1" />
-                                        Copy
-                                      </Button>
-                                    </div>
-                                    <pre className="bg-background border rounded-md p-4 overflow-x-auto text-xs max-h-96">
-                                      <code>{scriptContents[token.token_id].bash}</code>
-                                    </pre>
-                                  </div>
-                                  
-                                  <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                      <Label className="text-sm font-medium">Windows Script (.cmd)</Label>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => copyScriptToClipboard(scriptContents[token.token_id].windows, 'Windows')}
-                                      >
-                                        <Copy className="h-3 w-3 mr-1" />
-                                        Copy
-                                      </Button>
-                                    </div>
-                                    <pre className="bg-background border rounded-md p-4 overflow-x-auto text-xs max-h-96">
-                                      <code>{scriptContents[token.token_id].windows}</code>
-                                    </pre>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="text-sm text-muted-foreground">Loading scripts...</div>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </>
-                  ))}
-                </TableBody>
-              </Table>
+
+            <div className="space-y-2">
+              <Label>Linux / macOS (Bash)</Label>
+              <Button
+                onClick={() => copyOneLiner('bash')}
+                className="w-full"
+                variant="outline"
+                disabled={!alias.trim()}
+              >
+                {copiedButton === 'bash-oneliner' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Bash
+                  </>
+                )}
+              </Button>
             </div>
           </div>
-        )}
-
-        <div className="rounded-md border border-blue-500/50 bg-blue-500/10 p-4">
-          <h3 className="font-semibold text-blue-700 dark:text-blue-300 mb-2">Enrollment Checklist</h3>
-          <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-            <li>Enable USB debugging on device</li>
-            <li>Trust host computer when prompted</li>
-            <li>Factory reset only if using Device Owner mode (optional but recommended)</li>
-            <li>Device Owner set only succeeds on factory-reset devices—safe to leave enabled</li>
-          </ul>
         </div>
-      </main>
 
-      <SettingsDrawer
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+        {/* Full Script Downloads */}
+        <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold mb-2 flex items-center gap-2">
+              <FileCode className="h-5 w-5" />
+              Full Enrollment Scripts
+            </h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Download complete enrollment scripts as files. These include detailed progress tracking and error messages.
+            </p>
+          </div>
 
-      <BulkActionsBarEnrollmentTokens
-        selectedCount={selectedTokenIds.size}
-        onDelete={() => setIsBulkDeleteModalOpen(true)}
-        onClear={() => setSelectedTokenIds(new Set())}
-      />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Windows Script (.cmd)</Label>
+              <Button
+                onClick={() => downloadScript('windows')}
+                className="w-full"
+                variant="outline"
+                disabled={!alias.trim()}
+              >
+                {copiedButton === 'windows-download' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Downloaded!
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    .cmd
+                  </>
+                )}
+              </Button>
+            </div>
 
-      <BulkDeleteEnrollmentTokensModal
-        isOpen={isBulkDeleteModalOpen}
-        onClose={() => setIsBulkDeleteModalOpen(false)}
-        onConfirm={handleBulkDelete}
-        tokenCount={selectedTokenIds.size}
-        sampleAliases={tokens
-          .filter(t => selectedTokenIds.has(t.token_id))
-          .slice(0, 5)
-          .map(t => t.alias)}
-      />
+            <div className="space-y-2">
+              <Label>Bash Script (.sh)</Label>
+              <Button
+                onClick={() => downloadScript('bash')}
+                className="w-full"
+                variant="outline"
+                disabled={!alias.trim()}
+              >
+                {copiedButton === 'bash-download' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Downloaded!
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    .sh
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Instructions */}
+        <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+          <div>
+            <h2 className="text-xl font-semibold mb-2 flex items-center gap-2">
+              <Terminal className="h-5 w-5" />
+              Usage Instructions
+            </h2>
+          </div>
+
+          <div className="space-y-4 text-sm">
+            <div>
+              <h3 className="font-semibold mb-2">Prerequisites</h3>
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-4">
+                <li>ADB (Android Debug Bridge) installed on your computer</li>
+                <li>USB cable to connect Android device</li>
+                <li>Factory-reset Android device with USB debugging enabled</li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-semibold mb-2">Steps</h3>
+              <ol className="list-decimal list-inside space-y-2 text-muted-foreground ml-4">
+                <li>Connect the factory-reset Android device via USB</li>
+                <li>Copy the one-liner command for your platform (Windows or Bash)</li>
+                <li>Paste the command into your terminal and press Enter</li>
+                <li>The script will automatically:
+                  <ul className="list-disc list-inside ml-6 mt-1">
+                    <li>Download the latest MDM agent APK</li>
+                    <li>Install it on the device</li>
+                    <li>Set up Device Owner mode</li>
+                    <li>Configure the device and auto-enroll it</li>
+                  </ul>
+                </li>
+                <li>Check the dashboard within 60 seconds to see your newly enrolled device</li>
+              </ol>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-md p-4">
+              <p className="font-semibold text-amber-600 dark:text-amber-400 mb-1">⚠️ Important</p>
+              <p className="text-muted-foreground">
+                Device Owner mode requires a factory-reset device. If the script fails at the "Set Device Owner" step, 
+                you must factory reset the device and try again.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
