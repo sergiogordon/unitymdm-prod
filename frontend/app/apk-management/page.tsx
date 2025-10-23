@@ -42,7 +42,7 @@ export default function ApkManagementPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch('/admin/apk/builds?build_type=debug&limit=50')
+      const response = await fetch('/admin/apk/builds?build_type=release&limit=50')
       if (!response.ok) {
         throw new Error('Failed to fetch APK builds')
       }
@@ -173,11 +173,11 @@ export default function ApkManagementPage() {
 
             {isLoading ? (
               <div className="py-12 text-center text-muted-foreground">
-                Loading APK builds...
+                Loading release builds...
               </div>
             ) : apkBuilds.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground">
-                No APK builds found. Builds from CI will appear here automatically.
+                No release builds found. Production builds from CI will appear here automatically.
               </div>
             ) : (
               <div className="overflow-hidden rounded-lg border border-border">
