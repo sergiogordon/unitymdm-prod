@@ -215,7 +215,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
         <Smartphone className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
         <h3 className="mb-2 text-lg font-semibold">No devices enrolled yet</h3>
         <p className="mb-6 text-sm text-muted-foreground">Get started by enrolling your first device</p>
-        <Button>Open Settings</Button>
+        <Button onClick={() => router.push('/adb-setup')}>Enroll Devices</Button>
       </div>
     )
   }
