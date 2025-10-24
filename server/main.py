@@ -3992,6 +3992,102 @@ async def bulk_launch_app(
         "error_count": bulk_cmd.error_count
     }
 
+@app.get("/v1/commands/{command_id}")
+async def get_command_status(
+    command_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get bulk command status and per-device results
+    """
+    bulk_cmd = db.query(BulkCommand).filter(BulkCommand.id == command_id).first()
+    
+    if not bulk_cmd:
+        raise HTTPException(status_code=404, detail="Command not found")
+    
+    results = db.query(CommandResult, Device.alias).join(
+        Device, CommandResult.device_id == Device.id
+    ).filter(CommandResult.command_id == command_id).all()
+    
+    result_list = []
+    for cmd_result, alias in results:
+        result_list.append({
+            "device_id": cmd_result.device_id,
+            "alias": alias,
+            "status": cmd_result.status,
+            "message": cmd_result.message,
+            "sent_at": cmd_result.sent_at.isoformat() if cmd_result.sent_at else None,
+            "updated_at": cmd_result.updated_at.isoformat() if cmd_result.updated_at else None
+        })
+    
+    payload_data = json.loads(bulk_cmd.payload) if bulk_cmd.payload else {}
+    targets_data = json.loads(bulk_cmd.targets) if bulk_cmd.targets else {}
+    
+    return {
+        "command_id": bulk_cmd.id,
+        "type": bulk_cmd.type,
+        "package": payload_data.get("package"),
+        "status": bulk_cmd.status,
+        "created_at": bulk_cmd.created_at.isoformat(),
+        "created_by": bulk_cmd.created_by,
+        "completed_at": bulk_cmd.completed_at.isoformat() if bulk_cmd.completed_at else None,
+        "stats": {
+            "total_targets": bulk_cmd.total_targets,
+            "sent_count": bulk_cmd.sent_count,
+            "acked_count": bulk_cmd.acked_count,
+            "error_count": bulk_cmd.error_count
+        },
+        "targets": targets_data,
+        "results": result_list
+    }
+
+@app.get("/v1/commands")
+async def list_commands(
+    type: Optional[str] = None,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    List recent bulk commands
+    """
+    query = db.query(BulkCommand)
+    
+    if type:
+        query = query.filter(BulkCommand.type == type)
+    
+    commands = query.order_by(BulkCommand.created_at.desc()).limit(limit).all()
+    
+    result = []
+    for cmd in commands:
+        payload_data = json.loads(cmd.payload) if cmd.payload else {}
+        targets_data = json.loads(cmd.targets) if cmd.targets else {}
+        
+        scope_desc = "Entire fleet"
+        if targets_data.get("filter"):
+            scope_desc = "Filtered set"
+        elif targets_data.get("device_ids"):
+            scope_desc = f"{len(targets_data['device_ids'])} devices"
+        
+        result.append({
+            "command_id": cmd.id,
+            "type": cmd.type,
+            "package": payload_data.get("package"),
+            "scope": scope_desc,
+            "created_at": cmd.created_at.isoformat(),
+            "created_by": cmd.created_by,
+            "status": cmd.status,
+            "stats": {
+                "total_targets": cmd.total_targets,
+                "sent_count": cmd.sent_count,
+                "acked_count": cmd.acked_count,
+                "error_count": cmd.error_count
+            }
+        })
+    
+    return {"commands": result}
+
 @app.post("/v1/remote/reboot")
 async def reboot_devices(
     request: Request,
