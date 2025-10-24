@@ -1,0 +1,19 @@
+-24 15:47:37.519  1728  2653 D CompatibilityInfo: applicationDensity - 320
+10-24 15:47:37.519  1728  2653 D CompatibilityInfo: applicationScale - 1.0
+10-24 15:47:37.521 23322 23322 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():3206 
+10-24 15:47:37.524  1389  1527 D QueueManager: queue.enqueue: type=action_result
+10-24 15:47:37.524  1389  1527 I FcmMessagingService: Queued LAUNCH_APP_ACK: status=OK, message=Successfully launched org.zwanoo.android.speedtest
+10-24 15:47:37.526 23322 23322 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2147 repeatCheckTimes = 0, locked = false
+10-24 15:47:37.526 29060  1245 W Finsky  : [130] org.zwanoo.android.speedtest: No account found.
+10-24 15:47:37.527 29060  1245 I Finsky  : [130] Billing preferred account via installer for org.zwanoo.android.speedtest: [dCNOmK_nSY-12vHzasLXiswzlGT5UHA7jAGYkvmCuQs]
+10-24 15:47:37.527 23322 23322 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1894 onStartInput(EditorInfo{EditorInfo{packageName=org.zwanoo.android.speedtest, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=-1, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+10-24 15:47:37.531 23322 23322 I GoogleInputMethodService: GoogleInputMethodService.updateDeviceLockedStatus():2147 repeatCheckTimes = 1, locked = false
+10-24 15:47:37.533 29060  1245 W Finsky  : [130] org.zwanoo.android.speedtest: No account found.
+10-24 15:47:37.547 29060  1245 I Finsky  : [130] Billing preferred account via installer for org.zwanoo.android.speedtest: [dCNOmK_nSY-12vHzasLXiswzlGT5UHA7jAGYkvmCuQs]
+10-24 15:47:37.563 29060 31912 W Finsky  : [119] org.zwanoo.android.speedtest: No account found.
+10-24 15:47:37.566 29060 31912 I Finsky  : [119] Billing preferred account via installer for org.zwanoo.android.speedtest: [dCNOmK_nSY-12vHzasLXiswzlGT5UHA7jAGYkvmCuQs]
+10-24 15:47:37.574 29060  1245 W Finsky  : [130] org.zwanoo.android.speedtest: No account found.
+10-24 15:47:37.576 29060  1245 I Finsky  : [130] Billing preferred account via installer for org.zwanoo.android.speedtest: [dCNOmK_nSY-12vHzasLXiswzlGT5UHA7jAGYkvmCuQs]
+10-24 15:47:37.576 28122 28531 V ClearcutMetricXmitter: Transmission is done.
+10-24 15:47:37.584 32182  1618 D TrafficStats: tagSocket(133) with statsTag=0xffffffff, statsUid=-1
+10-24 15:47:37.586 29060  1245 W Finsky  : [130] org.zwanoo.android.speedtest: No account found.
