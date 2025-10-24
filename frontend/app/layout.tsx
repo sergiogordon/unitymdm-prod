@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { Toaster } from "sonner"
 import "./globals.css"
 import { ConditionalSidebar } from "@/components/conditional-sidebar"
+import { ThemeProvider } from "@/contexts/ThemeContext"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -23,11 +24,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
-        <ConditionalSidebar>
-          {children}
-        </ConditionalSidebar>
-        <Toaster richColors position="top-right" />
-        <Analytics />
+        <ThemeProvider>
+          <ConditionalSidebar>
+            {children}
+          </ConditionalSidebar>
+          <Toaster richColors position="top-right" />
+          <Analytics />
+        </ThemeProvider>
       </body>
     </html>
   )
