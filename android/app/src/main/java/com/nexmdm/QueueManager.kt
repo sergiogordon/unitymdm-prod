@@ -136,6 +136,7 @@ class QueueManager(
     private suspend fun sendItem(item: QueueItem): Boolean {
         val serverUrl = prefs.serverUrl
         val deviceToken = prefs.deviceToken
+        val deviceId = prefs.deviceId
         
         if (serverUrl.isEmpty() || deviceToken.isEmpty()) {
             return false
@@ -143,7 +144,7 @@ class QueueManager(
         
         val endpoint = when (item.type) {
             TYPE_HEARTBEAT -> "/v1/heartbeat"
-            TYPE_ACTION_RESULT -> "/v1/action-result"
+            TYPE_ACTION_RESULT -> "/v1/devices/$deviceId/ack"
             else -> return false
         }
         
@@ -155,7 +156,15 @@ class QueueManager(
                 .build()
             
             val response = client.newCall(request).execute()
-            response.isSuccessful
+            val success = response.isSuccessful
+            
+            if (success) {
+                Log.d(TAG, "send.ok: type=${item.type}, endpoint=$endpoint")
+            } else {
+                Log.w(TAG, "send.fail: type=${item.type}, endpoint=$endpoint, code=${response.code}")
+            }
+            
+            success
         } catch (e: Exception) {
             Log.e(TAG, "Network error sending ${item.type}", e)
             false
