@@ -461,6 +461,50 @@ class DeviceMetric(Base):
         Index('idx_device_metric_source', 'source', 'ts'),
     )
 
+class BulkCommand(Base):
+    __tablename__ = "bulk_commands"
+    
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(JSONB, nullable=False)
+    targets: Mapped[str] = mapped_column(JSONB, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    total_targets: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    acked_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False, index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_bulk_command_type_created', 'type', 'created_at'),
+        Index('idx_bulk_command_status', 'status', 'created_at'),
+    )
+
+class CommandResult(Base):
+    __tablename__ = "command_results"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    command_id: Mapped[str] = mapped_column(String, ForeignKey("bulk_commands.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    correlation_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_command_result_command', 'command_id', 'status'),
+        Index('idx_command_result_correlation', 'correlation_id'),
+        UniqueConstraint('command_id', 'device_id', name='uq_command_device'),
+    )
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
 
 # Configure connection pool for better concurrency (handles 100+ devices)
