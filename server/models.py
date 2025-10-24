@@ -468,10 +468,11 @@ if "sqlite" in DATABASE_URL:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
     # PostgreSQL: optimized for 100+ devices with WebSocket connections
+    # Updated pool size to accommodate queue-based registration (15 concurrent max)
     engine = create_engine(
         DATABASE_URL,
-        pool_size=50,          # Base pool size - 50 persistent connections
-        max_overflow=50,       # Additional connections when needed - 100 total max
+        pool_size=75,          # Base pool size - 75 persistent connections
+        max_overflow=75,       # Additional connections when needed - 150 total max
         pool_pre_ping=True,    # Verify connections before use
         pool_recycle=3600,     # Recycle connections after 1 hour
         pool_timeout=30        # Wait up to 30s for available connection

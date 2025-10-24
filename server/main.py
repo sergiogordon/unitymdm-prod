@@ -54,6 +54,11 @@ def ensure_utc(dt: Optional[datetime]) -> datetime:
 
 app = FastAPI(title="NexMDM API")
 
+# Registration queue to prevent connection pool saturation
+# Limits concurrent device registrations to prevent overwhelming the database
+REGISTRATION_CONCURRENCY_LIMIT = 15  # Max concurrent registrations
+registration_semaphore = asyncio.Semaphore(REGISTRATION_CONCURRENCY_LIMIT)
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     """
@@ -1374,7 +1379,12 @@ async def register_device(
     admin_key_verified = Depends(verify_admin_key_header),
     db: Session = Depends(get_db)
 ):
-    """Register a device using admin key authentication"""
+    """
+    Register a device using admin key authentication.
+    
+    Uses a semaphore-based queue to limit concurrent registrations to prevent
+    connection pool saturation during bulk deployments.
+    """
     from models import EnrollmentEvent
     
     alias = payload.get("alias")
@@ -1383,80 +1393,95 @@ async def register_device(
     if not alias:
         raise HTTPException(status_code=422, detail="alias is required")
     
-    structured_logger.log_event(
-        "register.request",
-        alias=alias,
-        auth_method="admin_key",
-        route="/v1/register"
-    )
+    queue_start = time.time()
     
-    try:
-        # Generate device token
-        device_token = generate_device_token()
-        token_hash = hash_token(device_token)
-        token_id = compute_token_id(device_token)
+    # Acquire semaphore to limit concurrent registrations
+    async with registration_semaphore:
+        queue_wait_ms = (time.time() - queue_start) * 1000
         
-        import uuid
-        device_id = str(uuid.uuid4())
-        
-        # Get monitoring defaults to seed new device
-        defaults = monitoring_defaults_cache.get_defaults(db)
-        
-        # Create device with monitoring defaults
-        device = Device(
-            id=device_id,
-            alias=alias,
-            token_hash=token_hash,
-            token_id=token_id,
-            created_at=datetime.now(timezone.utc),
-            last_seen=datetime.now(timezone.utc),
-            monitor_enabled=defaults["enabled"],
-            monitored_package=defaults["package"],
-            monitored_app_name=defaults["alias"],
-            monitored_threshold_min=defaults["threshold_min"]
-        )
-        
-        db.add(device)
-        
-        # Log enrollment event (using admin key authentication)
-        event = EnrollmentEvent(
-            event_type='device.registered',
-            token_id="admin_key",
-            alias=alias,
-            device_id=device_id,
-            metadata={"hardware_id": hardware_id, "auth_method": "admin_key"}
-        )
-        db.add(event)
-        
-        db.commit()
-        
-        log_device_event(db, device_id, "device_enrolled", {
-            "alias": alias,
-            "auth_method": "admin_key"
-        })
+        # Track queue metrics
+        queue_depth = REGISTRATION_CONCURRENCY_LIMIT - registration_semaphore._value
+        metrics.observe_histogram("registration_queue_wait_ms", queue_wait_ms)
+        metrics.set_gauge("registration_queue_depth", queue_depth)
+        metrics.set_gauge("registration_active_count", REGISTRATION_CONCURRENCY_LIMIT - registration_semaphore._value)
         
         structured_logger.log_event(
-            "register.success",
-            device_id=device_id,
+            "register.request",
             alias=alias,
             auth_method="admin_key",
-            token_id=token_id[-4:] if token_id else None,
-            result="success"
+            route="/v1/register",
+            queue_wait_ms=round(queue_wait_ms, 2),
+            queue_depth=queue_depth
         )
         
-        return RegisterResponse(device_token=device_token, device_id=device_id)
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        structured_logger.log_event(
-            "register.fail",
-            level="ERROR",
-            alias=alias,
-            result="error",
-            error=str(e)
+        try:
+            # Generate device token
+            device_token = generate_device_token()
+            token_hash = hash_token(device_token)
+            token_id = compute_token_id(device_token)
+            
+            import uuid
+            device_id = str(uuid.uuid4())
+            
+            # Get monitoring defaults to seed new device
+            defaults = monitoring_defaults_cache.get_defaults(db)
+            
+            # Create device with monitoring defaults
+            device = Device(
+                id=device_id,
+                alias=alias,
+                token_hash=token_hash,
+                token_id=token_id,
+                created_at=datetime.now(timezone.utc),
+                last_seen=datetime.now(timezone.utc),
+                monitor_enabled=defaults["enabled"],
+                monitored_package=defaults["package"],
+                monitored_app_name=defaults["alias"],
+                monitored_threshold_min=defaults["threshold_min"]
+            )
+            
+            db.add(device)
+            
+            # Log enrollment event (using admin key authentication)
+            event = EnrollmentEvent(
+                event_type='device.registered',
+                token_id="admin_key",
+                alias=alias,
+                device_id=device_id,
+                metadata={"hardware_id": hardware_id, "auth_method": "admin_key"}
+            )
+            db.add(event)
+            
+            db.commit()
+            
+            log_device_event(db, device_id, "device_enrolled", {
+                "alias": alias,
+                "auth_method": "admin_key"
+            })
+            
+            structured_logger.log_event(
+                "register.success",
+                device_id=device_id,
+                alias=alias,
+                auth_method="admin_key",
+                token_id=token_id[-4:] if token_id else None,
+                result="success",
+                queue_wait_ms=round(queue_wait_ms, 2)
         )
-        raise
+        
+            return RegisterResponse(device_token=device_token, device_id=device_id)
+        
+        except HTTPException:
+            raise
+        except Exception as e:
+            structured_logger.log_event(
+                "register.fail",
+                level="ERROR",
+                alias=alias,
+                result="error",
+                error=str(e)
+            )
+            raise
 
 @app.post("/v1/heartbeat", response_model=HeartbeatResponse)
 async def heartbeat(
