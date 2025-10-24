@@ -15,7 +15,7 @@ import asyncio
 import os
 import time
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, BloatwarePackage, DeviceCommand, DeviceMetric, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, BloatwarePackage, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -3305,6 +3305,8 @@ async def stop_ring_device(
 class AckRequest(BaseModel):
     correlation_id: str
     type: str
+    status: Optional[str] = None
+    message: Optional[str] = None
     battery: Optional[float] = None
     network: Optional[str] = None
     rssi: Optional[int] = None
@@ -3370,6 +3372,34 @@ async def acknowledge_command(
         log_device_event(db, device_id, "ring_stopped", {
             "correlation_id": payload.correlation_id
         })
+    
+    elif payload.type == "LAUNCH_APP_ACK":
+        cmd_result = db.query(CommandResult).filter(
+            CommandResult.correlation_id == payload.correlation_id
+        ).first()
+        
+        if cmd_result:
+            cmd_result.status = payload.status or "OK"
+            cmd_result.message = payload.message
+            cmd_result.updated_at = datetime.now(timezone.utc)
+            
+            bulk_cmd = db.query(BulkCommand).filter(
+                BulkCommand.id == cmd_result.command_id
+            ).first()
+            
+            if bulk_cmd:
+                bulk_cmd.acked_count += 1
+                if payload.status and payload.status not in ["OK", "ok"]:
+                    bulk_cmd.error_count += 1
+            
+            log_device_event(db, device_id, "launch_app_ack", {
+                "correlation_id": payload.correlation_id,
+                "status": payload.status,
+                "message": payload.message
+            })
+        else:
+            if command:
+                command.status = "acknowledged"
         
     else:
         raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
@@ -3776,6 +3806,190 @@ async def launch_app_on_devices(
         "success_count": success_count,
         "failed_count": len(device_ids) - success_count,
         "results": results
+    }
+
+@app.post("/v1/commands/launch_app")
+async def bulk_launch_app(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Bulk launch app command with filtering and dry-run support
+    """
+    body = await request.json()
+    targets = body.get("targets", {})
+    command = body.get("command", {})
+    dry_run = body.get("dry_run", False)
+    
+    package = command.get("package", "").strip()
+    activity = command.get("activity")
+    wake = command.get("wake", True)
+    unlock = command.get("unlock", True)
+    flags = command.get("flags", [])
+    correlation_id = command.get("correlation_id", str(uuid.uuid4()))
+    
+    if not package:
+        raise HTTPException(status_code=400, detail="Package name is required")
+    
+    query = db.query(Device)
+    
+    if targets.get("all"):
+        pass
+    elif targets.get("filter"):
+        filters = targets["filter"]
+        
+        if filters.get("groups"):
+            pass
+        
+        if filters.get("tags"):
+            pass
+        
+        if filters.get("online") is not None:
+            if filters["online"]:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                query = query.filter(Device.last_seen >= cutoff)
+        
+        if filters.get("android_version"):
+            versions = filters["android_version"]
+            if isinstance(versions, list) and versions:
+                query = query.filter(Device.android_version.in_(versions))
+    
+    elif targets.get("device_ids"):
+        device_ids_list = targets["device_ids"]
+        if not device_ids_list:
+            raise HTTPException(status_code=400, detail="device_ids list is empty")
+        query = query.filter(Device.id.in_(device_ids_list))
+    else:
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, or device_ids")
+    
+    devices = query.filter(Device.fcm_token.isnot(None)).all()
+    
+    if dry_run:
+        return {
+            "dry_run": True,
+            "estimated_count": len(devices),
+            "sample_device_ids": [d.id for d in devices[:20]]
+        }
+    
+    bulk_cmd = BulkCommand(
+        type="launch_app",
+        payload=json.dumps(command),
+        targets=json.dumps(targets),
+        created_by=current_user.username if current_user else "admin",
+        total_targets=len(devices),
+        status="processing"
+    )
+    db.add(bulk_cmd)
+    db.commit()
+    db.refresh(bulk_cmd)
+    
+    import httpx
+    
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        bulk_cmd.status = "failed"
+        bulk_cmd.error_count = len(devices)
+        bulk_cmd.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    print(f"[BULK LAUNCH] Sending {package} to {len(devices)} device(s), command_id={bulk_cmd.id}")
+    
+    async with httpx.AsyncClient() as client:
+        for idx, device in enumerate(devices):
+            device_correlation_id = f"{correlation_id}-{device.id}"
+            
+            existing = db.query(CommandResult).filter(
+                CommandResult.command_id == bulk_cmd.id,
+                CommandResult.device_id == device.id
+            ).first()
+            
+            if existing:
+                continue
+            
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(device_correlation_id, device.id, "launch_app", timestamp)
+            
+            message_data = {
+                "action": "launch_app",
+                "correlation_id": device_correlation_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
+                "package": package,
+                "wake": str(wake).lower(),
+                "unlock": str(unlock).lower()
+            }
+            
+            if activity:
+                message_data["activity"] = activity
+            
+            if flags:
+                message_data["flags"] = ",".join(flags)
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": message_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            cmd_result = CommandResult(
+                command_id=bulk_cmd.id,
+                device_id=device.id,
+                correlation_id=device_correlation_id,
+                status="sending"
+            )
+            db.add(cmd_result)
+            
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+                
+                if response.status_code == 200:
+                    cmd_result.status = "sent"
+                    bulk_cmd.sent_count += 1
+                    print(f"[BULK LAUNCH] ✓ Sent to {device.alias} ({device.id})")
+                else:
+                    cmd_result.status = "failed"
+                    cmd_result.message = f"FCM error: {response.status_code}"
+                    bulk_cmd.error_count += 1
+                    print(f"[BULK LAUNCH] ✗ Failed {device.alias}: FCM {response.status_code}")
+            
+            except Exception as e:
+                cmd_result.status = "failed"
+                cmd_result.message = str(e)
+                bulk_cmd.error_count += 1
+                print(f"[BULK LAUNCH] ✗ Failed {device.alias}: {str(e)}")
+            
+            db.commit()
+            
+            if idx < len(devices) - 1:
+                await asyncio.sleep(0.05)
+    
+    bulk_cmd.status = "completed"
+    bulk_cmd.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    print(f"[BULK LAUNCH] Complete: {bulk_cmd.sent_count}/{len(devices)} sent, {bulk_cmd.error_count} errors")
+    
+    return {
+        "ok": True,
+        "command_id": bulk_cmd.id,
+        "total_targets": len(devices),
+        "sent_count": bulk_cmd.sent_count,
+        "error_count": bulk_cmd.error_count
     }
 
 @app.post("/v1/remote/reboot")
