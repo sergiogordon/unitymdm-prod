@@ -12,11 +12,9 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
-import { useTheme } from "@/contexts/ThemeContext"
 
 export default function Page() {
   const router = useRouter()
-  const { isDark, toggleTheme } = useTheme()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
@@ -109,10 +107,7 @@ export default function Page() {
 
   return (
     <div className="min-h-screen">
-      <Header
-        isDark={isDark}
-        onToggleDark={toggleTheme}
-      />
+      <Header />
       
       {/* Show WebSocket status indicator */}
       {wsConnected && (

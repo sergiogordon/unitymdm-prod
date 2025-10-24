@@ -8,7 +8,6 @@ import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useTheme } from "@/contexts/ThemeContext"
 
 interface Device {
   id: string
@@ -43,7 +42,6 @@ export default function ApkDeployPage() {
   const router = useRouter()
   const apkId = params.apk_id as string
   
-  const { isDark, toggleTheme } = useTheme()
   const [apk, setApk] = useState<ApkBuild | null>(null)
   const [devices, setDevices] = useState<Device[]>([])
   const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
@@ -230,7 +228,7 @@ export default function ApkDeployPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen">
-        <Header isDark={isDark} onToggleDark={toggleTheme} />
+        <Header />
         <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
           <div className="py-12 text-center text-muted-foreground">
             Loading...
@@ -243,7 +241,7 @@ export default function ApkDeployPage() {
   if (!apk) {
     return (
       <div className="min-h-screen">
-        <Header isDark={isDark} onToggleDark={toggleTheme} />
+        <Header />
         <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
           <div className="py-12 text-center text-muted-foreground">
             APK not found
@@ -255,7 +253,7 @@ export default function ApkDeployPage() {
 
   return (
     <div className="min-h-screen">
-      <Header isDark={isDark} onToggleDark={toggleTheme} />
+      <Header />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
         <div className="mb-6">
