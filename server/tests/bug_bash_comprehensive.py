@@ -26,6 +26,7 @@ class BugBashRunner:
         self.results = defaultdict(list)
         self.bugs_found = []
         self.warnings = []
+        self.registered_devices = []  # Store registered device tokens to reuse
         
     def log(self, message: str, level: str = "INFO"):
         """Log test progress"""
@@ -84,12 +85,9 @@ class BugBashRunner:
                 try:
                     reg_response = await client.post(
                         f"{self.base_url}/v1/register",
-                        json={},
+                        json={"alias": alias},  # Admin-key enrollment requires alias in payload
                         headers={
-                            "X-Admin-Key": self.admin_key,  # ADB script has admin key embedded
-                            "X-Device-Alias": alias,
-                            "X-Device-Model": f"Test Device {device_idx}",
-                            "X-Device-Android-Version": "13"
+                            "X-Admin-Key": self.admin_key  # ADB script has admin key embedded
                         }
                     )
                     
@@ -229,10 +227,11 @@ class BugBashRunner:
                     pass
         
         self.results["device_registration"] = results
+        self.registered_devices = results["tokens_created"]  # Store for reuse in other tests
         return results
     
     async def test_heartbeat_load(self, num_devices: int = 100, heartbeats_per_device: int = 10):
-        """Test 2: Heartbeat processing under load"""
+        """Test 2: Heartbeat processing under load (reuses already-registered devices)"""
         self.log(f"\n{'='*60}")
         self.log(f"TEST 2: Heartbeat Processing Load ({num_devices} devices, {heartbeats_per_device} each)")
         self.log(f"{'='*60}")
@@ -245,14 +244,13 @@ class BugBashRunner:
             "deduplication_tests": []
         }
         
-        # First register devices
-        reg_result = await self.test_device_registration_scale(num_devices)
-        
-        if not reg_result["tokens_created"]:
-            self.log("❌ No devices registered, skipping heartbeat test")
+        # Reuse devices from registration test instead of re-registering
+        if not self.registered_devices:
+            self.log("❌ No devices available, skipping heartbeat test")
             return results
         
-        device_tokens = reg_result["tokens_created"][:min(num_devices, len(reg_result["tokens_created"]))]
+        device_tokens = self.registered_devices[:min(num_devices, len(self.registered_devices))]
+        self.log(f"Using {len(device_tokens)} previously registered devices")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             self.log(f"Sending {heartbeats_per_device} heartbeats per device...")

@@ -1,0 +1,66 @@
+[02:15:48.892] [INFO] 
+############################################################
+[02:15:48.892] [INFO] # UNITYmdm Comprehensive Bug Bash
+[02:15:48.892] [INFO] # Target: http://localhost:8000
+[02:15:48.892] [INFO] # Scale: 100 devices
+[02:15:48.892] [INFO] # Time: 2025-10-24 02:15:48
+[02:15:48.892] [INFO] ############################################################
+
+[02:15:48.892] [INFO] 
+============================================================
+[02:15:48.892] [INFO] TEST 1: Device Registration at Scale (100 devices)
+[02:15:48.892] [INFO] ============================================================
+[02:15:48.892] [INFO] Using ADB script enrollment (admin key embedded in scripts)
+[02:15:49.017] [INFO] Registering 100 devices via ADB script enrollment...
+[02:16:20.266] [INFO] ✓ Registered 52/100 devices in 31248.98ms
+[02:16:20.266] [INFO]   Avg latency: 24842.01ms
+[02:16:20.266] [INFO]   P95 latency: 30597.07ms
+[02:16:20.266] [INFO]   P99 latency: 31208.85ms
+[02:16:20.266] [WARN] ⚠️  WARNING Device Registration Performance: P95 registration latency (30597.07ms) is high
+[02:16:20.266] [INFO] 
+Testing edge cases...
+[02:16:25.946] [INFO] ✓ Invalid admin key correctly rejected (401)
+[02:16:26.318] [INFO] 
+============================================================
+[02:16:26.318] [INFO] TEST 2: Heartbeat Processing Load (100 devices, 10 each)
+[02:16:26.318] [INFO] ============================================================
+[02:16:26.318] [INFO] Using 52 previously registered devices
+[02:16:26.333] [INFO] Sending 10 heartbeats per device...
+[02:16:26.333] [INFO] Sending 520 total heartbeats...
+[02:17:04.724] [INFO] ✓ Processed 0/520 heartbeats in 38391.26ms
+[02:17:04.724] [INFO]   Throughput: 13.54 heartbeats/sec
+[02:17:04.724] [INFO] 
+Testing heartbeat deduplication...
+[02:17:21.571] [INFO]   Sent 5 duplicate heartbeats, 0 succeeded
+[02:17:21.571] [WARN] ⚠️  WARNING Heartbeat Deduplication: Expected all 5 duplicate heartbeats to succeed (deduplication is idempotent), but got 0
+[02:17:21.573] [INFO] 
+============================================================
+[02:17:21.573] [INFO] TEST: Edge Cases and Error Handling
+[02:17:21.573] [INFO] ============================================================
+[02:17:21.588] [INFO] Testing malformed JSON...
+[02:17:21.683] [INFO] ✓ Malformed JSON correctly rejected (422)
+[02:17:21.683] [INFO] Testing oversized payload...
+[02:17:21.794] [INFO] ✓ Oversized payload rejected (401)
+[02:17:21.794] [INFO] Testing SQL injection in device alias...
+[02:17:21.816] [INFO] ✓ SQL injection tests completed
+[02:17:21.816] [INFO] Testing XSS in device alias...
+[02:17:21.835] [INFO] ✓ XSS tests completed
+[02:17:21.836] [INFO] 
+============================================================
+[02:17:21.836] [INFO] BUG BASH SUMMARY
+[02:17:21.836] [INFO] ============================================================
+[02:17:21.836] [INFO] Duration: 92.94s
+[02:17:21.836] [INFO] Bugs Found: 0
+[02:17:21.836] [INFO] Warnings: 2
+[02:17:21.836] [INFO] 
+============================================================
+[02:17:21.836] [INFO] WARNINGS (2)
+[02:17:21.836] [INFO] ============================================================
+[02:17:21.836] [INFO] 
+Device Registration Performance
+[02:17:21.836] [INFO]   P95 registration latency (30597.07ms) is high
+[02:17:21.836] [INFO] 
+Heartbeat Deduplication
+[02:17:21.836] [INFO]   Expected all 5 duplicate heartbeats to succeed (deduplication is idempotent), but got 0
+[02:17:21.838] [INFO] 
+✓ Report saved to bug_bash_report_1761272241.json
