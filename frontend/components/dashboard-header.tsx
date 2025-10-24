@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Settings } from "lucide-react"
+import { Settings, Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useTheme } from "@/contexts/ThemeContext"
 
 interface DashboardHeaderProps {
   lastUpdated: number
@@ -26,6 +27,7 @@ export function DashboardHeader({
   onRefresh,
   className,
 }: DashboardHeaderProps) {
+  const { isDark, toggleTheme } = useTheme()
   const [timeAgo, setTimeAgo] = useState("0s ago")
   const [shouldPulse, setShouldPulse] = useState(false)
 
@@ -79,9 +81,26 @@ export function DashboardHeader({
           </div>
         </div>
 
-        {/* Right side: Settings gear - aligned with table right edge */}
-        <div className="flex items-center">
+        {/* Right side: Theme toggle and Settings gear */}
+        <div className="flex items-center gap-2">
           <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  className="h-10 w-10"
+                  aria-label="Toggle theme"
+                  role="button"
+                >
+                  {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>{isDark ? "Light mode" : "Dark mode"}</p>
+              </TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
