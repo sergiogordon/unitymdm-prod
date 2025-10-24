@@ -41,49 +41,56 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-6 space-y-4 rounded-lg bg-muted/50 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Status</span>
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`h-2 w-2 rounded-full ${
-                      device.status === "online" ? "bg-status-online" : "bg-status-offline"
-                    }`}
-                  />
-                  <span className="text-sm font-medium capitalize">{device.status}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Last Seen</span>
-                <span className="text-sm font-medium">{device.lastSeen}</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Battery</span>
-                <span className="text-sm font-medium">
-                  {device.battery.percentage}%{device.battery.charging && " (Charging)"}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Network</span>
-                <span className="text-sm font-medium">
-                  {device.network.type} • {device.network.name}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Agent</span>
-                <span className="text-sm font-medium">
-                  {device.unity.version} ({device.unity.status})
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Uptime</span>
-                <span className="text-sm font-medium">{device.uptime}</span>
-              </div>
+            <div className="mb-6 rounded-lg border border-border bg-muted/50 overflow-hidden">
+              <table className="w-full">
+                <tbody className="divide-y divide-border">
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium w-1/3">Status</td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`h-2 w-2 rounded-full ${
+                            device.status === "online" ? "bg-status-online" : "bg-status-offline"
+                          }`}
+                        />
+                        <span className="font-medium capitalize">{device.status}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Last Seen</td>
+                    <td className="px-4 py-3 text-sm font-medium">{device.lastSeen}</td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Battery</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      {device.battery.percentage}%{device.battery.charging && " (Charging)"}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Network</td>
+                    <td className="px-4 py-3 text-sm font-medium">
+                      {device.network.type} • {device.network.name}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity Version</td>
+                    <td className="px-4 py-3 text-sm font-medium font-mono text-xs">{device.unity.version}</td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity Status</td>
+                    <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">RAM Usage</td>
+                    <td className="px-4 py-3 text-sm font-medium">{device.ram}%</td>
+                  </tr>
+                  <tr className="hover:bg-muted/80 transition-colors">
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Uptime</td>
+                    <td className="px-4 py-3 text-sm font-medium">{device.uptime}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             <div>
