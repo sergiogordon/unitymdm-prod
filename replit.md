@@ -43,14 +43,15 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O.
-- **Connection Pooling**: Production-validated configuration with health monitoring.
+- **Connection Pooling**: Production-validated configuration with health monitoring (75 base + 75 overflow = 150 total connections).
 - **Partition Management**: Daily partitions with automated lifecycle.
 - **Dual-Write Pattern**: Transactional writes for fast reads.
 - **Deduplication**: 10-second bucketing for heartbeats.
 - **WebSocket Architecture**: Centralized management.
 - **Event Retention Policies**: 90-day heartbeat retention.
-- **Performance Metrics**: Comprehensive latency tracking, pool utilization gauges.
+- **Performance Metrics**: Comprehensive latency tracking, pool utilization gauges, queue metrics.
 - **Rate Limiting**: Configurable IP-based rate limiting.
+- **Registration Queue**: Semaphore-based queue limiting concurrent device registrations to 15 maximum to prevent connection pool saturation during bulk deployments. Tracks queue depth, wait time, and active registration count via Prometheus metrics.
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting for staged rollouts.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, call-state checking.
 - **Bulk Delete Architecture**: Device selection snapshots, background purge workers with PostgreSQL advisory locks.
