@@ -71,7 +71,7 @@ class DeviceEvent(Base):
     __tablename__ = "device_events"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
