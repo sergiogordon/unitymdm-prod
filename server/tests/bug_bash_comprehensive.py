@@ -56,10 +56,11 @@ class BugBashRunner:
         self.log(f"⚠️  WARNING {category}: {description}", "WARN")
     
     async def test_device_registration_scale(self, num_devices: int = 100):
-        """Test 1: Device registration and authentication at scale"""
+        """Test 1: Device registration and authentication at scale (ADB script enrollment)"""
         self.log(f"\n{'='*60}")
         self.log(f"TEST 1: Device Registration at Scale ({num_devices} devices)")
         self.log(f"{'='*60}")
+        self.log(f"Using ADB script enrollment (admin key embedded in scripts)")
         
         results = {
             "total_devices": num_devices,
@@ -71,54 +72,12 @@ class BugBashRunner:
         }
         
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Step 1: Create enrollment tokens
-            self.log(f"Creating {num_devices} enrollment tokens...")
-            start = time.time()
+            # ADB script enrollment: devices register directly with admin key
+            # (simulating what the ADB script does when it auto-enrolls)
+            self.log(f"Registering {num_devices} devices via ADB script enrollment...")
             
-            try:
-                response = await client.post(
-                    f"{self.base_url}/v1/enroll-tokens",
-                    json={"count": num_devices, "ttl_hours": 24},
-                    headers={"X-Admin-Key": self.admin_key}
-                )
-                
-                if response.status_code != 200:
-                    self.record_bug(
-                        "Device Registration",
-                        "CRITICAL",
-                        f"Failed to create enrollment tokens: {response.status_code}",
-                        {"response": response.text}
-                    )
-                    return results
-                    
-                tokens_data = response.json()
-                tokens = tokens_data.get("tokens", [])
-                token_creation_time = (time.time() - start) * 1000
-                
-                self.log(f"✓ Created {len(tokens)} tokens in {token_creation_time:.2f}ms")
-                
-                if len(tokens) != num_devices:
-                    self.record_bug(
-                        "Device Registration",
-                        "HIGH",
-                        f"Requested {num_devices} tokens but got {len(tokens)}",
-                        {"requested": num_devices, "received": len(tokens)}
-                    )
-                
-            except Exception as e:
-                self.record_bug(
-                    "Device Registration",
-                    "CRITICAL",
-                    f"Exception creating enrollment tokens: {str(e)}",
-                    {"error": str(e)}
-                )
-                return results
-            
-            # Step 2: Register devices in parallel
-            self.log(f"Registering {len(tokens)} devices in parallel...")
-            
-            async def register_device(token_value: str, device_idx: int):
-                """Register a single device"""
+            async def register_device(device_idx: int):
+                """Register a single device (simulates ADB script auto-enrollment)"""
                 alias = f"bugbash-device-{device_idx:04d}"
                 start_time = time.time()
                 
@@ -127,7 +86,7 @@ class BugBashRunner:
                         f"{self.base_url}/v1/register",
                         json={},
                         headers={
-                            "Authorization": f"Bearer {token_value}",
+                            "X-Admin-Key": self.admin_key,  # ADB script has admin key embedded
                             "X-Device-Alias": alias,
                             "X-Device-Model": f"Test Device {device_idx}",
                             "X-Device-Android-Version": "13"
@@ -163,8 +122,8 @@ class BugBashRunner:
             # Register all devices concurrently
             start = time.time()
             registration_tasks = [
-                register_device(token["token"], idx)
-                for idx, token in enumerate(tokens)
+                register_device(idx)
+                for idx in range(num_devices)
             ]
             
             registration_results = await asyncio.gather(*registration_tasks)
@@ -202,36 +161,12 @@ class BugBashRunner:
             # Test edge cases
             self.log(f"\nTesting edge cases...")
             
-            # Test 1: Re-use enrollment token (should fail)
-            if tokens:
-                test_token = tokens[0]["token"]
-                reuse_response = await client.post(
-                    f"{self.base_url}/v1/register",
-                    json={},
-                    headers={
-                        "Authorization": f"Bearer {test_token}",
-                        "X-Device-Alias": "reuse-test",
-                        "X-Device-Model": "Test",
-                        "X-Device-Android-Version": "13"
-                    }
-                )
-                
-                if reuse_response.status_code == 200:
-                    self.record_bug(
-                        "Device Registration Security",
-                        "CRITICAL",
-                        "Enrollment token can be reused - security issue!",
-                        {"token": test_token[:10] + "..."}
-                    )
-                else:
-                    self.log(f"✓ Token reuse correctly rejected ({reuse_response.status_code})")
-            
-            # Test 2: Invalid token format
+            # Test 1: Invalid admin key (should fail)
             invalid_response = await client.post(
                 f"{self.base_url}/v1/register",
                 json={},
                 headers={
-                    "Authorization": "Bearer invalid_token_123",
+                    "X-Admin-Key": "invalid_admin_key_123",
                     "X-Device-Alias": "invalid-test",
                     "X-Device-Model": "Test",
                     "X-Device-Android-Version": "13"
@@ -242,17 +177,17 @@ class BugBashRunner:
                 self.record_bug(
                     "Device Registration Security",
                     "CRITICAL",
-                    "Invalid enrollment token accepted!",
+                    "Invalid admin key accepted - security issue!",
                     {}
                 )
             else:
-                self.log(f"✓ Invalid token correctly rejected ({invalid_response.status_code})")
+                self.log(f"✓ Invalid admin key correctly rejected ({invalid_response.status_code})")
             
-            # Test 3: Missing required headers
+            # Test 2: Missing required headers
             missing_headers_response = await client.post(
                 f"{self.base_url}/v1/register",
                 json={},
-                headers={"Authorization": f"Bearer {tokens[0]['token']}" if tokens else "Bearer test"}
+                headers={"X-Admin-Key": self.admin_key}
             )
             
             if missing_headers_response.status_code == 200:
@@ -262,11 +197,11 @@ class BugBashRunner:
                     {}
                 )
             
-            # Test 4: Very long alias (XSS/injection attempt)
+            # Test 3: Very long alias (XSS/injection attempt)
             if results["tokens_created"]:
                 long_alias = "A" * 500
                 try:
-                    alias_test_token = results["tokens_created"][0]
+                    device_token = results["tokens_created"][0]
                     long_alias_response = await client.post(
                         f"{self.base_url}/v1/heartbeat",
                         json={
@@ -279,7 +214,7 @@ class BugBashRunner:
                             "speedtest_running_signals": {"has_service_notification": False, "foreground_recent_seconds": None}
                         },
                         headers={
-                            "Authorization": f"Bearer {alias_test_token}",
+                            "Authorization": f"Bearer {device_token}",
                             "X-Device-Alias-Update": long_alias
                         }
                     )
