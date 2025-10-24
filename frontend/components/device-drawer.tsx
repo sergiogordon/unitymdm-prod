@@ -81,6 +81,25 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
                     <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity Status</td>
                     <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
                   </tr>
+                  {device.monitoring?.monitor_enabled && device.monitoring.monitored_app_name && (
+                    <tr className="hover:bg-muted/80 transition-colors">
+                      <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Monitored Service</td>
+                      <td className="px-4 py-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{device.monitoring.monitored_app_name}</span>
+                          {device.monitoring.service_up !== null && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              device.monitoring.service_up 
+                                ? "bg-green-500/10 text-green-500" 
+                                : "bg-red-500/10 text-red-500"
+                            }`}>
+                              {device.monitoring.service_up ? "Running" : "Down"}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   <tr className="hover:bg-muted/80 transition-colors">
                     <td className="px-4 py-3 text-sm text-muted-foreground font-medium">RAM Usage</td>
                     <td className="px-4 py-3 text-sm font-medium">{device.ram}%</td>
