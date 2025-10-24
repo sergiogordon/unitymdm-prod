@@ -34,6 +34,7 @@ interface DevicesTableProps {
 }
 
 export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagination, currentPage = 1, pageSize = 25, onNextPage, onPrevPage, onChangePageSize }: DevicesTableProps) {
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
