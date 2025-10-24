@@ -401,7 +401,7 @@ class MonitoringDefaults(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     package: Mapped[str] = mapped_column(String, nullable=False, default="org.zwanoo.android.speedtest")
-    alias: Mapped[str] = mapped_column(String, nullable=False, default="Speedtest")
+    alias: Mapped[str] = mapped_column(String, nullable=False, default="unity")
     threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     

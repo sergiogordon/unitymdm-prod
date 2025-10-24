@@ -44,7 +44,7 @@ class MonitoringDefaultsCache:
             defaults = {
                 "enabled": True,
                 "package": "org.zwanoo.android.speedtest",
-                "alias": "Speedtest",
+                "alias": "unity",
                 "threshold_min": 10,
                 "updated_at": None
             }
