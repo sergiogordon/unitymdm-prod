@@ -1,0 +1,162 @@
+# Milestone: Launch App (single page)
+
+## Goal
+
+From the **Launch App** page, send one bulk FCM command that launches a specified app on a chosen set of devices (entire fleet or filtered subset). No per-row actions.
+
+---
+
+## UI (Launch App page) /launch-app
+
+Card: **Launch configuration**
+
+- **App package** (required, text): e.g., org.zwanoo.android.speedtest
+- **Activity** (optional, text): e.g.,
+- **Wake screen** (checkbox, default on)
+- **Unlock if possible (Device Owner)** (checkbox, default on)
+- **Scope** (segmented control):
+    - **Entire fleet**
+    - **Filtered set** (show a simple filter builder)
+        - Filters: Group, Tag, Online status, Android version (multi-selects)
+    - **Device IDs list** (textarea; comma/space/line-separated)
+- **Preview targets** (button): shows count and first 20 device IDs matching filters.
+- **Dry-run** (checkbox): validate & preview without sending commands.
+- **Launch** (primary button)
+
+Card: **Execution results**
+
+- After “Launch”: real-time progress bar (sent / acked / errors).
+- Table (virtualized if large):
+    - Device ID • Status (OK, NOT_INSTALLED, ACTIVITY_NOT_FOUND, SECURITY_ERROR, TIMEOUT, FAILED) • Message • Timestamp
+- **Download CSV** button.
+
+Right rail: **Recent Launches**
+
+- Last 10 runs (timestamp • package • scope • success/error counts). Click to open details.
+
+---
+
+## Backend
+
+Only one endpoint needed (bulk):
+
+```
+POST /v1/commands/launch_app
+Content-Type: application/json
+
+{
+  "targets": {
+    "all": true,                        // OR
+    "filter": { "groups": ["Dallas"], "tags": ["unity"], "online": true }, // OR
+    "device_ids": ["D01","D07","D22"]
+  },
+  "command": {
+    "package": "com.minutes.unity",
+    "activity": null,
+    "wake": true,
+    "unlock": true,
+    "flags": [],
+    "correlation_id": "uuid-v4"
+  },
+  "dry_run": false
+}
+
+```
+
+Agent ACK unchanged:
+
+```
+POST /v1/commands/ack
+{
+  "device_id":"D07",
+  "correlation_id":"uuid-v4",
+  "type":"launch_app",
+  "status":"OK",
+  "message":"launched"
+}
+
+```
+
+**Notes**
+
+- If `dry_run=true`, return `{ estimated_count, sample_device_ids[] }` and don’t send FCM.
+- Rate limit sender (e.g., 20/sec) with exponential backoff on transient FCM errors.
+- Idempotency: dedupe on `(correlation_id, device_id)` 60s window.
+
+---
+
+## Android Agent (same as before)
+
+- Handle `type=launch_app` with fields: `package`, `activity?`, `wake`, `unlock`, `flags[]`, `correlation_id`.
+- Foreground service; wake, optional keyguard dismiss; resolve launch intent if `activity` omitted; send ACK with mapped status codes.
+
+---
+
+## Page wiring (frontend tasks)
+
+1. Build the **Launch configuration** form and local validation (package required).
+2. Implement **Scope** controls:
+    - Entire fleet → `{ "all": true }`
+    - Filtered set → map UI selections into `"filter"` JSON
+    - Device IDs list → parse to `"device_ids": []`
+3. **Preview targets**: call `POST /v1/commands/launch_app` with `dry_run=true` and chosen targets; show count + sample IDs.
+4. **Launch**: call endpoint with `dry_run=false`; open results panel and start polling:
+    - `GET /v1/commands/{id}` (or server-sent events) for aggregate counts + per-device statuses.
+5. Results table + CSV export.
+6. Recent Launches sidebar (`GET /v1/commands?type=launch_app&limit=10`).
+
+---
+
+## Data model additions
+
+- `commands` table: `id`, `type`, `payload`, `targets`, `status`, `created_at`, `created_by`, `stats` (sent/acked/errors).
+- `command_results` table: `command_id`, `device_id`, `status`, `message`, `updated_at`.
+
+---
+
+## Security & audit
+
+- RBAC: only users with `commands.launch_app` may execute (bulk only).
+- Optional HMAC signature in FCM data.
+- Audit log: user, IP, payload hash, target size, dry_run flag.
+
+---
+
+## Acceptance criteria
+
+- From **Launch App** page, I can:
+    - Launch an app to **entire fleet** with success/error counts visible.
+    - Launch to a **filtered set**; preview shows correct estimated target count.
+    - Launch to an explicit **list of device IDs**.
+- If the package isn’t installed, result shows `NOT_INSTALLED`.
+- With screen off and `wake=true` + `unlock=true`, app becomes visible (on Device Owner devices).
+- A dry-run returns an estimate and no commands are sent.
+- Recent runs are listed and details are viewable.
+
+---
+
+## Test quickies
+
+**Dry-run (filtered)**
+
+```
+curl -X POST "$API/v1/commands/launch_app" \
+ -H "Authorization: Bearer $ADMINKEY" -H "Content-Type: application/json" \
+ -d '{"targets":{"filter":{"tags":["unity"],"online":true}},
+      "command":{"package":"com.minutes.unity","wake":true,"unlock":true,"flags":[],"correlation_id":"'"$(uuidgen)"'"},
+      "dry_run":true}'
+
+```
+
+**Fire to entire fleet**
+
+```
+curl -X POST "$API/v1/commands/launch_app" \
+ -H "Authorization: Bearer $ADMINKEY" -H "Content-Type: application/json" \
+ -d '{"targets":{"all":true},
+      "command":{"package":"com.minutes.unity","wake":true,"unlock":true,"flags":[],"correlation_id":"'"$(uuidgen)"'"},
+      "dry_run":false}'
+
+```
+
+This keeps all orchestration in the **Launch App** page, keeps the API simple (bulk-only), and gives you clean UX for fleet, filter, or explicit lists.
