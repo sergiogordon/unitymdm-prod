@@ -11,13 +11,28 @@ import { DeviceMonitoringModal } from "@/components/device-monitoring-modal"
 import { useToast } from "@/hooks/use-toast"
 import { bulkDeleteDevices, pingDevice, ringDevice, stopRingingDevice } from "@/lib/api-client"
 
+interface Pagination {
+  page: number
+  limit: number
+  total_count: number
+  total_pages: number
+  has_next: boolean
+  has_prev: boolean
+}
+
 interface DevicesTableProps {
   devices: Device[]
   onSelectDevice: (device: Device) => void
   onDevicesDeleted?: () => void
+  pagination?: Pagination | null
+  currentPage?: number
+  pageSize?: number
+  onNextPage?: () => void
+  onPrevPage?: () => void
+  onChangePageSize?: (size: number) => void
 }
 
-export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: DevicesTableProps) {
+export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagination, currentPage = 1, pageSize = 25, onNextPage, onPrevPage, onChangePageSize }: DevicesTableProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
@@ -427,6 +442,56 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted }: Devi
           </table>
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {pagination && (
+        <div className="mt-4 flex items-center justify-between px-4 py-3 bg-card rounded-lg border border-border">
+          <div className="flex items-center gap-4">
+            <div className="text-sm text-muted-foreground">
+              Showing <span className="font-medium text-foreground">{((currentPage - 1) * pageSize) + 1}</span> to{" "}
+              <span className="font-medium text-foreground">{Math.min(currentPage * pageSize, pagination.total_count)}</span> of{" "}
+              <span className="font-medium text-foreground">{pagination.total_count}</span> devices
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Devices per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => onChangePageSize?.(Number(e.target.value))}
+                className="rounded border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onPrevPage}
+              disabled={!pagination.has_prev}
+            >
+              Previous
+            </Button>
+            
+            <div className="px-3 py-1 text-sm">
+              Page <span className="font-medium">{currentPage}</span> of <span className="font-medium">{pagination.total_pages}</span>
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onNextPage}
+              disabled={!pagination.has_next}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
 
       <BulkActionsBar
         selectedCount={selectedIds.size}

@@ -11,7 +11,7 @@ import { DeviceDrawer } from "@/components/device-drawer"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
-import { isAuthenticated } from "@/lib/api-client"
+import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
 
 export default function Page() {
   const router = useRouter()
@@ -21,6 +21,9 @@ export default function Page() {
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
+  
+  // Separate stats state for accurate KPI counters
+  const [stats, setStats] = useState({ total: 0, online: 0, offline: 0, low_battery: 0 })
 
   // Check authentication first
   useEffect(() => {
@@ -31,9 +34,30 @@ export default function Page() {
     }
   }, [router])
   
+  // Fetch stats for KPIs (all devices, not just visible ones)
+  useEffect(() => {
+    if (authChecked) {
+      fetchDeviceStats()
+        .then(setStats)
+        .catch(err => console.error('Failed to fetch stats:', err))
+    }
+  }, [authChecked, lastUpdated])
+  
   // Only fetch devices after auth is confirmed
   const shouldFetch = authChecked
-  const { devices, loading, error, refresh, wsConnected } = useDevices(shouldFetch)
+  const { 
+    devices, 
+    loading, 
+    error, 
+    refresh, 
+    wsConnected,
+    pagination,
+    currentPage,
+    pageSize,
+    nextPage,
+    prevPage,
+    changePageSize
+  } = useDevices(shouldFetch)
 
   // Toggle dark mode
   useEffect(() => {
@@ -44,7 +68,7 @@ export default function Page() {
     }
   }, [isDark])
 
-  // Filter devices
+  // Filter devices (only filters the current page)
   const filteredDevices = devices.filter((device) => {
     if (selectedFilter === "all") return true
     if (selectedFilter === "offline") return device.status === "offline"
@@ -54,13 +78,8 @@ export default function Page() {
     return true
   })
 
-  // Calculate KPIs
-  const totalDevices = devices.length
-  const onlineDevices = devices.filter((d) => d.status === "online").length
-  const offlineDevices = devices.filter((d) => d.status === "offline").length
-  const activeAlerts = devices.filter(
-    (d) => d.status === "offline" || d.unity.status === "down" || d.battery.percentage < 20,
-  ).length
+  // Active alerts from full stats
+  const activeAlerts = stats.offline + stats.low_battery
 
   const handleRefresh = () => {
     setLastUpdated(Date.now())
@@ -122,9 +141,9 @@ export default function Page() {
         />
 
         <KpiTiles
-          total={totalDevices}
-          online={onlineDevices}
-          offline={offlineDevices}
+          total={stats.total}
+          online={stats.online}
+          offline={stats.offline}
           alerts={activeAlerts}
           devices={devices}
         />
@@ -135,6 +154,12 @@ export default function Page() {
           devices={filteredDevices} 
           onSelectDevice={setSelectedDevice}
           onDevicesDeleted={refresh}
+          pagination={pagination}
+          currentPage={currentPage}
+          pageSize={pageSize}
+          onNextPage={nextPage}
+          onPrevPage={prevPage}
+          onChangePageSize={changePageSize}
         />
       </main>
 
