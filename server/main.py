@@ -3955,25 +3955,6 @@ async def restart_app_on_devices(
         "results": results
     }
 
-@app.get("/v1/enrollment-qr-payload")
-async def get_enrollment_qr_payload(alias: str):
-    if not alias or not alias.strip():
-        raise HTTPException(status_code=400, detail="Alias is required")
-    
-    server_url = os.getenv("SERVER_URL", "")
-    if not server_url:
-        server_url = "http://localhost:8000"
-    
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="Admin key not configured")
-    
-    return {
-        "server_url": server_url,
-        "admin_key": admin_key,
-        "alias": alias.strip()
-    }
-
 @app.get("/v1/scripts/enroll.cmd")
 async def get_windows_enroll_script(
     alias: str = Query(...),
