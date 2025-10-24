@@ -3,9 +3,9 @@
 Nightly maintenance job for partition lifecycle management.
 
 Responsibilities:
-1. Create future partitions (14 days ahead)
+1. Create future partitions (3 days ahead)
 2. Archive old partitions (CSV export + SHA-256 + object storage)
-3. Drop archived partitions (90+ days old, only if archived successfully)
+3. Drop archived partitions (2+ days old, only if archived successfully)
 4. Update partition metadata (row counts, sizes, states)
 5. VACUUM ANALYZE hot partitions for optimal query planning
 
@@ -27,9 +27,9 @@ from observability import structured_logger, metrics
 from db_utils import create_heartbeat_partition
 
 ADVISORY_LOCK_ID = 987654321  # Unique ID for nightly maintenance advisory lock
-DEFAULT_RETENTION_DAYS = 90
+DEFAULT_RETENTION_DAYS = 2
 
-def create_future_partitions(db, days_ahead: int = 14, dry_run: bool = False):
+def create_future_partitions(db, days_ahead: int = 3, dry_run: bool = False):
     """
     Create partitions for the next N days if they don't exist.
     Uses the idempotent create_heartbeat_partition function.
