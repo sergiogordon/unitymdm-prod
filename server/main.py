@@ -1536,7 +1536,6 @@ async def heartbeat(
         })
     
     device.last_seen = datetime.now(timezone.utc)
-    device.last_status = json.dumps(payload.dict())
     device.app_version = payload.app_version
     
     if payload.fcm_token:
@@ -1689,6 +1688,21 @@ async def heartbeat(
         # Metrics for monitoring
         if monitoring_settings["enabled"] and service_up is not None:
             metrics.set_gauge("service_up_devices", 1 if service_up else 0, {"device_id": device.id})
+    
+    # Enrich last_status with computed monitoring data for frontend
+    last_status_dict = payload.dict()
+    last_status_dict["service_up"] = service_up
+    last_status_dict["monitored_package"] = monitoring_settings["package"] if monitoring_settings["enabled"] else None
+    last_status_dict["monitored_foreground_recent_s"] = monitored_foreground_recent_s
+    last_status_dict["monitored_threshold_min"] = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
+    
+    # Add unity/agent status for frontend (agent is always running if sending heartbeats)
+    last_status_dict["unity"] = {
+        "version": payload.app_version or "unknown",
+        "running": True
+    }
+    
+    device.last_status = json.dumps(last_status_dict)
     
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: auto_relaunch_enabled={device.auto_relaunch_enabled}, monitored_package={device.monitored_package}")
