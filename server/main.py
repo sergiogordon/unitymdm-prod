@@ -3925,7 +3925,7 @@ async def bulk_launch_app(
                 "device_id": device.id,
                 "ts": timestamp,
                 "hmac": hmac_signature,
-                "package": package,
+                "package_name": package,
                 "wake": str(wake).lower(),
                 "unlock": str(unlock).lower()
             }
