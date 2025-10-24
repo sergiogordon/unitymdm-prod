@@ -40,7 +40,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **OTA Updates (Milestone 4)**: Secure fleet-wide agent updates with staged rollouts, rollback capability, and adoption telemetry.
 - **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs, including registration, upload to Replit Object Storage, download, and deletion, all secured by admin key authentication.
 - **Reliability Features (Milestone 5)**: Android agent hardening with persistent Room database-backed queue, network resilience (NetworkCallback, exponential backoff), power management awareness, queue management (size limits, pruning), dual-key HMAC SHA-256 validation for FCM commands, and enhanced observability.
-- **Bulk Launch App**: Enterprise-grade bulk app launching with three targeting modes (entire fleet, filtered set, device IDs list), dry-run preview, rate-limited FCM dispatch (20 msg/sec), real-time result tracking, and comprehensive status reporting with device-level acknowledgments.
+- **Bulk Launch App**: Enterprise-grade bulk app launching with three targeting modes (entire fleet, filtered set, device IDs list), dry-run preview, rate-limited FCM dispatch (20 msg/sec), real-time result tracking, and comprehensive status reporting with device-level acknowledgments. Android agent sends LAUNCH_APP_ACK after app launch attempts with status codes (OK/ERROR) and descriptive messages. Recent launches limited to 3 most recent commands for clean UI.
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O.
