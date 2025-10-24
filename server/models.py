@@ -137,7 +137,7 @@ class ApkInstallation(Base):
     __tablename__ = "apk_installations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     apk_version_id: Mapped[int] = mapped_column(Integer, ForeignKey("apk_versions.id"), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     initiated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -200,7 +200,7 @@ class Command(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     request_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     command_type: Mapped[str] = mapped_column(String, nullable=False)
     parameters: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
@@ -220,7 +220,7 @@ class FcmDispatch(Base):
     __tablename__ = "fcm_dispatches"
     
     request_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String, nullable=False)
     payload_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     
@@ -281,7 +281,7 @@ class DeviceHeartbeat(Base):
     __tablename__ = "device_heartbeats"
     
     hb_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     
     ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -308,7 +308,7 @@ class DeviceHeartbeat(Base):
 class DeviceLastStatus(Base):
     __tablename__ = "device_last_status"
     
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), primary_key=True, nullable=False)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, nullable=False)
     last_ts: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     
     battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -357,7 +357,7 @@ class AlertState(Base):
     __tablename__ = "alert_states"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     condition: Mapped[str] = mapped_column(String, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default='ok')
     
@@ -427,7 +427,7 @@ class DeviceCommand(Base):
     __tablename__ = "device_commands"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default='queued', nullable=False)
     correlation_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
@@ -446,7 +446,7 @@ class DeviceMetric(Base):
     __tablename__ = "device_metrics"
     
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     ts: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     charging: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
