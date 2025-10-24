@@ -37,7 +37,7 @@ export function DeviceMonitoringModal({
     currentMonitoring?.monitored_package ?? "org.zwanoo.android.speedtest"
   )
   const [monitoredAppName, setMonitoredAppName] = useState(
-    currentMonitoring?.monitored_app_name ?? "Speedtest"
+    currentMonitoring?.monitored_app_name ?? "unity"
   )
   const [thresholdMin, setThresholdMin] = useState(
     currentMonitoring?.monitored_threshold_min ?? 10
@@ -167,7 +167,7 @@ export function DeviceMonitoringModal({
                   type="text"
                   value={monitoredAppName}
                   onChange={(e) => setMonitoredAppName(e.target.value)}
-                  placeholder="Speedtest"
+                  placeholder="unity"
                   disabled={!monitorEnabled}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
                 />
