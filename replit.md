@@ -1,7 +1,7 @@
 # MDM System - Compressed Overview
 
 ## Overview
-This project is a production-ready, cloud-based Mobile Device Management (MDM) system for Android devices, designed to manage 500-2,000 concurrent devices. It provides robust backend control, real-time updates, and secure provisioning, complemented by a modern web frontend. Key capabilities include zero-touch enrollment, remote command execution, real-time device telemetry, secure device registration, heartbeat monitoring, FCM-based command dispatch, automated partition management, and comprehensive operational tooling. The system prioritizes scalability, performance, security, and operational excellence, aiming for predictable performance (p95 <150ms, p99 <300ms).
+This project is a production-ready, cloud-based Mobile Device Management (MDM) system for Android devices, designed to manage 500-2,000 concurrent devices. It provides robust backend control, real-time updates, and secure provisioning, complemented by a modern web frontend. Key capabilities include zero-touch enrollment, remote command execution, bulk app launching, real-time device telemetry, secure device registration, heartbeat monitoring, FCM-based command dispatch, automated partition management, and comprehensive operational tooling. The system prioritizes scalability, performance, security, and operational excellence, aiming for predictable performance (p95 <150ms, p99 <300ms).
 
 ## User Preferences
 - Focus on scalability and performance
@@ -40,6 +40,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **OTA Updates (Milestone 4)**: Secure fleet-wide agent updates with staged rollouts, rollback capability, and adoption telemetry.
 - **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs, including registration, upload to Replit Object Storage, download, and deletion, all secured by admin key authentication.
 - **Reliability Features (Milestone 5)**: Android agent hardening with persistent Room database-backed queue, network resilience (NetworkCallback, exponential backoff), power management awareness, queue management (size limits, pruning), dual-key HMAC SHA-256 validation for FCM commands, and enhanced observability.
+- **Bulk Launch App**: Enterprise-grade bulk app launching with three targeting modes (entire fleet, filtered set, device IDs list), dry-run preview, rate-limited FCM dispatch (20 msg/sec), real-time result tracking, and comprehensive status reporting with device-level acknowledgments.
 
 ### System Design Choices
 - **Async SQLAlchemy**: For non-blocking I/O.

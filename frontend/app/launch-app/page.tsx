@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
@@ -16,6 +17,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { useTheme } from "@/contexts/ThemeContext"
 import { useToast } from "@/hooks/use-toast"
+import { isAuthenticated } from "@/lib/api-client"
 
 interface CommandResult {
   device_id: string
@@ -39,10 +41,9 @@ interface RecentLaunch {
 }
 
 export default function LaunchAppPage() {
-  const { isDark, toggleTheme } = useTheme()
+  const router = useRouter()
   const { toast } = useToast()
-  const [lastUpdated, setLastUpdated] = useState(Date.now())
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   
   const [packageName, setPackageName] = useState("")
   const [activity, setActivity] = useState("")
@@ -63,18 +64,43 @@ export default function LaunchAppPage() {
   
   const [recentLaunches, setRecentLaunches] = useState<RecentLaunch[]>([])
 
+  // Check authentication
   useEffect(() => {
-    fetchRecentLaunches()
-  }, [])
+    if (!isAuthenticated()) {
+      router.push('/login')
+    } else {
+      setAuthChecked(true)
+    }
+  }, [router])
 
-  const handleRefresh = () => {
-    setLastUpdated(Date.now())
-    fetchRecentLaunches()
+  useEffect(() => {
+    if (authChecked) {
+      fetchRecentLaunches()
+    }
+  }, [authChecked])
+
+  const getAuthToken = (): string | null => {
+    if (typeof window === 'undefined') return null
+    return localStorage.getItem('auth_token')
   }
 
   const fetchRecentLaunches = async () => {
     try {
-      const response = await fetch("/api/proxy/v1/commands?type=launch_app&limit=10")
+      const token = getAuthToken()
+      if (!token) return
+
+      const response = await fetch("/api/proxy/v1/commands?type=launch_app&limit=10", {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
       if (response.ok) {
         const data = await response.json()
         setRecentLaunches(data.commands || [])
@@ -109,6 +135,12 @@ export default function LaunchAppPage() {
       return
     }
 
+    const token = getAuthToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
+
     setIsPreviewing(true)
     setPreviewCount(null)
     setPreviewSample([])
@@ -116,7 +148,10 @@ export default function LaunchAppPage() {
     try {
       const response = await fetch("/api/proxy/v1/commands/launch_app", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           targets: buildTargets(),
           command: {
@@ -129,6 +164,11 @@ export default function LaunchAppPage() {
           dry_run: true
         })
       })
+
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -167,6 +207,12 @@ export default function LaunchAppPage() {
       return
     }
 
+    const token = getAuthToken()
+    if (!token) {
+      router.push('/login')
+      return
+    }
+
     setIsLaunching(true)
     setResults([])
     setCommandId(null)
@@ -175,7 +221,10 @@ export default function LaunchAppPage() {
     try {
       const response = await fetch("/api/proxy/v1/commands/launch_app", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
           targets: buildTargets(),
           command: {
@@ -188,6 +237,11 @@ export default function LaunchAppPage() {
           dry_run: false
         })
       })
+
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
 
       if (response.ok) {
         const data = await response.json()
@@ -223,7 +277,21 @@ export default function LaunchAppPage() {
   const pollCommandStatus = async (cmdId: string) => {
     const poll = async () => {
       try {
-        const response = await fetch(`/api/proxy/v1/commands/${cmdId}`)
+        const token = getAuthToken()
+        if (!token) return
+
+        const response = await fetch(`/api/proxy/v1/commands/${cmdId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (response.status === 401) {
+          router.push('/login')
+          return
+        }
+        
         if (response.ok) {
           const data = await response.json()
           setResults(data.results || [])
@@ -267,16 +335,20 @@ export default function LaunchAppPage() {
     return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 dark:border-gray-100 mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen">
-      <Header
-        lastUpdated={lastUpdated}
-        alertCount={0}
-        isDark={isDark}
-        onToggleDark={toggleTheme}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onRefresh={handleRefresh}
-      />
+      <Header />
 
       <main className="mx-auto max-w-[1600px] px-6 pb-12 pt-[84px] md:px-8">
         <PageHeader
@@ -494,8 +566,6 @@ export default function LaunchAppPage() {
           </div>
         </div>
       </main>
-
-      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   )
 }
