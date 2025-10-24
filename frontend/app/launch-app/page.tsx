@@ -89,7 +89,7 @@ export default function LaunchAppPage() {
       const token = getAuthToken()
       if (!token) return
 
-      const response = await fetch("/api/proxy/v1/commands?type=launch_app&limit=10", {
+      const response = await fetch("/api/proxy/v1/commands?type=launch_app&limit=3", {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
