@@ -19,8 +19,8 @@ def get_auth_token() -> str:
     """Authenticate and get JWT token."""
     print("🔐 Authenticating...")
     response = requests.post(
-        f"{BACKEND_URL}/login",
-        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
+        f"{BACKEND_URL}/api/auth/login",
+        json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}
     )
     
     if response.status_code != 200:
