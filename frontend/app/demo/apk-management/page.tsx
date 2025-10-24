@@ -9,6 +9,7 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 import { DemoApiService } from "@/lib/demoApiService"
 import { formatAbsoluteTimestampCST } from "@/lib/utils"
 import { toast } from "sonner"
+import { useTheme } from "@/contexts/ThemeContext"
 
 interface ApkVersion {
   id: number
@@ -21,7 +22,7 @@ interface ApkVersion {
 }
 
 export default function DemoApkManagementPage() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [apkVersions, setApkVersions] = useState<ApkVersion[]>([])
@@ -29,16 +30,6 @@ export default function DemoApkManagementPage() {
 
   useEffect(() => {
     loadApkVersions()
-  }, [])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
   }, [])
 
   const loadApkVersions = async () => {
@@ -50,12 +41,6 @@ export default function DemoApkManagementPage() {
     } catch (error) {
       console.error('Failed to load APK versions:', error)
     }
-  }
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
   }
 
   const handleToggleSidebar = () => {
@@ -86,7 +71,7 @@ export default function DemoApkManagementPage() {
         lastUpdated={lastUpdated}
         alertCount={0}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={loadApkVersions}
         onToggleSidebar={handleToggleSidebar}

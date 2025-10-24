@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState("")
@@ -16,26 +17,13 @@ export default function ResetPasswordPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isValidating, setIsValidating] = useState(true)
   const [isValidToken, setIsValidToken] = useState(false)
-  const [isDark, setIsDark] = useState(false)
   const [tokenData, setTokenData] = useState<{ username?: string; expires_at?: string } | null>(null)
   
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get("token")
   const { login } = useAuth()
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
+  const { isDark, toggleTheme } = useTheme()
 
   useEffect(() => {
     // Validate token when page loads
@@ -68,11 +56,6 @@ export default function ResetPasswordPage() {
     }
   }
 
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-  }
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -174,7 +157,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="absolute top-6 right-6">
-        <Button variant="ghost" size="icon" onClick={handleToggleDark} className="h-9 w-9">
+        <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-9 w-9">
           {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
       </div>

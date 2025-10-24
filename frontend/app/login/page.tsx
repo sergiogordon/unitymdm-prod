@@ -10,15 +10,16 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth"
 import { ForgotPasswordModal } from "@/components/forgot-password-modal"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isDark, setIsDark] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
   const router = useRouter()
   const { login, isAuthenticated } = useAuth()
+  const { isDark, toggleTheme } = useTheme()
 
   // Only redirect if we're actually on the login page and user is authenticated
   useEffect(() => {
@@ -26,25 +27,6 @@ export default function LoginPage() {
       router.push('/')
     }
   }, [isAuthenticated, router])
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,7 +56,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="absolute top-6 right-6">
-        <Button variant="ghost" size="icon" onClick={handleToggleDark} className="h-9 w-9">
+        <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-9 w-9">
           {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
       </div>

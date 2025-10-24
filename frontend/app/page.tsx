@@ -12,10 +12,11 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function Page() {
   const router = useRouter()
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
@@ -58,15 +59,6 @@ export default function Page() {
     prevPage,
     changePageSize
   } = useDevices(shouldFetch)
-
-  // Toggle dark mode
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
 
   // Filter devices (only filters the current page)
   const filteredDevices = devices.filter((device) => {
@@ -119,7 +111,7 @@ export default function Page() {
     <div className="min-h-screen">
       <Header
         isDark={isDark}
-        onToggleDark={() => setIsDark(!isDark)}
+        onToggleDark={toggleTheme}
       />
       
       {/* Show WebSocket status indicator */}

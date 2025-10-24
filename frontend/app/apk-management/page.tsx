@@ -11,6 +11,7 @@ import { format } from "date-fns"
 import { toZonedTime } from "date-fns-tz"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useTheme } from "@/contexts/ThemeContext"
 
 interface ApkBuild {
   build_id: number
@@ -26,7 +27,7 @@ interface ApkBuild {
 }
 
 export default function ApkManagementPage() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [apkBuilds, setApkBuilds] = useState<ApkBuild[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -38,14 +39,6 @@ export default function ApkManagementPage() {
   const [uploadBuildType, setUploadBuildType] = useState<"debug" | "release">("release")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
 
   const fetchApkBuilds = async () => {
     setIsLoading(true)
@@ -241,7 +234,7 @@ export default function ApkManagementPage() {
     <div className="min-h-screen">
       <Header
         isDark={isDark}
-        onToggleDark={() => setIsDark(!isDark)}
+        onToggleDark={toggleTheme}
       />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">

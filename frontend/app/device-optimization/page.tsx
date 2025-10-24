@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/sidebar"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useTheme } from "@/contexts/ThemeContext"
 import {
   Dialog,
   DialogContent,
@@ -73,7 +74,7 @@ export default function DeviceOptimizationPage() {
 }
 
 function DeviceOptimizationContent() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([])
@@ -84,24 +85,11 @@ function DeviceOptimizationContent() {
   const [isApplying, setIsApplying] = useState(false)
 
   useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
-
-  useEffect(() => {
     const sidebarOpen = localStorage.getItem('sidebarOpen')
     if (sidebarOpen !== null) {
       setIsSidebarOpen(sidebarOpen === 'true')
     }
   }, [])
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
 
   useEffect(() => {
     loadWhitelist()
@@ -129,12 +117,6 @@ function DeviceOptimizationContent() {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleToggleDark = () => {
-    const newIsDark = !isDark
-    setIsDark(newIsDark)
-    localStorage.setItem('darkMode', String(newIsDark))
   }
 
   const handleToggleSidebar = () => {
@@ -246,7 +228,7 @@ function DeviceOptimizationContent() {
           lastUpdated={lastUpdated}
           alertCount={0}
           isDark={isDark}
-          onToggleDark={handleToggleDark}
+          onToggleDark={toggleTheme}
           onOpenSettings={() => {}}
           onRefresh={loadWhitelist}
           onToggleSidebar={handleToggleSidebar}
@@ -266,7 +248,7 @@ function DeviceOptimizationContent() {
         lastUpdated={lastUpdated}
         alertCount={0}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => {}}
         onRefresh={loadWhitelist}
         onToggleSidebar={handleToggleSidebar}

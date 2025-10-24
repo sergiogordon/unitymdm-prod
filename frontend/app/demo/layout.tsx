@@ -1,24 +1,16 @@
 "use client"
 
-import { ReactNode, useState, useEffect } from "react"
+import { ReactNode, useEffect } from "react"
 import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { enableDemoMode } from "@/lib/demoApiService"
 
 export default function DemoLayout({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
     enableDemoMode()
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
   }, [])
 
   const handleExitDemo = () => {

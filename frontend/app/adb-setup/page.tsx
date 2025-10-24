@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Header } from "@/components/header"
 import { SettingsDrawer } from "@/components/settings-drawer"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function ADBSetupPage() {
   return (
@@ -18,28 +19,9 @@ export default function ADBSetupPage() {
 
 function ADBSetupContent() {
   const [alias, setAlias] = useState("")
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [copiedButton, setCopiedButton] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
-
-  const toggleDarkMode = () => {
-    const newMode = !isDark
-    setIsDark(newMode)
-    localStorage.setItem('darkMode', String(newMode))
-  }
 
   const copyOneLiner = async (platform: 'windows' | 'bash') => {
     if (!alias.trim()) {
@@ -88,7 +70,7 @@ function ADBSetupContent() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <Header onToggleDark={toggleDarkMode} onOpenSettings={() => setIsSettingsOpen(true)} />
+      <Header onToggleDark={toggleTheme} onOpenSettings={() => setIsSettingsOpen(true)} />
       <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       
       <div className="flex-1 p-8 space-y-8 max-w-5xl mx-auto w-full">

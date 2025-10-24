@@ -10,6 +10,7 @@ import { Sidebar } from "@/components/sidebar"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { DemoApiService } from "@/lib/demoApiService"
 import { toast } from "sonner"
+import { useTheme } from "@/contexts/ThemeContext"
 import {
   Dialog,
   DialogContent,
@@ -64,7 +65,7 @@ const ADB_MODIFICATIONS = [
 ]
 
 export default function DemoDeviceOptimizationPage() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [lastUpdated] = useState(Date.now())
@@ -76,13 +77,6 @@ export default function DemoDeviceOptimizationPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
     loadWhitelist()
   }, [])
 
@@ -95,17 +89,6 @@ export default function DemoDeviceOptimizationPage() {
       console.error('Failed to load whitelist:', error)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-    if (newDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
     }
   }
 
@@ -178,7 +161,7 @@ export default function DemoDeviceOptimizationPage() {
           lastUpdated={lastUpdated}
           alertCount={0}
           isDark={isDark}
-          onToggleDark={handleToggleDark}
+          onToggleDark={toggleTheme}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onRefresh={() => {}}
           onToggleSidebar={handleToggleSidebar}
@@ -198,7 +181,7 @@ export default function DemoDeviceOptimizationPage() {
         lastUpdated={lastUpdated}
         alertCount={0}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={loadWhitelist}
         onToggleSidebar={handleToggleSidebar}

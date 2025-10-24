@@ -6,19 +6,12 @@ import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { Monitor } from "lucide-react"
 import { Card } from "@/components/ui/card"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function RemoteControlPage() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
 
   const handleRefresh = () => {
     setLastUpdated(Date.now())
@@ -30,7 +23,7 @@ export default function RemoteControlPage() {
         lastUpdated={lastUpdated}
         alertCount={0}
         isDark={isDark}
-        onToggleDark={() => setIsDark(!isDark)}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={handleRefresh}
       />

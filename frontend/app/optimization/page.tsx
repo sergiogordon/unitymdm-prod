@@ -10,11 +10,12 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { isAuthenticated, getBloatwareList, addBloatwarePackage, deleteBloatwarePackage, resetBloatwareList } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function OptimizationPage() {
   const router = useRouter()
   const { toast } = useToast()
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [whitelistApps, setWhitelistApps] = useState([{ name: "Speedtest", package: "org.zwanoo.android.speedtest" }])
   const [bloatwarePackages, setBloatwarePackages] = useState<Array<{ id: number; package_name: string; enabled: boolean }>>([])
   const [isLoadingBloatware, setIsLoadingBloatware] = useState(true)
@@ -27,14 +28,6 @@ export default function OptimizationPage() {
       router.push('/login')
     }
   }, [router])
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
 
   // Load bloatware packages on mount
   useEffect(() => {
@@ -129,7 +122,7 @@ export default function OptimizationPage() {
     <div className="min-h-screen">
       <Header
         isDark={isDark}
-        onToggleDark={() => setIsDark(!isDark)}
+        onToggleDark={toggleTheme}
       />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">

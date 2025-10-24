@@ -13,9 +13,10 @@ import { Button } from "@/components/ui/button"
 import { DemoApiService } from "@/lib/demoApiService"
 import { toast } from "sonner"
 import type { Device, FilterType, MetricsResponse } from "@/lib/api"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function DemoDashboard() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [devices, setDevices] = useState<Device[]>([])
   const [metrics, setMetrics] = useState<MetricsResponse>({
@@ -52,25 +53,6 @@ export default function DemoDashboard() {
   useEffect(() => {
     loadData()
   }, [loadData])
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-  }
 
   const handleToggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen)
@@ -109,7 +91,7 @@ export default function DemoDashboard() {
         lastUpdated={lastUpdated}
         alertCount={metrics.low_battery}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={handleRefresh}
         onToggleSidebar={handleToggleSidebar}

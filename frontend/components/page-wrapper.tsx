@@ -4,6 +4,7 @@ import { ReactNode, useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
 import { SettingsDrawer } from "@/components/settings-drawer"
+import { useTheme } from "@/contexts/ThemeContext"
 
 interface PageWrapperProps {
   children: ReactNode
@@ -13,22 +14,9 @@ interface PageWrapperProps {
 }
 
 export function PageWrapper({ children, lastUpdated = Date.now(), alertCount = 0, onRefresh = () => {} }: PageWrapperProps) {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [isDark])
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-  }, [])
 
   useEffect(() => {
     const sidebarOpen = localStorage.getItem('sidebarOpen')
@@ -36,12 +24,6 @@ export function PageWrapper({ children, lastUpdated = Date.now(), alertCount = 0
       setIsSidebarOpen(sidebarOpen === 'true')
     }
   }, [])
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-  }
 
   const handleToggleSidebar = () => {
     const newState = !isSidebarOpen
@@ -57,7 +39,7 @@ export function PageWrapper({ children, lastUpdated = Date.now(), alertCount = 0
         lastUpdated={lastUpdated}
         alertCount={alertCount}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={onRefresh}
         onToggleSidebar={handleToggleSidebar}

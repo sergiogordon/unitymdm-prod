@@ -5,28 +5,13 @@ import { Monitor } from "lucide-react"
 import { Header } from "@/components/header"
 import { Sidebar } from "@/components/sidebar"
 import { SettingsDrawer } from "@/components/settings-drawer"
+import { useTheme } from "@/contexts/ThemeContext"
 
 export default function DemoRemoteControlPage() {
-  const [isDark, setIsDark] = useState(false)
+  const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [lastUpdated] = useState(Date.now())
-
-  useEffect(() => {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true'
-    setIsDark(isDarkMode)
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark")
-    } else {
-      document.documentElement.classList.remove("dark")
-    }
-  }, [])
-
-  const handleToggleDark = () => {
-    const newDark = !isDark
-    setIsDark(newDark)
-    localStorage.setItem('darkMode', newDark.toString())
-  }
 
   const handleToggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen)
@@ -40,7 +25,7 @@ export default function DemoRemoteControlPage() {
         lastUpdated={lastUpdated}
         alertCount={0}
         isDark={isDark}
-        onToggleDark={handleToggleDark}
+        onToggleDark={toggleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onRefresh={() => {}}
         onToggleSidebar={handleToggleSidebar}
