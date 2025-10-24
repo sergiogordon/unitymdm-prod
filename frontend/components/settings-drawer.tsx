@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { X, Copy, Check, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
@@ -35,6 +35,8 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   })
   const [monitoringDefaultsOriginal, setMonitoringDefaultsOriginal] = useState<MonitoringDefaults | null>(null)
   const [isSavingMonitoring, setIsSavingMonitoring] = useState(false)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -68,8 +70,9 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     }
   }
 
-  const handleSaveMonitoringDefaults = async () => {
+  const handleSaveMonitoringDefaults = async (showToast = true) => {
     setIsSavingMonitoring(true)
+    setAutoSaveStatus('saving')
     try {
       const response = await fetch('/v1/settings/monitoring-defaults', {
         method: 'PATCH',
@@ -84,12 +87,17 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
         const data = await response.json()
         setMonitoringDefaults(data)
         setMonitoringDefaultsOriginal(data)
-        toast({
-          title: "Success",
-          description: "Monitoring defaults saved successfully"
-        })
+        setAutoSaveStatus('saved')
+        setTimeout(() => setAutoSaveStatus('idle'), 2000)
+        if (showToast) {
+          toast({
+            title: "Success",
+            description: "Monitoring defaults saved successfully"
+          })
+        }
       } else {
         const error = await response.json()
+        setAutoSaveStatus('idle')
         toast({
           title: "Error",
           description: error.detail || "Failed to save monitoring defaults",
@@ -97,6 +105,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
         })
       }
     } catch (error) {
+      setAutoSaveStatus('idle')
       toast({
         title: "Error",
         description: "Failed to save monitoring defaults",
@@ -119,6 +128,24 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     monitoringDefaults.alias !== monitoringDefaultsOriginal.alias ||
     monitoringDefaults.threshold_min !== monitoringDefaultsOriginal.threshold_min
   )
+
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+
+    if (hasMonitoringChanges) {
+      autoSaveTimerRef.current = setTimeout(() => {
+        handleSaveMonitoringDefaults(false)
+      }, 1500)
+    }
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [monitoringDefaults])
 
   const handleSendTestAlert = () => {
     setLastTestAlert(new Date().toLocaleString())
@@ -153,9 +180,20 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
           <div className="flex-1 overflow-y-auto p-6">
             {/* Monitoring Defaults */}
             <section className="mb-8">
-              <h3 className="mb-4 text-sm font-semibold">Monitoring Defaults</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Monitoring Defaults</h3>
+                {autoSaveStatus === 'saving' && (
+                  <span className="text-xs text-muted-foreground">Saving...</span>
+                )}
+                {autoSaveStatus === 'saved' && (
+                  <span className="flex items-center gap-1 text-xs text-green-600">
+                    <Check className="h-3 w-3" />
+                    Saved
+                  </span>
+                )}
+              </div>
               <p className="mb-4 text-sm text-muted-foreground">
-                Configure default monitoring settings for new devices.
+                Configure default monitoring settings for new devices. Changes save automatically.
               </p>
               <div className="space-y-4">
                 <div>
@@ -212,11 +250,11 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
               {hasMonitoringChanges && (
                 <div className="mt-4 flex gap-2">
                   <Button
-                    onClick={handleSaveMonitoringDefaults}
+                    onClick={() => handleSaveMonitoringDefaults(true)}
                     disabled={isSavingMonitoring}
                     className="flex-1"
                   >
-                    {isSavingMonitoring ? "Saving..." : "Save"}
+                    {isSavingMonitoring ? "Saving..." : "Save Now"}
                   </Button>
                   <Button
                     variant="outline"
@@ -224,7 +262,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                     disabled={isSavingMonitoring}
                     className="flex-1"
                   >
-                    Cancel
+                    Discard
                   </Button>
                 </div>
               )}
