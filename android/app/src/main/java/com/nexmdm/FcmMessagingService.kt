@@ -537,9 +537,11 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         val packageName = data["package_name"]
         val intentUri = data["intent_uri"]
+        val correlationId = data["correlation_id"] ?: ""
         
         if (packageName.isNullOrEmpty()) {
             Log.e(TAG, "Package name is required for app launch")
+            sendLaunchAppAck(correlationId, "ERROR", "Package name is required")
             return
         }
         
@@ -552,6 +554,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
                     Log.i(TAG, "✓ Successfully launched with intent URI")
+                    sendLaunchAppAck(correlationId, "OK", "Launched with intent URI")
                     return
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to parse intent URI, falling back to package launch", e)
@@ -566,11 +569,40 @@ class FcmMessagingService : FirebaseMessagingService() {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(launchIntent)
                 Log.i(TAG, "✓ Successfully launched $packageName")
+                sendLaunchAppAck(correlationId, "OK", "Successfully launched $packageName")
             } else {
                 Log.e(TAG, "✗ App not installed or no launch intent: $packageName")
+                sendLaunchAppAck(correlationId, "ERROR", "App not installed or no launch intent")
             }
         } catch (e: Exception) {
             Log.e(TAG, "✗ Failed to launch app: $packageName", e)
+            sendLaunchAppAck(correlationId, "ERROR", "Exception: ${e.message}")
+        }
+    }
+    
+    private fun sendLaunchAppAck(correlationId: String, status: String, message: String) {
+        if (correlationId.isEmpty()) {
+            Log.w(TAG, "Cannot send LAUNCH_APP_ACK - missing correlation_id")
+            return
+        }
+        
+        val prefs = SecurePreferences(this)
+        val queueManager = QueueManager(this, prefs)
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val ackPayload = gson.toJson(mapOf(
+                    "correlation_id" to correlationId,
+                    "type" to "LAUNCH_APP_ACK",
+                    "status" to status,
+                    "message" to message
+                ))
+                
+                queueManager.enqueueActionResult(ackPayload)
+                Log.i(TAG, "Queued LAUNCH_APP_ACK: status=$status, message=$message")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to queue LAUNCH_APP_ACK", e)
+            }
         }
     }
     
