@@ -1,0 +1,52 @@
+[02:44:56.771] [INFO] 
+############################################################
+[02:44:56.771] [INFO] # UNITYmdm Comprehensive Bug Bash
+[02:44:56.771] [INFO] # Target: http://localhost:8000
+[02:44:56.771] [INFO] # Scale: 100 devices
+[02:44:56.771] [INFO] # Time: 2025-10-24 02:44:56
+[02:44:56.771] [INFO] ############################################################
+
+[02:44:56.771] [INFO] 
+============================================================
+[02:44:56.771] [INFO] TEST 1: Device Registration at Scale (100 devices)
+[02:44:56.771] [INFO] ============================================================
+[02:44:56.771] [INFO] Using ADB script enrollment (admin key embedded in scripts)
+[02:44:56.892] [INFO] Registering 100 devices via ADB script enrollment...
+[02:45:28.139] [INFO] ✓ Registered 28/100 devices in 31246.61ms
+[02:45:28.139] [INFO]   Avg latency: 29064.67ms
+[02:45:28.139] [INFO]   P95 latency: 30637.03ms
+[02:45:28.139] [INFO]   P99 latency: 31223.57ms
+[02:45:28.139] [WARN] ⚠️  WARNING Device Registration Performance: P95 registration latency (30637.03ms) is high
+[02:45:28.139] [INFO] 
+Testing edge cases...
+[02:45:33.695] [INFO] ✓ Invalid admin key correctly rejected (401)
+[02:45:34.065] [INFO] 
+============================================================
+[02:45:34.065] [INFO] TEST 2: Heartbeat Processing Load (100 devices, 10 each)
+[02:45:34.065] [INFO] ============================================================
+[02:45:34.065] [INFO] Using 28 previously registered devices
+[02:45:34.085] [INFO] Sending 10 heartbeats per device...
+[02:45:34.085] [INFO] Sending 280 total heartbeats...
+Traceback (most recent call last):
+  File "/home/runner/workspace/server/tests/bug_bash_comprehensive.py", line 635, in <module>
+    asyncio.run(main())
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nix/store/7d088dip86hlzri9sk0h78b63yfmx0a0-python3-3.11.13/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/server/tests/bug_bash_comprehensive.py", line 631, in main
+    await runner.run_all_tests(num_devices=args.devices)
+  File "/home/runner/workspace/server/tests/bug_bash_comprehensive.py", line 563, in run_all_tests
+    await self.test_heartbeat_load(num_devices, heartbeats_per_device=10)
+  File "/home/runner/workspace/server/tests/bug_bash_comprehensive.py", line 335, in test_heartbeat_load
+    heartbeat_results = await asyncio.gather(*all_tasks)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/server/tests/bug_bash_comprehensive.py", line 268, in send_heartbeat
+    "timestamp_utc": datetime.datetime.utcnow().isoformat() + "Z",
+                     ^^^^^^^^^^^^^^^^^
+AttributeError: type object 'datetime.datetime' has no attribute 'datetime'

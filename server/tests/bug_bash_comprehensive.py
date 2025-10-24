@@ -9,6 +9,7 @@ import random
 import time
 import json
 import sys
+import os
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
@@ -257,7 +258,14 @@ class BugBashRunner:
             
             async def send_heartbeat(device_idx: int, device_token: str):
                 """Send a single heartbeat"""
+                total_ram_mb = 8192
+                avail_ram_mb = random.randint(2048, 6144)
+                pressure_pct = round(((total_ram_mb - avail_ram_mb) / total_ram_mb) * 100, 2)
+                
                 payload = {
+                    "device_id": f"test-device-{device_idx}",
+                    "alias": f"test-device-{device_idx}",
+                    "timestamp_utc": datetime.utcnow().isoformat() + "Z",
                     "battery": {
                         "pct": random.randint(20, 100),
                         "charging": random.choice([True, False]),
@@ -274,11 +282,13 @@ class BugBashRunner:
                         "android_version": "13",
                         "sdk_int": 33,
                         "build_id": "TEST123",
+                        "patch_level": "2024-10-01",
                         "uptime_seconds": random.randint(1000, 86400)
                     },
                     "memory": {
-                        "total_ram_mb": 8192,
-                        "avail_ram_mb": random.randint(2048, 6144)
+                        "total_ram_mb": total_ram_mb,
+                        "avail_ram_mb": avail_ram_mb,
+                        "pressure_pct": pressure_pct
                     },
                     "app_version": "1.0.0-bugbash",
                     "app_versions": {},
@@ -605,8 +615,8 @@ class BugBashRunner:
 
 async def main():
     parser = argparse.ArgumentParser(description="UNITYmdm Bug Bash")
-    parser.add_argument("--base-url", default="http://localhost:5000", help="Base URL of the API")
-    parser.add_argument("--admin-key", default="admin", help="Admin API key")
+    parser.add_argument("--base-url", default="http://localhost:8000", help="Base URL of the API")
+    parser.add_argument("--admin-key", default=os.getenv("ADMIN_KEY", "admin"), help="Admin API key")
     parser.add_argument("--devices", type=int, default=100, help="Number of devices to simulate")
     parser.add_argument("--dry-run", action="store_true", help="Dry run mode")
     

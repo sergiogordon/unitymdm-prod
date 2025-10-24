@@ -1,0 +1,44 @@
+[02:44:03.037] [INFO] 
+############################################################
+[02:44:03.037] [INFO] # UNITYmdm Comprehensive Bug Bash
+[02:44:03.037] [INFO] # Target: http://localhost:8000
+[02:44:03.037] [INFO] # Scale: 100 devices
+[02:44:03.037] [INFO] # Time: 2025-10-24 02:44:03
+[02:44:03.037] [INFO] ############################################################
+
+[02:44:03.037] [INFO] 
+============================================================
+[02:44:03.037] [INFO] TEST 1: Device Registration at Scale (100 devices)
+[02:44:03.037] [INFO] ============================================================
+[02:44:03.037] [INFO] Using ADB script enrollment (admin key embedded in scripts)
+[02:44:03.158] [INFO] Registering 100 devices via ADB script enrollment...
+[02:44:11.785] [INFO] ✓ Registered 0/100 devices in 8626.48ms
+[02:44:11.785] [INFO] 
+Testing edge cases...
+[02:44:11.794] [INFO] ✓ Invalid admin key correctly rejected (401)
+[02:44:11.820] [INFO] 
+============================================================
+[02:44:11.820] [INFO] TEST 2: Heartbeat Processing Load (100 devices, 10 each)
+[02:44:11.820] [INFO] ============================================================
+[02:44:11.820] [INFO] ❌ No devices available, skipping heartbeat test
+[02:44:11.820] [INFO] 
+============================================================
+[02:44:11.820] [INFO] TEST: Edge Cases and Error Handling
+[02:44:11.820] [INFO] ============================================================
+[02:44:11.834] [INFO] Testing malformed JSON...
+[02:44:11.849] [INFO] ✓ Malformed JSON correctly rejected (422)
+[02:44:11.849] [INFO] Testing oversized payload...
+[02:44:11.965] [INFO] ✓ Oversized payload rejected (401)
+[02:44:11.965] [INFO] Testing SQL injection in device alias...
+[02:44:11.983] [INFO] ✓ SQL injection tests completed
+[02:44:11.983] [INFO] Testing XSS in device alias...
+[02:44:12.001] [INFO] ✓ XSS tests completed
+[02:44:12.001] [INFO] 
+============================================================
+[02:44:12.001] [INFO] BUG BASH SUMMARY
+[02:44:12.001] [INFO] ============================================================
+[02:44:12.001] [INFO] Duration: 8.96s
+[02:44:12.001] [INFO] Bugs Found: 0
+[02:44:12.001] [INFO] Warnings: 0
+[02:44:12.007] [INFO] 
+✓ Report saved to bug_bash_report_1761273852.json
