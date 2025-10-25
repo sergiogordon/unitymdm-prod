@@ -1,0 +1,91 @@
+sergio@MacBookPro ~ % adb logcat -s QueueManager FcmMessagingService > queue_logs.txt
+^C
+sergio@MacBookPro ~ % ls
+Applications		Library			VoxInsights
+AutoGPT			Movies			dev
+Desktop			Music			queue_logs.txt
+Documents		Pictures		queued-drain-send.log
+Downloads		Public			yaml
+Google Drive		StudioProjects
+sergio@MacBookPro ~ % cat queue_logs.txt 
+--------- beginning of main
+10-25 10:43:43.229 17213 19008 D FcmMessagingService: FCM message received: {package_name=com.nexmdm, installation_id=8, action=install_apk, apk_id=43, file_size=16208037, sha256=, version_code=134, version_name=1.0.134-067d870, download_url=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev/v1/apk/download/43}
+10-25 10:43:43.309 17213 19008 D FcmMessagingService: Handling APK install request
+10-25 10:43:43.380 17213 19008 I FcmMessagingService: Starting APK download: com.nexmdm v1.0.134-067d870 (134), installation_id=8
+10-25 10:43:43.385 17213 19008 I FcmMessagingService: Saved pending installation ID: 8
+10-25 10:43:46.805 17213 17277 D FcmMessagingService: Installation status reported: downloading (0%)
+10-25 10:43:47.871 17213 18660 D FcmMessagingService: Installation status reported: downloading (0%)
+10-25 10:43:52.450 17213 17277 D FcmMessagingService: Installation status reported: downloading (25%)
+10-25 10:43:57.834 17213 17275 D FcmMessagingService: Installation status reported: downloading (50%)
+10-25 10:44:00.739 17213 18660 D FcmMessagingService: Installation status reported: downloading (75%)
+10-25 10:44:01.065 17213 17275 I FcmMessagingService: APK downloaded successfully, starting installation
+10-25 10:44:02.064 17213 18660 D FcmMessagingService: Installation status reported: downloading (100%)
+10-25 10:44:02.535 17213 17277 D FcmMessagingService: Installation status reported: installing (100%)
+10-25 10:44:24.695 19132 19193 D QueueManager: queue.drain: attempting to send 253 items
+10-25 10:44:24.696 19132 19193 E QueueManager: Queue drain failed
+10-25 10:44:24.696 19132 19193 E QueueManager: java.lang.IllegalArgumentException: Random range is empty: [0, -108086391056891904).
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlin.random.RandomKt.checkRangeBounds(Random.kt:379)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlin.random.Random.nextLong(Random.kt:120)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlin.random.Random$Default.nextLong(Random.kt:288)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.calculateBackoff(QueueManager.kt:210)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.shouldRetryItem(QueueManager.kt:193)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.access$shouldRetryItem(QueueManager.kt:18)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager$drainQueue$2.invokeSuspend(QueueManager.kt:103)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:115)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:103)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:584)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:793)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:697)
+10-25 10:44:24.696 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:684)
+10-25 10:44:24.792 19132 19191 D QueueManager: queue.enqueue: type=heartbeat
+10-25 10:44:24.811 19132 19191 D QueueManager: queue.drain: attempting to send 254 items
+10-25 10:44:24.812 19132 19191 E QueueManager: Queue drain failed
+10-25 10:44:24.812 19132 19191 E QueueManager: java.lang.IllegalArgumentException: Random range is empty: [0, -108086391056891904).
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlin.random.RandomKt.checkRangeBounds(Random.kt:379)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlin.random.Random.nextLong(Random.kt:120)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlin.random.Random$Default.nextLong(Random.kt:288)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at com.nexmdm.QueueManager.calculateBackoff(QueueManager.kt:210)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at com.nexmdm.QueueManager.shouldRetryItem(QueueManager.kt:193)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at com.nexmdm.QueueManager.access$shouldRetryItem(QueueManager.kt:18)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at com.nexmdm.QueueManager$drainQueue$2.invokeSuspend(QueueManager.kt:103)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:115)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:103)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:584)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:793)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:697)
+10-25 10:44:24.812 19132 19191 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:684)
+10-25 10:46:55.561 19132 19445 D FcmMessagingService: FCM message received: {package_name=org.zwanoo.android.speedtest, action=launch_app, unlock=true, ts=2025-10-25T15:46:55.091967+00:00, hmac=5f7827a783649d34658151311d359e1be8ecff64d83969724678311038234224, wake=true, device_id=15a1174f-38c9-46d1-9f2d-877668e17ef6, correlation_id=ec297e8a-a49c-45e5-9ce3-b8750ed95a79-15a1174f-38c9-46d1-9f2d-877668e17ef6}
+10-25 10:46:55.648 19132 19445 D FcmMessagingService: Handling launch app request
+10-25 10:46:55.649 19132 19445 I FcmMessagingService: Launching app: org.zwanoo.android.speedtest
+10-25 10:46:55.684 19132 19445 I FcmMessagingService: ✓ Successfully launched org.zwanoo.android.speedtest
+10-25 10:46:55.800 19132 19191 D QueueManager: queue.enqueue: type=action_result
+10-25 10:46:55.800 19132 19191 I FcmMessagingService: Queued LAUNCH_APP_ACK: status=OK, message=Successfully launched org.zwanoo.android.speedtest
+10-25 10:49:24.803 19132 19193 D QueueManager: queue.enqueue: type=heartbeat
+10-25 10:49:24.824 19132 19193 D QueueManager: queue.drain: attempting to send 256 items
+10-25 10:49:24.825 19132 19193 E QueueManager: Queue drain failed
+10-25 10:49:24.825 19132 19193 E QueueManager: java.lang.IllegalArgumentException: Random range is empty: [0, -108086391056891904).
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlin.random.RandomKt.checkRangeBounds(Random.kt:379)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlin.random.Random.nextLong(Random.kt:120)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlin.random.Random$Default.nextLong(Random.kt:288)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.calculateBackoff(QueueManager.kt:210)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.shouldRetryItem(QueueManager.kt:193)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager.access$shouldRetryItem(QueueManager.kt:18)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at com.nexmdm.QueueManager$drainQueue$2.invokeSuspend(QueueManager.kt:103)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:108)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:115)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:103)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:584)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:793)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:697)
+10-25 10:49:24.825 19132 19193 E QueueManager: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:684)
+10-25 10:51:38.861 19132 19887 D FcmMessagingService: FCM message received: {package_name=org.zwanoo.android.speedtest, action=launch_app, unlock=true, ts=2025-10-25T15:51:38.462432+00:00, hmac=e2a09c902f17883240690c958783c48022f0fb41f1ccd0139ed5b79825214ff7, wake=true, device_id=15a1174f-38c9-46d1-9f2d-877668e17ef6, correlation_id=64d00db1-07ba-4da0-b8ff-f7267a2ad121-15a1174f-38c9-46d1-9f2d-877668e17ef6}
+10-25 10:51:38.955 19132 19887 D FcmMessagingService: Handling launch app request
+10-25 10:51:38.955 19132 19887 I FcmMessagingService: Launching app: org.zwanoo.android.speedtest
+10-25 10:51:38.981 19132 19887 I FcmMessagingService: ✓ Successfully launched org.zwanoo.android.speedtest
+10-25 10:51:39.098 19132 19193 D QueueManager: queue.enqueue: type=action_result
+10-25 10:51:39.098 19132 19193 I FcmMessagingService: Queued LAUNCH_APP_ACK: status=OK, message=Successfully launched org.zwanoo.android.speedtest
