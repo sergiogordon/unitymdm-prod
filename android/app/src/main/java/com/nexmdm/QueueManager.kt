@@ -205,9 +205,20 @@ class QueueManager(
     }
     
     private fun calculateBackoff(retryCount: Int): Long {
-        val exponentialBackoff = BASE_BACKOFF_MS * (2.0.pow(retryCount.toDouble())).toLong()
+        // Cap retry count to prevent overflow (2^20 * 2000ms = ~2B ms = ~24 days)
+        val safeRetryCount = min(retryCount, 20)
+        
+        val exponentialBackoff = BASE_BACKOFF_MS * (2.0.pow(safeRetryCount.toDouble())).toLong()
         val cappedBackoff = min(exponentialBackoff, MAX_BACKOFF_MS)
-        val jitter = Random.nextLong(0, cappedBackoff / 4)
+        
+        // Ensure jitter range is valid and positive
+        val jitterRange = max(cappedBackoff / 4, 1L)
+        val jitter = if (jitterRange > 0) {
+            Random.nextLong(0, jitterRange)
+        } else {
+            0L
+        }
+        
         return cappedBackoff + jitter
     }
     
