@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +26,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class EnrollmentActivity : AppCompatActivity() {
+    
+    companion object {
+        private const val TAG = "EnrollmentActivity"
+    }
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
