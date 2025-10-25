@@ -139,6 +139,8 @@ class QueueManager(
         val deviceToken = prefs.deviceToken
         val deviceId = prefs.deviceId
         
+        Log.d(TAG, "sendItem: type=${item.type}, deviceId=${if (deviceId.isEmpty()) "EMPTY" else "${deviceId.take(8)}..."}")
+        
         if (serverUrl.isEmpty() || deviceToken.isEmpty()) {
             Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_creds=true")
             return false
@@ -153,6 +155,10 @@ class QueueManager(
             TYPE_HEARTBEAT -> "/v1/heartbeat"
             TYPE_ACTION_RESULT -> "/v1/devices/$deviceId/ack"
             else -> return false
+        }
+        
+        if (item.type == TYPE_ACTION_RESULT) {
+            Log.d(TAG, "ack.endpoint: $endpoint")
         }
         
         return try {

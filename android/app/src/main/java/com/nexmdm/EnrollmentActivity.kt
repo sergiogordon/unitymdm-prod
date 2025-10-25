@@ -191,11 +191,19 @@ class EnrollmentActivity : AppCompatActivity() {
     }
 
     private fun saveCredentials(serverUrl: String, deviceToken: String, deviceId: String, alias: String) {
+        Log.d(TAG, "saveCredentials: deviceId=${deviceId.take(8)}..., alias=$alias")
         val prefs = SecurePreferences(this)
         prefs.serverUrl = serverUrl
         prefs.deviceToken = deviceToken
         prefs.deviceId = deviceId
         prefs.deviceAlias = alias
+        
+        val verifyId = prefs.deviceId
+        Log.d(TAG, "saveCredentials.verify: stored deviceId=${verifyId.take(8)}...")
+        
+        if (verifyId != deviceId) {
+            Log.e(TAG, "saveCredentials.ERROR: Verification failed! Expected ${deviceId.take(8)}... but got ${verifyId.take(8)}...")
+        }
     }
     
     private fun checkAndPromptBatteryOptimization() {

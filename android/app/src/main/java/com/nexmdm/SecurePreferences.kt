@@ -2,11 +2,15 @@ package com.nexmdm
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import java.util.UUID
 
 class SecurePreferences(context: Context) {
+    
+    companion object {
+        private const val TAG = "SecurePreferences"
+    }
     
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -21,8 +25,15 @@ class SecurePreferences(context: Context) {
     )
     
     var deviceId: String
-        get() = prefs.getString("device_id", "") ?: ""
-        set(value) = prefs.edit().putString("device_id", value).apply()
+        get() {
+            val id = prefs.getString("device_id", "") ?: ""
+            Log.d(TAG, "deviceId.get: ${if (id.isEmpty()) "EMPTY" else "${id.take(8)}..."}")
+            return id
+        }
+        set(value) {
+            Log.d(TAG, "deviceId.set: ${if (value.isEmpty()) "EMPTY" else "${value.take(8)}..."}")
+            prefs.edit().putString("device_id", value).commit()
+        }
     
     var serverUrl: String
         get() = prefs.getString("server_url", "") ?: ""
@@ -59,4 +70,9 @@ class SecurePreferences(context: Context) {
     var hmacRotationKey: String
         get() = prefs.getString("hmac_rotation_key", "") ?: ""
         set(value) = prefs.edit().putString("hmac_rotation_key", value).apply()
+    
+    fun clearAllCredentials() {
+        Log.d(TAG, "clearAllCredentials: clearing all stored data")
+        prefs.edit().clear().commit()
+    }
 }

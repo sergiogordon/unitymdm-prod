@@ -587,6 +587,9 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
         
         val prefs = SecurePreferences(this)
+        val deviceId = prefs.deviceId
+        Log.d(TAG, "sendLaunchAppAck: deviceId=${if (deviceId.isEmpty()) "EMPTY" else "${deviceId.take(8)}..."}, correlationId=$correlationId")
+        
         val queueManager = QueueManager(this, prefs)
         
         CoroutineScope(Dispatchers.IO).launch {
