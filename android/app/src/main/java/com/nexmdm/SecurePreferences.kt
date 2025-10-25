@@ -21,14 +21,7 @@ class SecurePreferences(context: Context) {
     )
     
     var deviceId: String
-        get() {
-            var id = prefs.getString("device_id", null)
-            if (id == null) {
-                id = UUID.randomUUID().toString()
-                prefs.edit().putString("device_id", id).apply()
-            }
-            return id
-        }
+        get() = prefs.getString("device_id", "") ?: ""
         set(value) = prefs.edit().putString("device_id", value).apply()
     
     var serverUrl: String

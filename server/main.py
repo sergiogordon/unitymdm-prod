@@ -535,6 +535,7 @@ async def startup_event():
     init_db()
     migrate_database()
     seed_bloatware_packages()
+    ensure_heartbeat_partitions()
     
     # Start background tasks with defensive error handling
     try:
@@ -605,6 +606,22 @@ def migrate_database():
                         raise
         except Exception as e:
             print(f"[MIGRATION] Error: {e}")
+
+def ensure_heartbeat_partitions():
+    """
+    Ensure heartbeat partitions exist for today and next 7 days.
+    Runs on server startup to prevent partition errors.
+    """
+    from db_utils import create_heartbeat_partition
+    from datetime import date, timedelta
+    
+    today = date.today()
+    for i in range(8):
+        target_date = today + timedelta(days=i)
+        try:
+            create_heartbeat_partition(target_date)
+        except Exception as e:
+            print(f"[PARTITION] {target_date}: {e}")
 
 def seed_bloatware_packages():
     """Seed database with default bloatware packages if empty"""
