@@ -139,6 +139,12 @@ class QueueManager(
         val deviceId = prefs.deviceId
         
         if (serverUrl.isEmpty() || deviceToken.isEmpty()) {
+            Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_creds=true")
+            return false
+        }
+        
+        if (item.type == TYPE_ACTION_RESULT && deviceId.isEmpty()) {
+            Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_device_id=true")
             return false
         }
         
@@ -172,18 +178,30 @@ class QueueManager(
     }
     
     private fun shouldRetryItem(item: QueueItem): Boolean {
-        if (System.currentTimeMillis() > item.ttlExpiry) {
+        val now = System.currentTimeMillis()
+        
+        if (now > item.ttlExpiry) {
+            Log.d(TAG, "skip.expired: type=${item.type}, id=${item.id}, age_ms=${now - item.createdAt}")
             return false
         }
         
         if (item.lastRetryAt == 0L) {
+            Log.d(TAG, "retry.ready: type=${item.type}, id=${item.id}, attempt=1")
             return true
         }
         
         val backoff = calculateBackoff(item.retryCount)
         val nextRetryTime = item.lastRetryAt + backoff
+        val isReady = now >= nextRetryTime
         
-        return System.currentTimeMillis() >= nextRetryTime
+        if (!isReady) {
+            val waitMs = nextRetryTime - now
+            Log.d(TAG, "skip.backoff: type=${item.type}, id=${item.id}, retry=${item.retryCount}, wait_ms=$waitMs")
+            return false
+        }
+        
+        Log.d(TAG, "retry.ready: type=${item.type}, id=${item.id}, attempt=${item.retryCount + 1}")
+        return true
     }
     
     private fun calculateBackoff(retryCount: Int): Long {
