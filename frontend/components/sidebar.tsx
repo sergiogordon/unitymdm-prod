@@ -13,6 +13,7 @@ const navigation = [
   { name: "Remote Control", href: "/remote-control", icon: Monitor },
   { name: "Launch App", href: "/launch-app", icon: Rocket },
   { name: "Optimization", href: "/optimization", icon: Gauge },
+  { name: "Remote Execution", href: "/remote-execution", icon: Terminal },
 ]
 
 export function Sidebar() {
