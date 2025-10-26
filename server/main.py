@@ -6998,6 +6998,349 @@ async def download_apk_optimized_endpoint(
         use_cache=True
     )
 
+def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate shell command against allow-list.
+    Returns (is_valid, error_message)
+    """
+    import re
+    
+    command = command.strip()
+    if not command:
+        return False, "Command is empty"
+    
+    allow_patterns = [
+        r'^am\s+start(\s|-).+',
+        r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
+        r'^cmd\s+package\s+.*(list|resolve).*',
+        r'^settings\s+(get|put)\s+(secure|system|global)\s+\S+\s*.*$',
+        r'^input\s+(keyevent|tap|swipe)\s+.*$',
+        r'^svc\s+(wifi|data)\s+(enable|disable)$',
+        r'^pm\s+list\s+packages.*$',
+    ]
+    
+    for pattern in allow_patterns:
+        if re.match(pattern, command):
+            return True, None
+    
+    return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
+
+@app.post("/v1/remote-exec")
+async def create_remote_exec(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Execute remote command (FCM or Shell) on devices with dry-run support
+    """
+    body = await request.json()
+    mode = body.get("mode")
+    targets = body.get("targets", {})
+    payload = body.get("payload")
+    command = body.get("command")
+    dry_run = body.get("dry_run", False)
+    
+    if mode not in ["fcm", "shell"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'fcm' or 'shell'")
+    
+    if mode == "fcm" and not payload:
+        raise HTTPException(status_code=400, detail="FCM mode requires 'payload' field")
+    
+    if mode == "shell" and not command:
+        raise HTTPException(status_code=400, detail="Shell mode requires 'command' field")
+    
+    if mode == "shell":
+        is_valid, error_msg = validate_shell_command(command)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+    
+    query = db.query(Device)
+    
+    if targets.get("all"):
+        pass
+    elif targets.get("filter"):
+        filters = targets["filter"]
+        
+        if filters.get("online") is not None:
+            if filters["online"]:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                query = query.filter(Device.last_seen >= cutoff)
+        
+        if filters.get("android_version"):
+            versions = filters["android_version"]
+            if isinstance(versions, list) and versions:
+                query = query.filter(Device.android_version.in_(versions))
+    
+    elif targets.get("aliases"):
+        aliases_list = targets["aliases"]
+        if not aliases_list:
+            raise HTTPException(status_code=400, detail="aliases list is empty")
+        query = query.filter(Device.alias.in_(aliases_list))
+    
+    else:
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, or aliases")
+    
+    devices = query.filter(Device.fcm_token.isnot(None)).all()
+    
+    if dry_run:
+        return {
+            "dry_run": True,
+            "estimated_count": len(devices),
+            "sample_aliases": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
+        }
+    
+    import hashlib
+    payload_str = json.dumps(payload if mode == "fcm" else {"command": command}, sort_keys=True)
+    payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
+    
+    client_ip = request.client.host if request.client else None
+    
+    exec_record = RemoteExec(
+        mode=mode,
+        raw_request=json.dumps(body),
+        targets=json.dumps(targets),
+        created_by=current_user.username if current_user else "admin",
+        created_by_ip=client_ip,
+        payload_hash=payload_hash,
+        total_targets=len(devices),
+        status="processing"
+    )
+    db.add(exec_record)
+    db.commit()
+    db.refresh(exec_record)
+    
+    print(f"[REMOTE-EXEC] Started exec_id={exec_record.id}, mode={mode}, targets={len(devices)}")
+    
+    import httpx
+    
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        exec_record.status = "failed"
+        exec_record.error_count = len(devices)
+        exec_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        for idx, device in enumerate(devices):
+            correlation_id = f"{exec_record.id}-{device.id}"
+            
+            existing = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_record.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+            
+            if existing:
+                continue
+            
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = "remote_exec_fcm" if mode == "fcm" else "remote_exec_shell"
+            hmac_signature = compute_hmac_signature(correlation_id, device.id, action, timestamp)
+            
+            message_data = {
+                "action": action,
+                "correlation_id": correlation_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
+                "exec_id": exec_record.id,
+                "mode": mode
+            }
+            
+            if mode == "fcm":
+                message_data.update({k: str(v) for k, v in payload.items()})
+            else:
+                message_data["command"] = command
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": message_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            exec_result = RemoteExecResult(
+                exec_id=exec_record.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=correlation_id,
+                status="sending"
+            )
+            db.add(exec_result)
+            
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+                
+                if response.status_code == 200:
+                    exec_result.status = "sent"
+                    exec_record.sent_count += 1
+                    print(f"[REMOTE-EXEC] ✓ Sent to {device.alias}")
+                else:
+                    exec_result.status = "failed"
+                    exec_result.error = f"FCM error: {response.status_code}"
+                    exec_record.error_count += 1
+                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
+            
+            except Exception as e:
+                exec_result.status = "failed"
+                exec_result.error = str(e)
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
+            
+            db.commit()
+            
+            if idx < len(devices) - 1:
+                await asyncio.sleep(0.05)
+    
+    exec_record.status = "completed"
+    exec_record.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    print(f"[REMOTE-EXEC] Complete: {exec_record.sent_count}/{len(devices)} sent, {exec_record.error_count} errors")
+    
+    return {
+        "ok": True,
+        "exec_id": exec_record.id,
+        "mode": mode,
+        "total_targets": len(devices),
+        "sent_count": exec_record.sent_count,
+        "error_count": exec_record.error_count
+    }
+
+@app.get("/v1/remote-exec/{exec_id}")
+async def get_remote_exec_status(
+    exec_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get execution status and per-device results"""
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+    
+    if not exec_record:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    
+    results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == exec_id
+    ).all()
+    
+    result_list = []
+    for result in results:
+        result_list.append({
+            "device_id": result.device_id,
+            "alias": result.alias,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "output": result.output_preview,
+            "error": result.error,
+            "sent_at": result.sent_at.isoformat() if result.sent_at else None,
+            "updated_at": result.updated_at.isoformat() if result.updated_at else None
+        })
+    
+    return {
+        "exec_id": exec_record.id,
+        "mode": exec_record.mode,
+        "status": exec_record.status,
+        "created_at": exec_record.created_at.isoformat(),
+        "created_by": exec_record.created_by,
+        "completed_at": exec_record.completed_at.isoformat() if exec_record.completed_at else None,
+        "stats": {
+            "total_targets": exec_record.total_targets,
+            "sent_count": exec_record.sent_count,
+            "acked_count": exec_record.acked_count,
+            "error_count": exec_record.error_count
+        },
+        "results": result_list
+    }
+
+@app.get("/v1/remote-exec")
+async def list_recent_executions(
+    limit: int = Query(default=10, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List recent remote executions"""
+    executions = db.query(RemoteExec).order_by(
+        RemoteExec.created_at.desc()
+    ).limit(limit).all()
+    
+    exec_list = []
+    for exec in executions:
+        exec_list.append({
+            "exec_id": exec.id,
+            "mode": exec.mode,
+            "status": exec.status,
+            "created_at": exec.created_at.isoformat(),
+            "created_by": exec.created_by,
+            "stats": {
+                "total_targets": exec.total_targets,
+                "sent_count": exec.sent_count,
+                "acked_count": exec.acked_count,
+                "error_count": exec.error_count
+            }
+        })
+    
+    return {
+        "executions": exec_list,
+        "count": len(exec_list)
+    }
+
+@app.post("/v1/remote-exec/ack")
+async def remote_exec_ack(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Receive ACK from device for remote execution"""
+    body = await request.json()
+    
+    exec_id = body.get("exec_id")
+    device_id = body.get("device_id")
+    correlation_id = body.get("correlation_id")
+    status = body.get("status")
+    exit_code = body.get("exit_code")
+    output = body.get("output", "")
+    
+    if not all([exec_id, device_id, correlation_id, status]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    
+    result = db.query(RemoteExecResult).filter(
+        RemoteExecResult.correlation_id == correlation_id
+    ).first()
+    
+    if not result:
+        print(f"[REMOTE-EXEC-ACK] No result found for correlation_id={correlation_id}")
+        return {"ok": False, "error": "Result not found"}
+    
+    result.status = status.upper()
+    result.exit_code = exit_code
+    result.output_preview = output[:2000] if output else None
+    result.error = body.get("error")
+    result.updated_at = datetime.now(timezone.utc)
+    
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+    if exec_record:
+        if status.upper() == "OK":
+            exec_record.acked_count += 1
+        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+            exec_record.error_count += 1
+    
+    db.commit()
+    
+    print(f"[REMOTE-EXEC-ACK] Device {device_id} → {status.upper()}, exit_code={exit_code}")
+    
+    return {"ok": True}
+
 @app.get("/admin/cache/stats")
 async def get_apk_cache_stats(
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
