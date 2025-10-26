@@ -57,6 +57,11 @@ const FCM_PRESETS = {
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" }
 }
 
+const SHELL_PRESETS = {
+  suppress_wea: "settings put global zen_mode 2 && settings put global emergency_tone 0 && settings put global emergency_alerts_enabled 0",
+  restore_normal: "settings put global zen_mode 0 && settings put global emergency_tone 1 && settings put global emergency_alerts_enabled 1"
+}
+
 export default function RemoteExecutionPage() {
   const router = useRouter()
   const { toast } = useToast()
@@ -73,6 +78,7 @@ export default function RemoteExecutionPage() {
   const [fcmPayload, setFcmPayload] = useState("")
   const [shellCommand, setShellCommand] = useState("")
   const [selectedPreset, setSelectedPreset] = useState<string>("")
+  const [selectedShellPreset, setSelectedShellPreset] = useState<string>("")
   
   const [dryRun, setDryRun] = useState(false)
   const [requireConfirmation, setRequireConfirmation] = useState(true)
@@ -373,6 +379,14 @@ export default function RemoteExecutionPage() {
     }
   }
 
+  const applyShellPreset = (presetName: string) => {
+    const preset = SHELL_PRESETS[presetName as keyof typeof SHELL_PRESETS]
+    if (preset) {
+      setShellCommand(preset)
+      setSelectedShellPreset(presetName)
+    }
+  }
+
   const downloadCSV = () => {
     const headers = ["Alias", "Device ID", "Status", "Exit Code", "Output", "Error", "Timestamp"]
     const rows = results.map(r => [
@@ -584,6 +598,19 @@ export default function RemoteExecutionPage() {
                   </TabsContent>
 
                   <TabsContent value="shell" className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Preset Commands</Label>
+                      <Select value={selectedShellPreset} onValueChange={applyShellPreset}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a preset..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="suppress_wea">Suppress WEA & Enable DND</SelectItem>
+                          <SelectItem value="restore_normal">Restore Normal Mode</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="shellCommand">Shell Command</Label>
                       <Input
