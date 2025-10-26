@@ -485,6 +485,57 @@ class BulkCommand(Base):
         Index('idx_bulk_command_status', 'status', 'created_at'),
     )
 
+class RemoteExec(Base):
+    __tablename__ = "remote_exec"
+    
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    mode: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    raw_request: Mapped[str] = mapped_column(JSONB, nullable=False)
+    targets: Mapped[str] = mapped_column(JSONB, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_by_ip: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    payload_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    
+    total_targets: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    acked_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False, index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_remote_exec_mode_created', 'mode', 'created_at'),
+        Index('idx_remote_exec_status', 'status', 'created_at'),
+        Index('idx_remote_exec_created_by', 'created_by', 'created_at'),
+    )
+
+class RemoteExecResult(Base):
+    __tablename__ = "remote_exec_results"
+    
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    exec_id: Mapped[str] = mapped_column(String, ForeignKey("remote_exec.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    alias: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    exit_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    sent_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_remote_exec_result_exec', 'exec_id', 'status'),
+        Index('idx_remote_exec_result_device', 'device_id', 'sent_at'),
+        Index('idx_remote_exec_result_correlation', 'correlation_id'),
+        UniqueConstraint('exec_id', 'device_id', name='uq_exec_device'),
+    )
+
 class CommandResult(Base):
     __tablename__ = "command_results"
     
