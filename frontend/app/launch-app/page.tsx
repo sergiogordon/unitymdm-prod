@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
-import { Rocket, Play, Eye } from "lucide-react"
+import { Rocket, Play, Eye, Battery, BatteryLow, Wifi, WifiOff } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,6 +53,10 @@ export default function LaunchAppPage() {
   const [deviceIds, setDeviceIds] = useState("")
   const [onlineOnly, setOnlineOnly] = useState(false)
   
+  const [devices, setDevices] = useState<any[]>([])
+  const [selectedDevices, setSelectedDevices] = useState<Set<string>>(new Set())
+  const [loadingDevices, setLoadingDevices] = useState(false)
+  
   const [isLaunching, setIsLaunching] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [previewCount, setPreviewCount] = useState<number | null>(null)
@@ -76,6 +80,7 @@ export default function LaunchAppPage() {
   useEffect(() => {
     if (authChecked) {
       fetchRecentLaunches()
+      fetchDevices()
     }
   }, [authChecked])
 
@@ -110,6 +115,35 @@ export default function LaunchAppPage() {
     }
   }
 
+  const fetchDevices = async () => {
+    try {
+      const token = getAuthToken()
+      if (!token) return
+
+      setLoadingDevices(true)
+      const response = await fetch("/api/proxy/v1/devices?limit=100", {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.ok) {
+        const data = await response.json()
+        setDevices(data.devices || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch devices:", error)
+    } finally {
+      setLoadingDevices(false)
+    }
+  }
+
   const buildTargets = () => {
     if (scopeType === "all") {
       return { all: true }
@@ -120,9 +154,33 @@ export default function LaunchAppPage() {
         }
       }
     } else {
-      const aliases = deviceIds.split(/[\s,\n]+/).filter(id => id.trim())
+      const aliases = Array.from(selectedDevices)
       return { device_aliases: aliases }
     }
+  }
+
+  const toggleDevice = (alias: string) => {
+    const newSelected = new Set(selectedDevices)
+    if (newSelected.has(alias)) {
+      newSelected.delete(alias)
+    } else {
+      newSelected.add(alias)
+    }
+    setSelectedDevices(newSelected)
+  }
+
+  const selectAllDevices = () => {
+    const allAliases = new Set(devices.map(d => d.alias))
+    setSelectedDevices(allAliases)
+  }
+
+  const clearAllDevices = () => {
+    setSelectedDevices(new Set())
+  }
+
+  const isDeviceOnline = (lastSeen: string) => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000)
+    return new Date(lastSeen) > tenMinutesAgo
   }
 
   const handlePreview = async () => {
@@ -438,15 +496,88 @@ export default function LaunchAppPage() {
                     </TabsContent>
                     
                     <TabsContent value="ids" className="mt-4">
-                      <Textarea
-                        placeholder="Enter device aliases (e.g., D4, D23, D5) - comma, space, or line separated"
-                        value={deviceIds}
-                        onChange={(e) => setDeviceIds(e.target.value)}
-                        rows={4}
-                      />
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Examples: "D4, D23" or "D4 D23 D5" or one per line
-                      </p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">
+                            {selectedDevices.size} of {devices.length} selected
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={selectAllDevices}
+                              disabled={loadingDevices}
+                            >
+                              Select All
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={clearAllDevices}
+                              disabled={loadingDevices}
+                            >
+                              Clear All
+                            </Button>
+                          </div>
+                        </div>
+
+                        {loadingDevices ? (
+                          <div className="flex items-center justify-center py-8">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 dark:border-gray-100"></div>
+                          </div>
+                        ) : devices.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-8">
+                            No devices enrolled yet
+                          </p>
+                        ) : (
+                          <div className="border rounded-lg max-h-[300px] overflow-y-auto">
+                            <div className="divide-y">
+                              {devices.map((device) => {
+                                const isOnline = isDeviceOnline(device.last_seen)
+                                const batteryPct = device.battery_pct
+                                
+                                return (
+                                  <div
+                                    key={device.id}
+                                    className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer"
+                                    onClick={() => toggleDevice(device.alias)}
+                                  >
+                                    <Checkbox
+                                      checked={selectedDevices.has(device.alias)}
+                                      onCheckedChange={() => toggleDevice(device.alias)}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="font-medium text-sm">{device.alias}</p>
+                                        {isOnline ? (
+                                          <Wifi className="h-3 w-3 text-green-600" />
+                                        ) : (
+                                          <WifiOff className="h-3 w-3 text-gray-400" />
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground truncate">
+                                        {device.id}
+                                      </p>
+                                    </div>
+                                    {batteryPct !== null && batteryPct !== undefined && (
+                                      <div className="flex items-center gap-1">
+                                        {batteryPct < 20 ? (
+                                          <BatteryLow className="h-4 w-4 text-red-500" />
+                                        ) : (
+                                          <Battery className="h-4 w-4 text-green-600" />
+                                        )}
+                                        <span className="text-xs text-muted-foreground">
+                                          {batteryPct}%
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </TabsContent>
                   </Tabs>
                 </div>
