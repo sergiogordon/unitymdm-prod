@@ -581,14 +581,22 @@ class FcmMessagingService : FirebaseMessagingService() {
     }
     
     private fun sendLaunchAppAck(correlationId: String, status: String, message: String) {
+        Log.i(TAG, "[ACK-FLOW-1] sendLaunchAppAck called: correlationId=$correlationId, status=$status")
+        
         if (correlationId.isEmpty()) {
-            Log.w(TAG, "Cannot send LAUNCH_APP_ACK - missing correlation_id")
+            Log.w(TAG, "[ACK-FLOW-ABORT] Cannot send LAUNCH_APP_ACK - missing correlation_id")
             return
         }
         
         val prefs = SecurePreferences(this)
         val deviceId = prefs.deviceId
-        Log.d(TAG, "sendLaunchAppAck: deviceId=${if (deviceId.isEmpty()) "EMPTY" else "${deviceId.take(8)}..."}, correlationId=$correlationId")
+        
+        Log.i(TAG, "[ACK-FLOW-2] Retrieved deviceId from SecurePreferences: ${if (deviceId.isEmpty()) "**EMPTY**" else deviceId}")
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "[ACK-FLOW-ABORT] Cannot send LAUNCH_APP_ACK - deviceId is EMPTY!")
+            return
+        }
         
         val queueManager = QueueManager(this, prefs)
         
@@ -601,10 +609,13 @@ class FcmMessagingService : FirebaseMessagingService() {
                     "message" to message
                 ))
                 
+                Log.i(TAG, "[ACK-FLOW-3] ACK payload created: $ackPayload")
+                
                 queueManager.enqueueActionResult(ackPayload)
-                Log.i(TAG, "Queued LAUNCH_APP_ACK: status=$status, message=$message")
+                
+                Log.i(TAG, "[ACK-FLOW-4] Successfully queued LAUNCH_APP_ACK: status=$status, correlationId=$correlationId")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to queue LAUNCH_APP_ACK", e)
+                Log.e(TAG, "[ACK-FLOW-ERROR] Failed to queue LAUNCH_APP_ACK", e)
             }
         }
     }
