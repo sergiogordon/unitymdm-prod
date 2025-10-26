@@ -1,5 +1,6 @@
 package com.nexmdm
 
+import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -88,6 +89,15 @@ class SpeedtestDetector(private val context: Context) {
     
     private fun getLastForegroundTime(packageName: String): Int? {
         try {
+            // Check permission status via AppOpsManager
+            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+            val mode = appOps.checkOpNoThrow(
+                android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+                android.os.Process.myUid(),
+                context.packageName
+            )
+            Log.i(TAG, "AppOps USAGE_STATS mode: $mode (MODE_ALLOWED=${android.app.AppOpsManager.MODE_ALLOWED})")
+            
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val endTime = System.currentTimeMillis()
             val startTime = endTime - 1000 * 60 * 60 * 24 // Check last 24 hours instead of 1 hour
@@ -99,10 +109,19 @@ class SpeedtestDetector(private val context: Context) {
             )
             
             // Check if we got any stats at all - if null or empty, permission likely denied
-            if (usageStats == null || usageStats.isEmpty()) {
-                Log.w(TAG, "UsageStats query returned null or empty - likely permission issue")
+            if (usageStats == null) {
+                Log.w(TAG, "UsageStats query returned NULL - permission issue or API failure")
                 return -1 // -1 indicates permission denied
             }
+            
+            if (usageStats.isEmpty()) {
+                Log.w(TAG, "UsageStats query returned EMPTY list (size=0) - no usage data collected yet or permission issue")
+                // Try checking all packages to see if ANY data is available
+                Log.i(TAG, "Total packages in usage stats: ${usageStats.size}")
+                return -1 // -1 indicates no data available
+            }
+            
+            Log.i(TAG, "UsageStats query successful - ${usageStats.size} packages with usage data")
             
             val appStats = usageStats.find { it.packageName == packageName }
             
