@@ -3893,8 +3893,15 @@ async def bulk_launch_app(
         if not device_ids_list:
             raise HTTPException(status_code=400, detail="device_ids list is empty")
         query = query.filter(Device.id.in_(device_ids_list))
+    
+    elif targets.get("device_aliases"):
+        aliases_list = targets["device_aliases"]
+        if not aliases_list:
+            raise HTTPException(status_code=400, detail="device_aliases list is empty")
+        query = query.filter(Device.alias.in_(aliases_list))
+    
     else:
-        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, or device_ids")
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, device_ids, or device_aliases")
     
     devices = query.filter(Device.fcm_token.isnot(None)).all()
     
@@ -3902,7 +3909,8 @@ async def bulk_launch_app(
         return {
             "dry_run": True,
             "estimated_count": len(devices),
-            "sample_device_ids": [d.id for d in devices[:20]]
+            "sample_device_ids": [d.id for d in devices[:20]],
+            "sample_devices": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
         }
     
     bulk_cmd = BulkCommand(

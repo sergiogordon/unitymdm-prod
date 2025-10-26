@@ -56,7 +56,7 @@ export default function LaunchAppPage() {
   const [isLaunching, setIsLaunching] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [previewCount, setPreviewCount] = useState<number | null>(null)
-  const [previewSample, setPreviewSample] = useState<string[]>([])
+  const [previewSample, setPreviewSample] = useState<Array<{id: string, alias: string}>>([])
   
   const [results, setResults] = useState<CommandResult[]>([])
   const [commandId, setCommandId] = useState<string | null>(null)
@@ -120,8 +120,8 @@ export default function LaunchAppPage() {
         }
       }
     } else {
-      const ids = deviceIds.split(/[\s,\n]+/).filter(id => id.trim())
-      return { device_ids: ids }
+      const aliases = deviceIds.split(/[\s,\n]+/).filter(id => id.trim())
+      return { device_aliases: aliases }
     }
   }
 
@@ -173,7 +173,7 @@ export default function LaunchAppPage() {
       if (response.ok) {
         const data = await response.json()
         setPreviewCount(data.estimated_count)
-        setPreviewSample(data.sample_device_ids || [])
+        setPreviewSample(data.sample_devices || [])
         toast({
           title: "Preview Complete",
           description: `Will target ${data.estimated_count} device(s)`,
@@ -415,7 +415,7 @@ export default function LaunchAppPage() {
                     <TabsList className="grid w-full grid-cols-3">
                       <TabsTrigger value="all">Entire Fleet</TabsTrigger>
                       <TabsTrigger value="filter">Filtered Set</TabsTrigger>
-                      <TabsTrigger value="ids">Device IDs</TabsTrigger>
+                      <TabsTrigger value="ids">Device Aliases</TabsTrigger>
                     </TabsList>
                     
                     <TabsContent value="all" className="mt-4">
@@ -439,11 +439,14 @@ export default function LaunchAppPage() {
                     
                     <TabsContent value="ids" className="mt-4">
                       <Textarea
-                        placeholder="Enter device IDs (comma, space, or line separated)"
+                        placeholder="Enter device aliases (e.g., D4, D23, D5) - comma, space, or line separated"
                         value={deviceIds}
                         onChange={(e) => setDeviceIds(e.target.value)}
                         rows={4}
                       />
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Examples: "D4, D23" or "D4 D23 D5" or one per line
+                      </p>
                     </TabsContent>
                   </Tabs>
                 </div>
@@ -472,7 +475,7 @@ export default function LaunchAppPage() {
                     <p className="font-medium">Preview: {previewCount} device(s)</p>
                     {previewSample.length > 0 && (
                       <p className="text-sm text-muted-foreground mt-1">
-                        Sample: {previewSample.slice(0, 5).join(", ")}
+                        Sample: {previewSample.slice(0, 5).map(d => d.alias).join(", ")}
                         {previewSample.length > 5 && "..."}
                       </p>
                     )}
