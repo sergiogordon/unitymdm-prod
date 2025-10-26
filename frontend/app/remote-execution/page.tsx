@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { Terminal, Play, Eye, Download, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react"
+import { Terminal, Play, Eye, Download, Clock, CheckCircle2, XCircle, AlertCircle, X } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,6 +42,13 @@ interface RecentExec {
   }
 }
 
+interface Device {
+  id: string
+  alias: string
+  status: string
+  last_seen: string
+}
+
 const FCM_PRESETS = {
   ping: { type: "ping" },
   ring: { type: "ring", duration: "30" },
@@ -57,7 +64,10 @@ export default function RemoteExecutionPage() {
   
   const [scopeType, setScopeType] = useState<"all" | "filter" | "aliases">("all")
   const [deviceAliases, setDeviceAliases] = useState("")
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([])
   const [onlineOnly, setOnlineOnly] = useState(false)
+  const [allDevices, setAllDevices] = useState<Device[]>([])
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false)
   
   const [mode, setMode] = useState<"fcm" | "shell">("fcm")
   const [fcmPayload, setFcmPayload] = useState("")
@@ -90,6 +100,7 @@ export default function RemoteExecutionPage() {
   useEffect(() => {
     if (authChecked) {
       fetchRecentExecutions()
+      fetchAllDevices()
     }
   }, [authChecked])
 
@@ -108,6 +119,35 @@ export default function RemoteExecutionPage() {
   const getAuthToken = (): string | null => {
     if (typeof window === 'undefined') return null
     return localStorage.getItem('auth_token')
+  }
+
+  const fetchAllDevices = async () => {
+    setIsLoadingDevices(true)
+    try {
+      const token = getAuthToken()
+      if (!token) return
+
+      const response = await fetch("/api/proxy/v1/devices?page=1&limit=1000", {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+      
+      if (response.ok) {
+        const data = await response.json()
+        setAllDevices(data.devices || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch devices:", error)
+    } finally {
+      setIsLoadingDevices(false)
+    }
   }
 
   const fetchRecentExecutions = async () => {
@@ -286,6 +326,22 @@ export default function RemoteExecutionPage() {
     }
   }
 
+  const toggleDeviceSelection = (deviceId: string) => {
+    setSelectedDeviceIds(prev => 
+      prev.includes(deviceId) 
+        ? prev.filter(id => id !== deviceId)
+        : [...prev, deviceId]
+    )
+  }
+
+  const selectAllDevices = () => {
+    setSelectedDeviceIds(allDevices.map(d => d.id))
+  }
+
+  const clearAllDevices = () => {
+    setSelectedDeviceIds([])
+  }
+
   const buildTargets = () => {
     if (scopeType === "all") {
       return { all: true }
@@ -294,7 +350,8 @@ export default function RemoteExecutionPage() {
       if (onlineOnly) filter.online = true
       return { filter }
     } else if (scopeType === "aliases") {
-      const aliases = deviceAliases.split(',').map(a => a.trim()).filter(Boolean)
+      const selectedDevices = allDevices.filter(d => selectedDeviceIds.includes(d.id))
+      const aliases = selectedDevices.map(d => d.alias)
       return { aliases }
     }
     return { all: true }
@@ -386,14 +443,83 @@ export default function RemoteExecutionPage() {
                 )}
 
                 {scopeType === "aliases" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="aliases">Device Aliases (comma-separated)</Label>
-                    <Input
-                      id="aliases"
-                      placeholder="D01, D07, Lab-22"
-                      value={deviceAliases}
-                      onChange={(e) => setDeviceAliases(e.target.value)}
-                    />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Select Devices ({selectedDeviceIds.length} selected)</Label>
+                      <div className="flex gap-2">
+                        <Button 
+                          type="button"
+                          onClick={selectAllDevices} 
+                          variant="ghost" 
+                          size="sm"
+                          disabled={isLoadingDevices}
+                        >
+                          Select All
+                        </Button>
+                        <Button 
+                          type="button"
+                          onClick={clearAllDevices} 
+                          variant="ghost" 
+                          size="sm"
+                          disabled={selectedDeviceIds.length === 0}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+
+                    {selectedDeviceIds.length > 0 && (
+                      <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+                        {allDevices
+                          .filter(d => selectedDeviceIds.includes(d.id))
+                          .map(device => (
+                            <Badge key={device.id} variant="secondary" className="pl-3 pr-1 py-1">
+                              {device.alias}
+                              <button
+                                onClick={() => toggleDeviceSelection(device.id)}
+                                className="ml-1 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-full p-0.5"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                      </div>
+                    )}
+
+                    <div className="border rounded-lg max-h-64 overflow-y-auto">
+                      {isLoadingDevices ? (
+                        <div className="p-8 text-center text-gray-500">
+                          Loading devices...
+                        </div>
+                      ) : allDevices.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">
+                          No devices enrolled
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {allDevices.map(device => (
+                            <div
+                              key={device.id}
+                              className="flex items-center p-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                              onClick={() => toggleDeviceSelection(device.id)}
+                            >
+                              <Checkbox
+                                checked={selectedDeviceIds.includes(device.id)}
+                                onCheckedChange={() => toggleDeviceSelection(device.id)}
+                                className="mr-3"
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">{device.alias}</div>
+                                <div className="text-xs text-gray-500">{device.id}</div>
+                              </div>
+                              <Badge variant={device.status === "online" ? "default" : "secondary"}>
+                                {device.status}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
