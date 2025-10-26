@@ -106,6 +106,12 @@ class FcmMessagingService : FirebaseMessagingService() {
             "apply_battery_whitelist" -> {
                 handleApplyBatteryWhitelistRequest(message.data)
             }
+            "remote_exec_fcm" -> {
+                handleRemoteExecFcm(message.data)
+            }
+            "remote_exec_shell" -> {
+                handleRemoteExecShell(message.data)
+            }
             else -> {
                 Log.w(TAG, "Unknown action: $action")
             }
@@ -968,6 +974,192 @@ class FcmMessagingService : FirebaseMessagingService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error reporting installation status", e)
+            }
+        }
+    }
+    
+    private fun handleRemoteExecFcm(data: Map<String, String>) {
+        Log.d(TAG, "Handling remote exec FCM command")
+        
+        val execId = data["exec_id"] ?: ""
+        val correlationId = data["correlation_id"] ?: ""
+        val type = data["type"] ?: ""
+        
+        var status = "OK"
+        var exitCode = 0
+        var output = ""
+        var error: String? = null
+        
+        try {
+            when (type) {
+                "ping" -> {
+                    handlePingRequest(data["request_id"])
+                    output = "Ping executed"
+                }
+                "ring" -> {
+                    val duration = data["duration"]?.toIntOrNull() ?: 30
+                    handleRingRequest(duration)
+                    output = "Ring command executed for $duration seconds"
+                }
+                "reboot" -> {
+                    handleRebootRequest()
+                    output = "Reboot initiated"
+                }
+                "launch_app" -> {
+                    handleLaunchAppRequest(data)
+                    output = "App launch attempted"
+                }
+                else -> {
+                    status = "FAILED"
+                    error = "Unknown FCM command type: $type"
+                }
+            }
+        } catch (e: Exception) {
+            status = "FAILED"
+            exitCode = -1
+            error = e.message
+            Log.e(TAG, "Error executing FCM command", e)
+        }
+        
+        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error)
+    }
+    
+    private fun handleRemoteExecShell(data: Map<String, String>) {
+        Log.d(TAG, "Handling remote exec shell command")
+        
+        val execId = data["exec_id"] ?: ""
+        val correlationId = data["correlation_id"] ?: ""
+        val command = data["command"] ?: ""
+        
+        if (command.isEmpty()) {
+            sendRemoteExecAck(execId, correlationId, "FAILED", -1, "", "Empty command")
+            return
+        }
+        
+        if (!isCommandAllowed(command)) {
+            Log.w(TAG, "Shell command not in allow-list: $command")
+            sendRemoteExecAck(execId, correlationId, "DENIED", -1, "", "Command not in allow-list")
+            return
+        }
+        
+        var status = "OK"
+        var exitCode = 0
+        var output = ""
+        var error: String? = null
+        
+        try {
+            Log.i(TAG, "Executing shell command: $command")
+            
+            val process = Runtime.getRuntime().exec(command)
+            
+            val outputReader = process.inputStream.bufferedReader()
+            val errorReader = process.errorStream.bufferedReader()
+            
+            val outputBuilder = StringBuilder()
+            val errorBuilder = StringBuilder()
+            
+            val timeout = 8000L
+            val finished = process.waitFor(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+            
+            if (!finished) {
+                process.destroy()
+                status = "TIMEOUT"
+                error = "Command exceeded 8 second timeout"
+                exitCode = -1
+            } else {
+                exitCode = process.exitValue()
+                
+                outputBuilder.append(outputReader.readText())
+                errorBuilder.append(errorReader.readText())
+                
+                val combinedOutput = outputBuilder.toString() + errorBuilder.toString()
+                output = if (combinedOutput.length > 2000) {
+                    combinedOutput.substring(0, 2000)
+                } else {
+                    combinedOutput
+                }
+                
+                if (exitCode != 0) {
+                    status = "FAILED"
+                    error = "Command exited with code $exitCode"
+                }
+            }
+            
+            outputReader.close()
+            errorReader.close()
+            
+        } catch (e: Exception) {
+            status = "FAILED"
+            exitCode = -1
+            error = e.message
+            Log.e(TAG, "Error executing shell command", e)
+        }
+        
+        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error)
+    }
+    
+    private fun isCommandAllowed(command: String): Boolean {
+        val allowPatterns = listOf(
+            Regex("^am\\s+start(\\s|-).+"),
+            Regex("^am\\s+force-stop\\s+[A-Za-z0-9._]+$"),
+            Regex("^cmd\\s+package\\s+.*(list|resolve).*"),
+            Regex("^settings\\s+(get|put)\\s+(secure|system|global)\\s+\\S+\\s*.*$"),
+            Regex("^input\\s+(keyevent|tap|swipe)\\s+.*$"),
+            Regex("^svc\\s+(wifi|data)\\s+(enable|disable)$"),
+            Regex("^pm\\s+list\\s+packages.*$")
+        )
+        
+        return allowPatterns.any { it.matches(command.trim()) }
+    }
+    
+    private fun sendRemoteExecAck(
+        execId: String,
+        correlationId: String,
+        status: String,
+        exitCode: Int,
+        output: String,
+        error: String?
+    ) {
+        val prefs = SecurePreferences(this)
+        
+        if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty()) {
+            Log.w(TAG, "Server URL or device token not configured, skipping ACK")
+            return
+        }
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val payload = mutableMapOf(
+                    "exec_id" to execId,
+                    "device_id" to prefs.deviceId,
+                    "correlation_id" to correlationId,
+                    "status" to status,
+                    "exit_code" to exitCode,
+                    "output" to output,
+                    "ts" to System.currentTimeMillis()
+                )
+                
+                if (error != null) {
+                    payload["error"] = error
+                }
+                
+                val json = gson.toJson(payload)
+                
+                val request = Request.Builder()
+                    .url("${prefs.serverUrl}/v1/remote-exec/ack")
+                    .post(json.toRequestBody("application/json".toMediaType()))
+                    .addHeader("X-Device-Token", prefs.deviceToken)
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                
+                if (response.isSuccessful) {
+                    Log.i(TAG, "Remote exec ACK sent: $status (exit_code=$exitCode)")
+                } else {
+                    Log.e(TAG, "Failed to send remote exec ACK: ${response.code}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending remote exec ACK", e)
             }
         }
     }
