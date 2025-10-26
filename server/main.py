@@ -3337,7 +3337,10 @@ async def acknowledge_command(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
+    logger.info(f"[ACK] Received ACK from device_id={device_id}, type={payload.type}, correlation_id={payload.correlation_id}, status={payload.status}, message={payload.message}")
+    
     if device.id != device_id:
+        logger.warning(f"[ACK] Device ID mismatch: device.id={device.id}, device_id={device_id}")
         raise HTTPException(status_code=403, detail="Device can only acknowledge its own commands")
     
     command = db.query(DeviceCommand).filter(
@@ -3345,9 +3348,11 @@ async def acknowledge_command(
     ).first()
     
     if not command:
+        logger.warning(f"[ACK] Command not found for correlation_id={payload.correlation_id}")
         raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
     
     if command.device_id != device_id:
+        logger.warning(f"[ACK] Command device mismatch: command.device_id={command.device_id}, device_id={device_id}")
         raise HTTPException(status_code=403, detail="Command does not belong to this device")
     
     if payload.type == "PING_ACK":
@@ -3391,23 +3396,31 @@ async def acknowledge_command(
         })
     
     elif payload.type == "LAUNCH_APP_ACK":
+        logger.info(f"[ACK] Processing LAUNCH_APP_ACK for correlation_id={payload.correlation_id}")
+        
         cmd_result = db.query(CommandResult).filter(
             CommandResult.correlation_id == payload.correlation_id
         ).first()
         
         if cmd_result:
+            logger.info(f"[ACK] Found CommandResult: id={cmd_result.id}, command_id={cmd_result.command_id}, current_status={cmd_result.status}")
             cmd_result.status = payload.status or "OK"
             cmd_result.message = payload.message
             cmd_result.updated_at = datetime.now(timezone.utc)
+            logger.info(f"[ACK] Updated CommandResult: new_status={cmd_result.status}, message={cmd_result.message}")
             
             bulk_cmd = db.query(BulkCommand).filter(
                 BulkCommand.id == cmd_result.command_id
             ).first()
             
             if bulk_cmd:
+                logger.info(f"[ACK] Found BulkCommand: id={bulk_cmd.id}, current_acked_count={bulk_cmd.acked_count}, current_error_count={bulk_cmd.error_count}")
                 bulk_cmd.acked_count += 1
                 if payload.status and payload.status not in ["OK", "ok"]:
                     bulk_cmd.error_count += 1
+                logger.info(f"[ACK] Updated BulkCommand: new_acked_count={bulk_cmd.acked_count}, new_error_count={bulk_cmd.error_count}")
+            else:
+                logger.warning(f"[ACK] BulkCommand not found for command_id={cmd_result.command_id}")
             
             log_device_event(db, device_id, "launch_app_ack", {
                 "correlation_id": payload.correlation_id,
@@ -3415,13 +3428,16 @@ async def acknowledge_command(
                 "message": payload.message
             })
         else:
+            logger.warning(f"[ACK] CommandResult not found for correlation_id={payload.correlation_id}")
             if command:
                 command.status = "acknowledged"
+                logger.info(f"[ACK] Fallback: Marked DeviceCommand as acknowledged")
         
     else:
         raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
     
     db.commit()
+    logger.info(f"[ACK] Successfully processed {payload.type} for device_id={device_id}, correlation_id={payload.correlation_id}")
     
     return {"ok": True}
 
