@@ -1050,7 +1050,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         try {
             Log.i(TAG, "Executing shell command: $command")
             
-            val process = Runtime.getRuntime().exec(command)
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             
             val outputReader = process.inputStream.bufferedReader()
             val errorReader = process.errorStream.bufferedReader()
@@ -1109,7 +1109,11 @@ class FcmMessagingService : FirebaseMessagingService() {
             Regex("^pm\\s+list\\s+packages.*$")
         )
         
-        return allowPatterns.any { it.matches(command.trim()) }
+        val parts = command.trim().split("&&").map { it.trim() }
+        
+        return parts.all { part ->
+            allowPatterns.any { pattern -> pattern.matches(part) }
+        }
     }
     
     private fun sendRemoteExecAck(
