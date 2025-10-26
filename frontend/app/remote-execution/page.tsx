@@ -127,7 +127,7 @@ export default function RemoteExecutionPage() {
       const token = getAuthToken()
       if (!token) return
 
-      const response = await fetch("/api/proxy/v1/devices?page=1&limit=1000", {
+      const response = await fetch("/api/proxy/v1/devices?page=1&limit=100", {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
