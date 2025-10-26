@@ -1,0 +1,195 @@
+Awesome—here’s a clean, implementation-ready milestone your Replit agent can pick up.
+
+Milestone: Remote Execution page (under Optimization)
+
+Goal
+
+From a single page, send either:
+	1.	an FCM data command (JSON payload) or
+	2.	a restricted ADB-style shell command (free-text, allow-listed)
+to Entire Fleet or a chosen set of devices by Alias (same filters as Launch App).
+
+⸻
+
+UX / Page Layout
+
+Nav: Dashboard → Optimization → Remote Execution
+
+Card 1 — Target devices
+	•	Scope:
+	•	Entire fleet
+	•	Filtered set (same builders as Launch App: Group, Tag, Online, Android version)
+	•	Device Aliases (multi-select; type-ahead with server search)
+	•	Preview targets button → shows count + first 20 aliases.
+
+Card 2 — Command
+	•	Mode (tabs):
+	•	FCM (JSON)
+	•	Multiline JSON editor with schema hint + validation
+	•	Example presets dropdown (launch_app, ping, ring, reboot, clear_app_data)
+	•	Shell (restricted)
+	•	Single-line text field for ADB-style command (e.g., am start -n com.minutes.unity/.MainActivity)
+	•	Helper link “What’s allowed?” opening allow-list sheet (see below)
+	•	Dry-run (checkbox): estimate + validate only
+	•	Require confirmation (checkbox on by default)
+	•	Execute (primary)
+
+Card 3 — Results
+	•	Real-time counters: Sent • ACK OK • ERR
+	•	Table: Alias • Device ID • Status (OK | DENIED | FAILED | TIMEOUT) • Output (truncated stdout/stderr) • Timestamp
+	•	Download CSV button
+	•	Recent Runs (right rail): last 10 executions with summary; click for details
+
+⸻
+
+Backend
+
+Endpoints
+
+Create execution
+
+POST /v1/remote-exec
+Content-Type: application/json
+
+{
+  "mode": "fcm" | "shell",
+  "targets": { "all": true } 
+    // or { "filter": { "groups":["Dallas"], "tags":["unity"], "online":true } }
+    // or { "aliases": ["D01","D07","Lab-22"] },
+  "payload": { ... },      // mode=fcm (arbitrary JSON)
+  "command": "am start ...", // mode=shell (string)
+  "dry_run": false,
+  "confirmation": true
+}
+
+Poll status
+
+GET /v1/remote-exec/{id}
+
+List recent
+
+GET /v1/remote-exec?limit=10
+
+Behavior
+	•	dry_run=true → resolve targets, validate payload/command, return {estimated_count, sample_aliases[]}, no FCM sent.
+	•	For mode=fcm: wrap payload inside FCM data message with type=custom and correlation_id.
+	•	For mode=shell: send FCM type=shell with cmd string and correlation_id.
+	•	Rate limit sender (e.g., 20 msgs/sec) + idempotency on (correlation_id, device_id) for 60s.
+	•	Store aggregate stats in remote_exec and per-device rows in remote_exec_results.
+
+Data model
+	•	remote_exec: id, mode, raw_request, targets, created_by, created_at, stats{sent,acked,errors}, status
+	•	remote_exec_results: exec_id, device_id, alias, status, exit_code, output_preview, error, updated_at
+
+⸻
+
+Android Agent
+
+Common
+	•	Validate message + HMAC (optional) + correlation_id.
+	•	Reply ACK via /v1/remote-exec/ack (or shared /v1/commands/ack) with standardized fields.
+
+mode=fcm
+	•	Handler: type=custom, pass payload to a dispatcher that supports existing command types (e.g., launch_app, ping, ring, reboot, clear_app_data, force_stop, etc.).
+	•	Return status=OK | FAILED with message.
+
+mode=shell (restricted)
+	•	No root required. Run via Runtime.getRuntime().exec() only for commands passing an allow-list (regex).
+	•	Suggested allow-list (minimum viable; expand later):
+	•	^am\s+start(\s|-).+
+	•	^am\s+force-stop\s+[A-Za-z0-9._]+$
+	•	^cmd\s+package\s+.*(list|resolve).* (read-only)
+	•	^settings\s+(get|put)\s+(secure|system|global)\s+\S+\s*.*$
+	•	^input\s+(keyevent|tap|swipe)\s+.*$
+	•	^svc\s+(wifi|data)\s+(enable|disable)$
+	•	^pm\s+list\s+packages.*$ (read-only)
+	•	Block anything not matching allow-list; return DENIED.
+	•	Execution:
+	•	Start a foreground service.
+	•	Timeout 8s wall-clock.
+	•	Capture stdout/stderr (truncate to 2 KB for return).
+	•	Device Owner alternatives: where possible, prefer DPM/PM APIs (e.g., clear app data) to improve reliability; keep shell for flexible ops.
+
+ACK payload (agent → backend)
+
+POST /v1/remote-exec/ack
+{
+  "exec_id": "<uuid>",
+  "device_id": "ABC123",
+  "alias": "D07",
+  "mode": "fcm" | "shell",
+  "status": "OK" | "DENIED" | "FAILED" | "TIMEOUT",
+  "exit_code": 0,
+  "output": "first 2KB of stdout/stderr",
+  "correlation_id": "uuid-v4",
+  "ts": 1730000000
+}
+
+
+⸻
+
+Security / Safeguards
+	•	RBAC permission: remote_exec.run
+	•	Optional sub-permission: remote_exec.shell (shell tab hidden if missing)
+	•	Global kill-switch (server flag) to disable shell remotely.
+	•	Confirmation checkbox required when scope > N (e.g., >25 devices).
+	•	All requests audited: user id, IP, payload hash, resolved target count.
+	•	HMAC signature per device in FCM payload (recommended).
+	•	Truncate outputs; never store full stdout beyond 2 KB unless explicitly requested.
+
+⸻
+
+Acceptance Criteria
+	•	From Remote Execution, I can:
+	•	Pick Entire fleet, Filtered set, or Aliases (multi-select) and preview the target count.
+	•	Send a valid FCM JSON payload and see OK/ERR per device.
+	•	Send an allow-listed shell command and receive stdout/exit-code per device.
+	•	Use dry-run to validate and estimate without sending.
+	•	View Recent Runs and drill into results.
+	•	Non-allow-listed shell commands are rejected with DENIED and never executed.
+	•	Large fleets are rate-limited; partial failures don’t block others.
+
+⸻
+
+Quick API examples
+
+Dry-run (aliases, shell)
+
+curl -X POST "$API/v1/remote-exec" \
+ -H "Authorization: Bearer $ADMINKEY" -H "Content-Type: application/json" \
+ -d '{"mode":"shell","targets":{"aliases":["D01","D07","Lab-22"]},
+      "command":"am start -n com.minutes.unity/.MainActivity",
+      "dry_run":true,"confirmation":true}'
+
+Execute FCM to filtered set
+
+curl -X POST "$API/v1/remote-exec" \
+ -H "Authorization: Bearer $ADMINKEY" -H "Content-Type: application/json" \
+ -d '{"mode":"fcm",
+      "targets":{"filter":{"tags":["unity"],"online":true}},
+      "payload":{"type":"reboot","reason":"remote_exec"},
+      "dry_run":false,"confirmation":true}'
+
+Poll
+
+curl "$API/v1/remote-exec/<id>" -H "Authorization: Bearer $ADMINKEY"
+
+
+⸻
+
+Risks & Mitigations
+	•	Arbitrary shell risk → strict allow-list + kill-switch + separate permission.
+	•	OEM/doze delivery issues → high-priority FCM + retries; fall back to next heartbeat if you add one later.
+	•	Large outputs → truncate; offer “download raw” as a future enhancement.
+	•	Commands that need privileges → prefer DPM APIs; keep shell list conservative.
+
+⸻
+
+Definition of Done
+	•	Page renders and validates inputs.
+	•	Dry-run returns estimates correctly.
+	•	Executions stream statuses; table and CSV export work.
+	•	RBAC enforced; shell tab hidden without permission.
+	•	Audit entries created for every run.
+
+This keeps the first version safe, fast to ship, and aligned with the Launch App filtering model—while giving you powerful fleet-wide control when you need it.
