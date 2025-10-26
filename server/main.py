@@ -1659,14 +1659,19 @@ async def heartbeat(
         # Get foreground recency from new unified field (for any package)
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
         
+        print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}, speedtest_running_signals={payload.speedtest_running_signals if hasattr(payload, 'speedtest_running_signals') else 'N/A'}")
+        
         # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
         if monitored_foreground_recent_s is None and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
-            fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
-            if fg_seconds is not None:
-                monitored_foreground_recent_s = fg_seconds
+            if hasattr(payload, 'speedtest_running_signals') and payload.speedtest_running_signals:
+                fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
+                print(f"[MONITORING-DEBUG] {device.alias}: Using Speedtest fallback, foreground_recent_seconds={fg_seconds}")
+                if fg_seconds is not None:
+                    monitored_foreground_recent_s = fg_seconds
         
         # Treat -1 as sentinel value for "not available" (normalize to None)
         if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
+            print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None")
             monitored_foreground_recent_s = None
         
         # Evaluate service status only if app is installed
