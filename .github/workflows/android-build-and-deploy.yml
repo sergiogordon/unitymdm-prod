@@ -36,8 +36,14 @@ jobs:
 
       - name: Accept Android SDK licenses
         run: |
+          # Accept licenses in global Android SDK
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          echo "✅ Android SDK licenses accepted"
+          
+          # Create local SDK licenses directory and copy accepted licenses
+          mkdir -p android/licenses
+          cp -r $ANDROID_HOME/licenses/* android/licenses/ || true
+          
+          echo "✅ Android SDK licenses accepted and copied to project"
 
       - name: Decode and prepare keystore
         env:
