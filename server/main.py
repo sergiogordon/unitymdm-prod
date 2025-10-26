@@ -1652,6 +1652,10 @@ async def heartbeat(
     monitored_foreground_recent_s = None
     
     if monitoring_settings["enabled"] and monitoring_settings["package"]:
+        # Check if the monitored app is actually installed
+        app_info = payload.app_versions.get(monitoring_settings["package"]) if payload.app_versions else None
+        is_app_installed = app_info and app_info.installed if app_info else False
+        
         # Get foreground recency from new unified field (for any package)
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
         
@@ -1661,8 +1665,25 @@ async def heartbeat(
             if fg_seconds is not None:
                 monitored_foreground_recent_s = fg_seconds
         
-        # Evaluate service status
-        if monitored_foreground_recent_s is not None:
+        # Treat -1 as sentinel value for "not available" (normalize to None)
+        if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
+            monitored_foreground_recent_s = None
+        
+        # Evaluate service status only if app is installed
+        if not is_app_installed:
+            # App not installed - service status is unknown
+            service_up = None
+            structured_logger.log_event(
+                "monitoring.evaluate.not_installed",
+                level="WARN",
+                device_id=device.id,
+                alias=device.alias,
+                monitored_package=monitoring_settings["package"],
+                reason="app_not_installed",
+                source=monitoring_settings["source"]
+            )
+        elif monitored_foreground_recent_s is not None:
+            # App installed and we have foreground data - evaluate status
             threshold_seconds = monitoring_settings["threshold_min"] * 60
             service_up = monitored_foreground_recent_s <= threshold_seconds
             
@@ -1677,7 +1698,7 @@ async def heartbeat(
                 source=monitoring_settings["source"]
             )
         else:
-            # If foreground data not available, service status is unknown
+            # App installed but foreground data not available - service status is unknown
             service_up = None
             structured_logger.log_event(
                 "monitoring.evaluate.unknown",
