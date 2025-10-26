@@ -1662,10 +1662,12 @@ async def heartbeat(
         print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}, speedtest_running_signals={payload.speedtest_running_signals if hasattr(payload, 'speedtest_running_signals') else 'N/A'}")
         
         # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
+        has_service_notification = False
         if monitored_foreground_recent_s is None and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
             if hasattr(payload, 'speedtest_running_signals') and payload.speedtest_running_signals:
                 fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
-                print(f"[MONITORING-DEBUG] {device.alias}: Using Speedtest fallback, foreground_recent_seconds={fg_seconds}")
+                has_service_notification = payload.speedtest_running_signals.has_service_notification
+                print(f"[MONITORING-DEBUG] {device.alias}: Speedtest signals - foreground_recent_seconds={fg_seconds}, has_service_notification={has_service_notification}")
                 if fg_seconds is not None:
                     monitored_foreground_recent_s = fg_seconds
         
@@ -1673,6 +1675,13 @@ async def heartbeat(
         if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
             print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None")
             monitored_foreground_recent_s = None
+            
+            # Final fallback for Speedtest: use has_service_notification as indicator
+            # When UsageStats permission is granted but API returns no data, the notification
+            # signal is a reliable indicator that the app is running
+            if has_service_notification and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
+                print(f"[MONITORING-DEBUG] {device.alias}: Using has_service_notification=True as 'service up' signal (UsageStats unavailable)")
+                monitored_foreground_recent_s = 0  # Set to 0 (meaning "currently running")
         
         # Evaluate service status only if app is installed
         if not is_app_installed:
