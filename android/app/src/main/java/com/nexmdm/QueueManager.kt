@@ -70,6 +70,8 @@ class QueueManager(
     suspend fun enqueueActionResult(payload: String) {
         withContext(Dispatchers.IO) {
             try {
+                Log.i(TAG, "[ACK-FLOW-5] enqueueActionResult called with payload: $payload")
+                
                 pruneIfNeeded()
                 
                 val item = QueueItem(
@@ -78,9 +80,13 @@ class QueueManager(
                 )
                 
                 dao.insert(item)
-                Log.d(TAG, "queue.enqueue: type=action_result")
+                
+                Log.i(TAG, "[ACK-FLOW-6] Successfully inserted ACK into queue: id=${item.id}, type=action_result")
+                
+                val queueSize = dao.getAll().size
+                Log.i(TAG, "[ACK-FLOW-7] Current queue size: $queueSize items")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to enqueue action result", e)
+                Log.e(TAG, "[ACK-FLOW-ERROR] Failed to enqueue action result", e)
             }
         }
     }
@@ -139,14 +145,21 @@ class QueueManager(
         val deviceToken = prefs.deviceToken
         val deviceId = prefs.deviceId
         
-        Log.d(TAG, "sendItem: type=${item.type}, deviceId=${if (deviceId.isEmpty()) "EMPTY" else "${deviceId.take(8)}..."}")
+        if (item.type == TYPE_ACTION_RESULT) {
+            Log.i(TAG, "[ACK-FLOW-8] sendItem called for ACTION_RESULT: id=${item.id}")
+            Log.i(TAG, "[ACK-FLOW-9] serverUrl=$serverUrl, deviceId=$deviceId, hasToken=${deviceToken.isNotEmpty()}")
+        }
         
         if (serverUrl.isEmpty() || deviceToken.isEmpty()) {
+            if (item.type == TYPE_ACTION_RESULT) {
+                Log.e(TAG, "[ACK-FLOW-ABORT] Missing credentials: serverUrl=${serverUrl.isEmpty()}, token=${deviceToken.isEmpty()}")
+            }
             Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_creds=true")
             return false
         }
         
         if (item.type == TYPE_ACTION_RESULT && deviceId.isEmpty()) {
+            Log.e(TAG, "[ACK-FLOW-ABORT] Missing device_id for ACTION_RESULT")
             Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_device_id=true")
             return false
         }
@@ -158,7 +171,8 @@ class QueueManager(
         }
         
         if (item.type == TYPE_ACTION_RESULT) {
-            Log.d(TAG, "ack.endpoint: $endpoint")
+            Log.i(TAG, "[ACK-FLOW-10] Full ACK endpoint URL: $serverUrl$endpoint")
+            Log.i(TAG, "[ACK-FLOW-11] ACK payload: ${item.payload}")
         }
         
         return try {
@@ -168,8 +182,22 @@ class QueueManager(
                 .addHeader("Authorization", "Bearer $deviceToken")
                 .build()
             
+            if (item.type == TYPE_ACTION_RESULT) {
+                Log.i(TAG, "[ACK-FLOW-12] Sending ACK HTTP POST request...")
+            }
+            
             val response = client.newCall(request).execute()
             val success = response.isSuccessful
+            
+            if (item.type == TYPE_ACTION_RESULT) {
+                if (success) {
+                    val responseBody = response.body?.string() ?: ""
+                    Log.i(TAG, "[ACK-FLOW-13] ✓ ACK sent successfully! HTTP ${response.code}, response: $responseBody")
+                } else {
+                    val responseBody = response.body?.string() ?: ""
+                    Log.e(TAG, "[ACK-FLOW-ERROR] ✗ ACK send failed! HTTP ${response.code}, response: $responseBody")
+                }
+            }
             
             if (success) {
                 Log.d(TAG, "send.ok: type=${item.type}, endpoint=$endpoint")
@@ -179,6 +207,9 @@ class QueueManager(
             
             success
         } catch (e: Exception) {
+            if (item.type == TYPE_ACTION_RESULT) {
+                Log.e(TAG, "[ACK-FLOW-ERROR] Network exception sending ACK", e)
+            }
             Log.e(TAG, "Network error sending ${item.type}", e)
             false
         }
