@@ -9,12 +9,12 @@ import { SettingsDrawer } from "@/components/settings-drawer"
 
 function ConditionalSidebarContent({ children }: { children?: ReactNode }) {
   const pathname = usePathname()
-  const { isAuthenticated, isLoading } = useAuth()
+  const { isAuthenticated } = useAuth()
   const { isSettingsOpen, closeSettings } = useSettings()
 
   const shouldShowSidebar = isAuthenticated && pathname !== '/login'
 
-  if (isLoading || !shouldShowSidebar) {
+  if (!shouldShowSidebar) {
     return <>{children}</>
   }
 

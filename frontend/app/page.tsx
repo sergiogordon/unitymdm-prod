@@ -8,17 +8,17 @@ import { KpiTiles } from "@/components/kpi-tiles"
 import { FilterBar } from "@/components/filter-bar"
 import { DevicesTable } from "@/components/devices-table"
 import { DeviceDrawer } from "@/components/device-drawer"
-import { SettingsDrawer } from "@/components/settings-drawer"
 import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
+import { useSettings } from "@/contexts/SettingsContext"
 
 export default function Page() {
   const router = useRouter()
+  const { openSettings } = useSettings()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   
   // Separate stats state for accurate KPI counters
@@ -123,7 +123,7 @@ export default function Page() {
         <DashboardHeader
           lastUpdated={lastUpdated}
           alertCount={activeAlerts}
-          onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenSettings={openSettings}
           onRefresh={handleRefresh}
         />
 
@@ -151,8 +151,6 @@ export default function Page() {
       </main>
 
       <DeviceDrawer device={selectedDevice} isOpen={!!selectedDevice} onClose={() => setSelectedDevice(null)} />
-
-      <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   )
 }
