@@ -7327,13 +7327,22 @@ async def remote_exec_ack(
     result.output_preview = output[:2000] if output else None
     result.error = body.get("error")
     result.updated_at = datetime.now(timezone.utc)
+    db.commit()
     
-    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
-    if exec_record:
-        if status.upper() == "OK":
-            exec_record.acked_count += 1
-        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
-            exec_record.error_count += 1
+    # Use atomic SQL updates to prevent race conditions
+    from sqlalchemy import update
+    if status.upper() == "OK":
+        db.execute(
+            update(RemoteExec)
+            .where(RemoteExec.id == exec_id)
+            .values(acked_count=RemoteExec.acked_count + 1)
+        )
+    elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+        db.execute(
+            update(RemoteExec)
+            .where(RemoteExec.id == exec_id)
+            .values(error_count=RemoteExec.error_count + 1)
+        )
     
     db.commit()
     
