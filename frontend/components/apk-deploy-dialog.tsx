@@ -50,8 +50,6 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
   // Poll for installation progress when deploying
   useEffect(() => {
     if (isDeploying && activeInstallationIds.length > 0) {
-      console.log(`[DEPLOY] Starting to poll for ${activeInstallationIds.length} installations`)
-      
       const pollProgress = async () => {
         try {
           const token = localStorage.getItem('auth_token')
@@ -66,7 +64,6 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
             activeInstallationIds.forEach((installationId) => {
               const installation = installations.find((i: any) => i.id === installationId)
               if (installation) {
-                console.log(`[DEPLOY] Installation ${installationId}: ${installation.status} ${installation.download_progress}%`)
                 setInstallationProgress((prev) => {
                   const newMap = new Map(prev)
                   newMap.set(installation.device_id, {
@@ -86,7 +83,6 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
             })
             
             if (allCompleted) {
-              console.log('[DEPLOY] All installations completed')
               pollingIntervalRef.current && clearInterval(pollingIntervalRef.current)
               pollingIntervalRef.current = null
               

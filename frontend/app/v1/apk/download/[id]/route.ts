@@ -13,10 +13,7 @@ export async function GET(
     const deviceToken = request.headers.get('x-device-token') || request.headers.get('X-Device-Token')
     const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
     
-    console.log(`[APK DOWNLOAD PROXY] APK ID: ${apkId}, Has device token: ${!!deviceToken}, Has auth: ${!!authHeader}`)
-    
     if (!deviceToken && !authHeader) {
-      console.log('[APK DOWNLOAD PROXY] No authentication found in headers')
       return NextResponse.json(
         { error: 'Authentication required (device token or enrollment token)' },
         { status: 401 }
@@ -28,10 +25,8 @@ export async function GET(
     
     if (deviceToken) {
       backendHeaders['X-Device-Token'] = deviceToken
-      console.log(`[APK DOWNLOAD PROXY] Forwarding with device token (first 10): ${deviceToken.substring(0, 10)}...`)
     } else if (authHeader) {
       backendHeaders['Authorization'] = authHeader
-      console.log(`[APK DOWNLOAD PROXY] Forwarding with authorization header`)
     }
     
     const response = await fetch(`${BACKEND_URL}/v1/apk/download/${apkId}`, {

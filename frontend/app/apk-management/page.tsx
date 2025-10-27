@@ -68,11 +68,7 @@ export default function ApkManagementPage() {
 
   const handleDownload = async (buildId: number, filename: string) => {
     try {
-      console.log(`[APK DOWNLOAD] Starting download for build ID: ${buildId}, filename: ${filename}`)
-      
       const response = await fetch(`/admin/apk/download/${buildId}`)
-      
-      console.log(`[APK DOWNLOAD] Response status: ${response.status}`)
       
       if (!response.ok) {
         let errorMessage = 'Download failed'
@@ -87,8 +83,6 @@ export default function ApkManagementPage() {
       }
       
       const blob = await response.blob()
-      console.log(`[APK DOWNLOAD] Received blob of size: ${blob.size} bytes`)
-      
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -97,8 +91,6 @@ export default function ApkManagementPage() {
       a.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
-      
-      console.log(`[APK DOWNLOAD] Download initiated successfully`)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to download APK'
       console.error('[APK DOWNLOAD] Download error:', err)

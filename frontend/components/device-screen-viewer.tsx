@@ -260,7 +260,6 @@ export function DeviceScreenViewer({ deviceId, deviceAlias, onClose }: DeviceScr
     touchStartRef.current = { x: coords.x, y: coords.y, time: Date.now() }
     
     longPressTimeoutRef.current = setTimeout(() => {
-      console.log('Long press detected')
       sendCommand('long_press', { x: coords.x, y: coords.y })
       touchStartRef.current = null
     }, 500)
@@ -284,7 +283,6 @@ export function DeviceScreenViewer({ deviceId, deviceAlias, onClose }: DeviceScr
     const duration = Date.now() - startPos.time
     
     if (distance > 50 && duration < 300) {
-      console.log(`Swipe detected: dx=${deltaX}, dy=${deltaY}`)
       sendCommand('swipe', { 
         x1: startPos.x, 
         y1: startPos.y, 

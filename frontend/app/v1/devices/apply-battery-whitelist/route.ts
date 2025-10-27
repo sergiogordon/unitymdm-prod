@@ -7,9 +7,6 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get('Authorization')
     const body = await request.json()
     
-    console.log('[API-ROUTE] Received battery whitelist request')
-    console.log('[API-ROUTE] Body:', JSON.stringify(body))
-    
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     }
@@ -18,15 +15,11 @@ export async function POST(request: NextRequest) {
       headers['Authorization'] = authHeader
     }
     
-    console.log('[API-ROUTE] Sending to backend:', `${BACKEND_URL}/v1/devices/apply-battery-whitelist`)
-    
     const response = await fetch(`${BACKEND_URL}/v1/devices/apply-battery-whitelist`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
     })
-    
-    console.log('[API-ROUTE] Backend response status:', response.status)
     
     if (!response.ok) {
       const error = await response.text()
@@ -38,7 +31,6 @@ export async function POST(request: NextRequest) {
     }
     
     const data = await response.json()
-    console.log('[API-ROUTE] Success response:', data)
     return NextResponse.json(data)
   } catch (error) {
     console.error('[API-ROUTE] Exception:', error)

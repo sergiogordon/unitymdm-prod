@@ -58,8 +58,6 @@ async function proxyRequest(
     const url = new URL(request.url)
     const backendUrl = `${BACKEND_URL}/${path}${url.search}`
 
-    console.log(`[Proxy] ${method} ${path} -> ${backendUrl}`)
-
     // Forward headers
     const headers = new Headers()
     request.headers.forEach((value, key) => {

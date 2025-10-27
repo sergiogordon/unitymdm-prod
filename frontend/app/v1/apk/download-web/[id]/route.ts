@@ -26,8 +26,6 @@ export async function GET(
       .map(cookie => `${cookie.name}=${cookie.value}`)
       .join('; ')
     
-    console.log(`[APK WEB DOWNLOAD] APK ID: ${apkId}, User authenticated`)
-    
     // Call backend download-web endpoint with all cookies for proper auth
     const response = await fetch(`${BACKEND_URL}/v1/apk/download-web/${apkId}`, {
       headers: {

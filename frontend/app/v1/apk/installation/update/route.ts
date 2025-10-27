@@ -14,11 +14,6 @@ export async function POST(request: NextRequest) {
     // Get device token from headers (case-insensitive)
     const deviceToken = request.headers.get('x-device-token') || request.headers.get('X-Device-Token')
     
-    console.log(`[INSTALLATION UPDATE PROXY] Body: ${JSON.stringify(body)}, Has token: ${!!deviceToken}`)
-    if (deviceToken) {
-      console.log(`[INSTALLATION UPDATE PROXY] Token (first 10): ${deviceToken.substring(0, 10)}...`)
-    }
-    
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {

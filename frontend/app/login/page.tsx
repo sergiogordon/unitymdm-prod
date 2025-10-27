@@ -39,10 +39,6 @@ export default function LoginPage() {
     setIsLoading(true)
 
     try {
-      console.log('🔍 Debug: window.location.hostname:', window.location.hostname)
-      console.log('🔍 Debug: window.location.port:', window.location.port)
-      console.log('🔍 Debug: window.location.origin:', window.location.origin)
-      
       await login(username, password)
       toast.success('Login successful!')
     } catch (error: any) {
