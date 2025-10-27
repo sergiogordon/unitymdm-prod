@@ -24,6 +24,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Performance**: Dual-write fast-read architecture with O(1) device status lookups and 10s deduplication.
 - **Real-time Communication**: WebSockets for live device updates and command execution.
 - **Authentication**: JWT for users, bcrypt for device tokens, HMAC SHA-256 for command dispatch, X-Admin-Key for enrollment.
+- **User Management**: Self-service user registration (public `/api/auth/signup`), profile management with email updates, password reset via email (ReplitMail integration), dual authentication paths (admin and public signup coexist). BASE_URL environment variable controls password reset email links.
 - **Android Agent**: Dedicated Android application with automated CI/CD.
 - **Zero-Tap Enrollment v2**: Production-hardened provisioning with simplified authentication (admin-key directly), JWT-authenticated script generation. One-liner enrollment commands (Windows CMD and Bash) with 9-step flow including centrally-managed bloatware removal (downloads current list from server), system tweaks (app standby, ambient wake, battery optimizations), progress tracking, and diagnostic logging. Full enrollment scripts (.cmd/.sh) deprecated in favor of one-liners. Bloatware list manageable via admin UI Optimization page.
 - **Persistence**: Partitioned heartbeat storage (2-day retention), device_last_status for O(1) reads, automated archival.
