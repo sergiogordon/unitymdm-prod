@@ -261,11 +261,19 @@ export default function RemoteExecutionPage() {
         })
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to preview targets",
-        variant: "destructive"
-      })
+      if (error instanceof Error) {
+        toast({
+          title: "Validation Error",
+          description: error.message,
+          variant: "destructive"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to preview targets",
+          variant: "destructive"
+        })
+      }
     } finally {
       setIsPreviewing(false)
     }
@@ -324,11 +332,19 @@ export default function RemoteExecutionPage() {
         })
       }
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to execute command",
-        variant: "destructive"
-      })
+      if (error instanceof Error) {
+        toast({
+          title: "Validation Error",
+          description: error.message,
+          variant: "destructive"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to execute command",
+          variant: "destructive"
+        })
+      }
     } finally {
       setIsExecuting(false)
     }
@@ -358,6 +374,9 @@ export default function RemoteExecutionPage() {
       if (onlineOnly) filter.online = true
       return { filter }
     } else if (scopeType === "aliases") {
+      if (selectedDeviceIds.length === 0) {
+        throw new Error("Please select at least one device")
+      }
       const selectedDevices = allDevices.filter(d => selectedDeviceIds.includes(d.id))
       const aliases = selectedDevices.map(d => d.alias)
       return { aliases }
@@ -367,9 +386,25 @@ export default function RemoteExecutionPage() {
 
   const getFcmPayload = () => {
     try {
-      return JSON.parse(fcmPayload || "{}")
+      const parsed = JSON.parse(fcmPayload || "{}")
+      if (Object.keys(parsed).length === 0 && fcmPayload.trim() !== "" && fcmPayload.trim() !== "{}") {
+        toast({
+          title: "Invalid JSON",
+          description: "FCM payload must be valid JSON",
+          variant: "destructive"
+        })
+        throw new Error("Invalid JSON payload")
+      }
+      return parsed
     } catch (e) {
-      return {}
+      if (e instanceof SyntaxError) {
+        toast({
+          title: "Invalid JSON",
+          description: "Failed to parse FCM payload. Please check your JSON syntax.",
+          variant: "destructive"
+        })
+      }
+      throw e
     }
   }
 
@@ -391,17 +426,28 @@ export default function RemoteExecutionPage() {
 
   const downloadCSV = () => {
     const headers = ["Alias", "Device ID", "Status", "Exit Code", "Output", "Error", "Timestamp"]
+    
+    const escapeCsvCell = (cell: string | number | null | undefined): string => {
+      if (cell == null) return '""'
+      const str = String(cell)
+      // Escape quotes by doubling them and wrap in quotes if contains special chars
+      if (str.includes('"') || str.includes(',') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`
+      }
+      return `"${str}"`
+    }
+    
     const rows = results.map(r => [
-      r.alias,
-      r.device_id,
-      r.status,
-      r.exit_code?.toString() || "",
-      r.output || "",
-      r.error || "",
-      r.updated_at || ""
+      escapeCsvCell(r.alias),
+      escapeCsvCell(r.device_id),
+      escapeCsvCell(r.status),
+      escapeCsvCell(r.exit_code?.toString() || ""),
+      escapeCsvCell(r.output || ""),
+      escapeCsvCell(r.error || ""),
+      escapeCsvCell(r.updated_at || "")
     ])
     
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n")
+    const csv = [headers.map(escapeCsvCell), ...rows].map(row => row.join(",")).join("\n")
     const blob = new Blob([csv], { type: "text/csv" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -654,7 +700,7 @@ export default function RemoteExecutionPage() {
 
                 <Button 
                   onClick={handleExecute} 
-                  disabled={isExecuting || (mode === "fcm" && !fcmPayload) || (mode === "shell" && !shellCommand)}
+                  disabled={isExecuting || (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) || (mode === "shell" && (!shellCommand || !shellCommand.trim()))}
                   className="w-full mt-4"
                 >
                   <Play className="w-4 h-4 mr-2" />
