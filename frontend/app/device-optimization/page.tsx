@@ -74,22 +74,12 @@ export default function DeviceOptimizationPage() {
 }
 
 function DeviceOptimizationContent() {
-  const { isDark, toggleTheme } = useTheme()
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
-  const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [packageName, setPackageName] = useState("")
   const [appName, setAppName] = useState("")
   const [isApplying, setIsApplying] = useState(false)
-
-  useEffect(() => {
-    const sidebarOpen = localStorage.getItem('sidebarOpen')
-    if (sidebarOpen !== null) {
-      setIsSidebarOpen(sidebarOpen === 'true')
-    }
-  }, [])
 
   useEffect(() => {
     loadWhitelist()
@@ -107,7 +97,6 @@ function DeviceOptimizationContent() {
       if (response.ok) {
         const data = await response.json()
         setWhitelist(data)
-        setLastUpdated(Date.now())
       } else {
         toast.error('Failed to load battery whitelist')
       }
@@ -117,12 +106,6 @@ function DeviceOptimizationContent() {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleToggleSidebar = () => {
-    const newState = !isSidebarOpen
-    setIsSidebarOpen(newState)
-    localStorage.setItem('sidebarOpen', newState.toString())
   }
 
   const handleAddToWhitelist = async () => {
@@ -222,18 +205,9 @@ function DeviceOptimizationContent() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <Sidebar isOpen={isSidebarOpen} onToggle={handleToggleSidebar} />
-        
-        <Header
-          lastUpdated={lastUpdated}
-          alertCount={0}
-          isDark={isDark}
-          onToggleDark={toggleTheme}
-          onOpenSettings={() => {}}
-          onRefresh={loadWhitelist}
-          onToggleSidebar={handleToggleSidebar}
-        />
-        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+        <Sidebar />
+        <Header />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)] ml-0 lg:ml-64">
           <div className="text-gray-500 dark:text-gray-400">Loading...</div>
         </div>
       </div>
@@ -242,19 +216,10 @@ function DeviceOptimizationContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <Sidebar isOpen={isSidebarOpen} onToggle={handleToggleSidebar} />
+      <Sidebar />
+      <Header />
       
-      <Header
-        lastUpdated={lastUpdated}
-        alertCount={0}
-        isDark={isDark}
-        onToggleDark={toggleTheme}
-        onOpenSettings={() => {}}
-        onRefresh={loadWhitelist}
-        onToggleSidebar={handleToggleSidebar}
-      />
-      
-      <main className={`transition-all duration-300 container mx-auto px-4 pt-24 pb-8 max-w-7xl ${isSidebarOpen ? 'lg:ml-64' : 'lg:ml-16'}`}>
+      <main className="transition-all duration-300 container mx-auto px-4 pt-24 pb-8 max-w-7xl ml-0 lg:ml-64">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900 dark:text-white mb-2">

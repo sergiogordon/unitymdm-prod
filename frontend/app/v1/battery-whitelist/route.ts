@@ -81,13 +81,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: NextRequest, { params }: { params: { id?: string } }) {
   try {
     const authHeader = request.headers.get('Authorization')
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
+    const url = new URL(request.url)
+    const pathParts = url.pathname.split('/')
+    const id = pathParts[pathParts.length - 1]
     
-    if (!id) {
+    if (!id || id === 'battery-whitelist') {
       return NextResponse.json(
         { error: 'Whitelist entry ID is required' },
         { status: 400 }
