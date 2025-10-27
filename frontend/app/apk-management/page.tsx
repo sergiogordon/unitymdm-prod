@@ -224,10 +224,7 @@ export default function ApkManagementPage() {
 
   return (
     <div className="min-h-screen">
-      <Header
-        isDark={isDark}
-        onToggleDark={toggleTheme}
-      />
+      <Header />
 
       <main className="mx-auto max-w-[1280px] px-6 pb-12 pt-[84px] md:px-8">
         <PageHeader
