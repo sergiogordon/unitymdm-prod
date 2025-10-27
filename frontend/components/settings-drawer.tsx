@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { X, Copy, Check, LogOut } from "lucide-react"
+import { X, Copy, Check, LogOut, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
 import { logout } from "@/lib/api-client"
@@ -349,8 +349,20 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
               </ol>
             </section>
 
-            {/* Sign Out */}
-            <section>
+            {/* Account */}
+            <section className="space-y-2">
+              <Button 
+                variant="outline" 
+                className="w-full justify-center gap-2"
+                onClick={() => {
+                  router.push('/profile')
+                  onClose()
+                }}
+              >
+                <User className="h-4 w-4" />
+                Profile
+              </Button>
+              
               <Button 
                 variant="destructive" 
                 className="w-full justify-center gap-2"
