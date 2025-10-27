@@ -9,6 +9,13 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Allow cross-origin requests from Replit domains
+  experimental: {
+    allowedDevOrigins: [
+      /^https?:\/\/.+\.replit\.dev$/,
+      /^https?:\/\/.+\.repl\.co$/,
+    ],
+  },
   async headers() {
     return [
       {

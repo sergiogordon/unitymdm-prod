@@ -55,9 +55,15 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
 
   const fetchMonitoringDefaults = async () => {
     try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.warn('No auth token available for monitoring defaults')
+        return
+      }
+      
       const response = await fetch('/v1/settings/monitoring-defaults', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+          'Authorization': `Bearer ${token}`
         }
       })
       if (response.ok) {
@@ -74,11 +80,23 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     setIsSavingMonitoring(true)
     setAutoSaveStatus('saving')
     try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        setAutoSaveStatus('idle')
+        setIsSavingMonitoring(false)
+        return
+      }
+      
       const response = await fetch('/v1/settings/monitoring-defaults', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(monitoringDefaults)
       })
