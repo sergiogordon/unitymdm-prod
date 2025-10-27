@@ -7010,13 +7010,13 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
         return False, "Command is empty"
     
     allow_patterns = [
-        r'^am\s+start(\s|-).+',
+        r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
         r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
-        r'^cmd\s+package\s+.*(list|resolve).*',
-        r'^settings\s+(get|put)\s+(secure|system|global)\s+\S+\s*.*$',
-        r'^input\s+(keyevent|tap|swipe)\s+.*$',
+        r'^cmd\s+package\s+(list|resolve-activity)\s+[A-Za-z0-9._\s-]*$',  # More restrictive
+        r'^settings\s+(get|put)\s+(secure|system|global)\s+[A-Za-z0-9._]+(\s+[A-Za-z0-9._]+)?$',  # More restrictive
+        r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
         r'^svc\s+(wifi|data)\s+(enable|disable)$',
-        r'^pm\s+list\s+packages.*$',
+        r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
     ]
     
     for pattern in allow_patterns:

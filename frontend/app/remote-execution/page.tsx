@@ -96,6 +96,7 @@ export default function RemoteExecutionPage() {
   
   const [recentExecutions, setRecentExecutions] = useState<RecentExec[]>([])
   const [isPolling, setIsPolling] = useState(false)
+  const [resultFilter, setResultFilter] = useState("")
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -187,6 +188,11 @@ export default function RemoteExecutionPage() {
       }
     } catch (error) {
       console.error("Failed to fetch recent executions:", error)
+      toast({
+        title: "Warning",
+        description: "Failed to load recent executions history",
+        variant: "destructive"
+      })
     }
   }
 
@@ -757,36 +763,71 @@ export default function RemoteExecutionPage() {
               </CardHeader>
               <CardContent>
                 {execId && (
-                  <div className="grid grid-cols-3 gap-4 mb-6">
-                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <div className="text-2xl font-bold">{stats.sent}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Sent</div>
+                  <>
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span className="font-medium">Progress</span>
+                        <span className="text-gray-600">
+                          {stats.sent > 0 ? Math.round(((stats.acked + stats.errors) / stats.sent) * 100) : 0}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                        <div 
+                          className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                          style={{ 
+                            width: `${stats.sent > 0 ? ((stats.acked + stats.errors) / stats.sent) * 100 : 0}%` 
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <div className="text-2xl font-bold">{stats.acked}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">ACK OK</div>
+                    
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <div className="text-2xl font-bold">{stats.sent}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">Sent</div>
+                      </div>
+                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                        <div className="text-2xl font-bold">{stats.acked}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">ACK OK</div>
+                      </div>
+                      <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                        <div className="text-2xl font-bold">{stats.errors}</div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">Errors</div>
+                      </div>
                     </div>
-                    <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                      <div className="text-2xl font-bold">{stats.errors}</div>
-                      <div className="text-sm text-gray-600 dark:text-gray-400">Errors</div>
-                    </div>
-                  </div>
+                  </>
                 )}
 
                 {results.length > 0 ? (
-                  <div className="border rounded-lg overflow-auto max-h-96">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Alias</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Exit Code</TableHead>
-                          <TableHead>Output</TableHead>
-                          <TableHead>Timestamp</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {results.map((result) => (
+                  <>
+                    <div className="mb-4">
+                      <Input
+                        placeholder="Filter by alias or status..."
+                        value={resultFilter}
+                        onChange={(e) => setResultFilter(e.target.value)}
+                        className="max-w-sm"
+                      />
+                    </div>
+                    <div className="border rounded-lg overflow-auto max-h-96">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Alias</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Exit Code</TableHead>
+                            <TableHead>Output</TableHead>
+                            <TableHead>Timestamp</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {results
+                            .filter(result => {
+                              if (!resultFilter) return true
+                              const filter = resultFilter.toLowerCase()
+                              return result.alias?.toLowerCase().includes(filter) || 
+                                     result.status?.toLowerCase().includes(filter)
+                            })
+                            .map((result) => (
                           <TableRow key={result.device_id}>
                             <TableCell className="font-medium">{result.alias}</TableCell>
                             <TableCell>
@@ -806,10 +847,11 @@ export default function RemoteExecutionPage() {
                               {result.updated_at ? new Date(result.updated_at).toLocaleTimeString() : "-"}
                             </TableCell>
                           </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </>
                 ) : (
                   <div className="text-center py-12 text-gray-500">
                     No results yet. Execute a command to see results.
