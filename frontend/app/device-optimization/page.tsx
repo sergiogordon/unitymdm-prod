@@ -87,7 +87,7 @@ function DeviceOptimizationContent() {
 
   const loadWhitelist = async () => {
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/battery-whitelist', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -115,7 +115,7 @@ function DeviceOptimizationContent() {
     }
 
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/battery-whitelist', {
         method: 'POST',
         headers: {
@@ -150,7 +150,7 @@ function DeviceOptimizationContent() {
     }
 
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`/v1/battery-whitelist/${id}`, {
         method: 'DELETE',
         headers: {
@@ -177,7 +177,7 @@ function DeviceOptimizationContent() {
 
     setIsApplying(true)
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/devices/apply-battery-whitelist', {
         method: 'POST',
         headers: {

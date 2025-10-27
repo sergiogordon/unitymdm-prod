@@ -54,7 +54,7 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
       
       const pollProgress = async () => {
         try {
-          const token = localStorage.getItem('access_token')
+          const token = localStorage.getItem('auth_token')
           const response = await fetch(`/v1/apk/installations?apk_id=${apk.id}`, {
             headers: {
               'Authorization': `Bearer ${token}`
@@ -129,7 +129,7 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
 
   const loadDevices = async () => {
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/devices?page=1&limit=1000', {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -176,7 +176,7 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
     setInstallationProgress(new Map())
 
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/apk/deploy', {
         method: 'POST',
         headers: {

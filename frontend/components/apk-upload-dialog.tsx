@@ -68,7 +68,7 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
       formData.append('version_name', versionName)
       formData.append('version_code', versionCode)
 
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/apk/upload', {
         method: 'POST',
         headers: {

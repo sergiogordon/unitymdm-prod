@@ -230,7 +230,7 @@ export function DeviceScreenViewer({ deviceId, deviceAlias, onClose }: DeviceScr
 
   const sendCommand = async (command: string, params: any) => {
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/remote/command', {
         method: 'POST',
         headers: {
@@ -331,7 +331,7 @@ export function DeviceScreenViewer({ deviceId, deviceAlias, onClose }: DeviceScr
 
   const handleCopyFromDevice = async () => {
     try {
-      const token = localStorage.getItem('access_token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch('/v1/remote/command', {
         method: 'POST',
         headers: {
