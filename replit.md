@@ -15,7 +15,7 @@ This project is a production-ready, cloud-based Mobile Device Management (MDM) s
 The system features a clear separation between its frontend and backend, optimized for scalability and real-time communication.
 
 ### UI/UX Decisions
-The frontend, built with Next.js and shadcn/ui, offers a modern, responsive interface for administrative tasks such as token management, script generation, and device status tracking.
+The frontend, built with Next.js and shadcn/ui, offers a modern, responsive interface for administrative tasks such as token management, script generation, and device status tracking. Global Settings drawer is accessible from all pages via sidebar button (bottom of nav) and Dashboard header gear icon, managed through React Context for state consistency.
 
 ### Technical Implementations
 - **Backend**: FastAPI, asynchronous programming, SQLAlchemy, PostgreSQL.
