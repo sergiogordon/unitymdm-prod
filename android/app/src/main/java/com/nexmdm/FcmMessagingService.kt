@@ -1113,7 +1113,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                     Log.w(TAG, "Notification policy access not granted, attempting to grant via Device Owner")
                     
                     val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                    val adminComponent = ComponentName(this, DeviceAdminReceiver::class.java)
+                    val adminComponent = ComponentName(this, NexDeviceAdminReceiver::class.java)
                     
                     if (dpm.isDeviceOwnerApp(packageName)) {
                         Log.i(TAG, "Device is in Device Owner mode, setting DND via policy")
