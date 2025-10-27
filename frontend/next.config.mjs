@@ -10,12 +10,12 @@ const nextConfig = {
     unoptimized: true,
   },
   // Allow cross-origin requests from Replit domains
-  experimental: {
-    allowedDevOrigins: [
-      /^https?:\/\/.+\.replit\.dev$/,
-      /^https?:\/\/.+\.repl\.co$/,
-    ],
-  },
+  allowedDevOrigins: [
+    '*.replit.dev',
+    '*.worf.replit.dev',
+    '*.picard.replit.dev',
+    '*.repl.co',
+  ],
   async headers() {
     return [
       {
