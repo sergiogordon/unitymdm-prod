@@ -124,6 +124,12 @@ export default function RemoteExecutionPage() {
     }
   }, [isPolling, execId])
 
+  // Clear preview results when mode or target scope changes
+  useEffect(() => {
+    setPreviewCount(null)
+    setPreviewSample([])
+  }, [mode, scopeType])
+
   const getAuthToken = (): string | null => {
     if (typeof window === 'undefined') return null
     return localStorage.getItem('auth_token')
@@ -205,7 +211,7 @@ export default function RemoteExecutionPage() {
           errors: data.stats.error_count
         })
         
-        if (data.status === 'completed') {
+        if (data.status === 'completed' || data.status === 'failed') {
           setIsPolling(false)
         }
       }
@@ -217,6 +223,25 @@ export default function RemoteExecutionPage() {
   const handlePreview = async () => {
     const token = getAuthToken()
     if (!token) return
+
+    // Validate command data before preview
+    if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid FCM payload",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (mode === "shell" && (!shellCommand || !shellCommand.trim())) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a shell command",
+        variant: "destructive"
+      })
+      return
+    }
 
     setIsPreviewing(true)
     try {
@@ -640,7 +665,10 @@ export default function RemoteExecutionPage() {
                         id="fcmPayload"
                         placeholder='{"type": "ping"}'
                         value={fcmPayload}
-                        onChange={(e) => setFcmPayload(e.target.value)}
+                        onChange={(e) => {
+                          setFcmPayload(e.target.value)
+                          setSelectedPreset("")  // Clear preset selection on manual edit
+                        }}
                         rows={8}
                         className="font-mono text-sm"
                       />
@@ -667,7 +695,10 @@ export default function RemoteExecutionPage() {
                         id="shellCommand"
                         placeholder="am start -n com.minutes.unity/.MainActivity"
                         value={shellCommand}
-                        onChange={(e) => setShellCommand(e.target.value)}
+                        onChange={(e) => {
+                          setShellCommand(e.target.value)
+                          setSelectedShellPreset("")  // Clear preset selection on manual edit
+                        }}
                         className="font-mono"
                       />
                       <p className="text-xs text-gray-500">
