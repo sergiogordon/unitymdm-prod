@@ -133,7 +133,10 @@ export default function LoginPage() {
         </Card>
 
         <p className="mt-6 text-center text-sm text-muted-foreground">
-          Don't have an account? Contact your administrator
+          Don't have an account?{' '}
+          <a href="/signup" className="text-primary hover:underline">
+            Sign up
+          </a>
         </p>
       </div>
 
