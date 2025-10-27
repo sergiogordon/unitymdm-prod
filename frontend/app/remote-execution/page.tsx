@@ -54,7 +54,9 @@ const FCM_PRESETS = {
   ring: { type: "ring", duration: "30" },
   reboot: { type: "reboot", reason: "remote_exec" },
   launch_app: { type: "launch_app", package_name: "com.example.app" },
-  clear_app_data: { type: "clear_app_data", package_name: "com.example.app" }
+  clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
+  enable_dnd: { type: "set_dnd", enable: "true" },
+  disable_dnd: { type: "set_dnd", enable: "false" }
 }
 
 const SHELL_PRESETS = {
@@ -580,6 +582,8 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="reboot">Reboot</SelectItem>
                           <SelectItem value="launch_app">Launch App</SelectItem>
                           <SelectItem value="clear_app_data">Clear App Data</SelectItem>
+                          <SelectItem value="enable_dnd">Enable Do Not Disturb (API)</SelectItem>
+                          <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

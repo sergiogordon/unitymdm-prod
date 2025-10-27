@@ -112,6 +112,9 @@ class FcmMessagingService : FirebaseMessagingService() {
             "remote_exec_shell" -> {
                 handleRemoteExecShell(message.data)
             }
+            "set_dnd" -> {
+                handleSetDndRequest(message.data)
+            }
             else -> {
                 Log.w(TAG, "Unknown action: $action")
             }
@@ -1096,6 +1099,54 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
         
         sendRemoteExecAck(execId, correlationId, status, exitCode, output, error)
+    }
+    
+    private fun handleSetDndRequest(data: Map<String, String>) {
+        Log.d(TAG, "Handling set DND request")
+        
+        try {
+            val enable = data["enable"]?.toBoolean() ?: true
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!notificationManager.isNotificationPolicyAccessGranted) {
+                    Log.w(TAG, "Notification policy access not granted, attempting to grant via Device Owner")
+                    
+                    val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    val adminComponent = ComponentName(this, DeviceAdminReceiver::class.java)
+                    
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        Log.i(TAG, "Device is in Device Owner mode, setting DND via policy")
+                        
+                        if (enable) {
+                            val policy = android.app.NotificationManager.Policy(
+                                0,
+                                0,
+                                0
+                            )
+                            notificationManager.setNotificationPolicy(policy)
+                            notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+                            Log.i(TAG, "DND enabled via NotificationManager")
+                        } else {
+                            notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+                            Log.i(TAG, "DND disabled via NotificationManager")
+                        }
+                    } else {
+                        Log.w(TAG, "Not in Device Owner mode, cannot set DND")
+                    }
+                } else {
+                    if (enable) {
+                        notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+                        Log.i(TAG, "DND enabled")
+                    } else {
+                        notificationManager.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_ALL)
+                        Log.i(TAG, "DND disabled")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting DND", e)
+        }
     }
     
     private fun isCommandAllowed(command: String): Boolean {
