@@ -2,9 +2,10 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutGrid, Package, Terminal, Monitor, Rocket, Gauge, ChevronLeft } from "lucide-react"
+import { LayoutGrid, Package, Terminal, Monitor, Rocket, Gauge, ChevronLeft, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { useSettings } from "@/contexts/SettingsContext"
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutGrid },
@@ -19,6 +20,7 @@ const navigation = [
 export function Sidebar() {
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const { openSettings } = useSettings()
 
   return (
     <aside
@@ -85,28 +87,44 @@ export function Sidebar() {
         </button>
       </div>
 
-      <nav className="space-y-1 p-3">
-        {navigation.map((item) => {
-          const isActive = pathname === item.href
-          const Icon = item.icon
+      <nav className="flex flex-col h-[calc(100vh-4rem)]">
+        <div className="space-y-1 p-3 flex-1">
+          {navigation.map((item) => {
+            const isActive = pathname === item.href
+            const Icon = item.icon
 
-          return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-              )}
-              title={isCollapsed ? item.name : undefined}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              {!isCollapsed && <span>{item.name}</span>}
-            </Link>
-          )
-        })}
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                )}
+                title={isCollapsed ? item.name : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!isCollapsed && <span>{item.name}</span>}
+              </Link>
+            )
+          })}
+        </div>
+        
+        <div className="border-t border-sidebar-border p-3">
+          <button
+            onClick={openSettings}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            )}
+            title={isCollapsed ? "Settings" : undefined}
+          >
+            <Settings className="h-5 w-5 shrink-0" />
+            {!isCollapsed && <span>Settings</span>}
+          </button>
+        </div>
       </nav>
     </aside>
   )
