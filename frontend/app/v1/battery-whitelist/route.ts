@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000"
 
 export async function GET(request: NextRequest) {
   try {
-    // Check if this is a demo mode request
-    if (isDemoRequest(request)) {
-      return handleDemoRequest(request, '/v1/battery-whitelist', 'GET')
-    }
-
     const authHeader = request.headers.get('Authorization')
     
     const headers: HeadersInit = {
