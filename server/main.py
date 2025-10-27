@@ -1195,6 +1195,7 @@ async def get_user_info(
     return {
         "id": user.id,
         "username": user.username,
+        "email": user.email,
         "created_at": user.created_at.isoformat() + "Z"
     }
 
@@ -1213,6 +1214,91 @@ async def logout_user(
     response.delete_cookie(key="session_token", samesite="lax")
     
     return {"ok": True, "message": "Logged out successfully"}
+
+@app.post("/api/auth/signup")
+async def signup_user(
+    req: Request,
+    request: UserRegisterRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """Public signup endpoint - no admin key required"""
+    # Rate limiting to prevent abuse
+    client_ip = req.client.host if req.client else "unknown"
+    if not registration_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts. Please try again later.",
+            headers={"Retry-After": "60"}
+        )
+    
+    if len(request.username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    if request.email:
+        if len(request.email) < 3 or "@" not in request.email:
+            raise HTTPException(status_code=400, detail="Invalid email address")
+        
+        existing_email = db.query(User).filter(User.email == request.email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    
+    existing_user = db.query(User).filter(User.username == request.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    password_hash = hash_password(request.password)
+    
+    user = User(
+        username=request.username,
+        email=request.email,
+        password_hash=password_hash,
+        created_at=datetime.now(timezone.utc)
+    )
+    
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    from auth import create_jwt_token
+    access_token = create_jwt_token(user.id, user.username)
+    
+    return {
+        "ok": True,
+        "access_token": access_token,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "created_at": user.created_at.isoformat() + "Z"
+        }
+    }
+
+@app.put("/api/auth/profile/email")
+async def update_user_email(
+    new_email: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update the current user's email address"""
+    if len(new_email) < 3 or "@" not in new_email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    
+    existing_email = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    user.email = new_email
+    db.commit()
+    
+    return {
+        "ok": True,
+        "message": "Email updated successfully",
+        "email": user.email
+    }
 
 # Rate limiter for password reset requests
 password_reset_limiter = RateLimiter(max_requests=3, window_seconds=3600)  # 3 requests per hour
