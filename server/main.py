@@ -7083,6 +7083,13 @@ async def create_remote_exec(
     
     devices = query.filter(Device.fcm_token.isnot(None)).all()
     
+    # Validate that we have devices after filtering
+    if not devices:
+        raise HTTPException(
+            status_code=400, 
+            detail="No devices match the specified criteria or no devices have FCM tokens registered"
+        )
+    
     if dry_run:
         return {
             "dry_run": True,
@@ -7181,7 +7188,7 @@ async def create_remote_exec(
             db.add(exec_result)
             
             try:
-                response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=5.0)
                 
                 if response.status_code == 200:
                     exec_result.status = "sent"
@@ -7192,6 +7199,12 @@ async def create_remote_exec(
                     exec_result.error = f"FCM error: {response.status_code}"
                     exec_record.error_count += 1
                     print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
+            
+            except httpx.TimeoutException:
+                exec_result.status = "failed"
+                exec_result.error = "FCM request timeout"
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Timeout {device.alias}")
             
             except Exception as e:
                 exec_result.status = "failed"
