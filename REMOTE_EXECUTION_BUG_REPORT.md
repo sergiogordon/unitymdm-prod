@@ -2,7 +2,8 @@
 **Date:** October 27, 2025  
 **Component:** Remote Execution Page (`/remote-execution`)  
 **Status:** 16 Issues Found (5 Critical, 6 High, 3 Medium, 2 Low)  
-**Phase 1 Fixes:** ✅ 5 Critical Issues FIXED
+**Phase 1 Fixes:** ✅ 5 Critical Issues FIXED  
+**Phase 2 Fixes:** ✅ 6 High Priority Issues FIXED
 
 ## Summary
 This report documents all bugs found during a comprehensive review of the Remote Execution page and its associated backend APIs. The review covered frontend state management, backend validation, edge cases, error handling, and user experience issues.
@@ -209,7 +210,7 @@ const downloadCSV = () => {
 
 ## High Priority Issues (P1)
 
-### 6. **Polling Never Stops on Failed Executions**
+### 6. **Polling Never Stops on Failed Executions** ✅ FIXED
 **Severity:** High  
 **Location:** `frontend/app/remote-execution/page.tsx:208-210`  
 **Description:** Polling only stops when `status === 'completed'`. If the backend sets status to 'failed' or encounters an error, polling continues indefinitely.
@@ -223,7 +224,7 @@ if (data.status === 'completed' || data.status === 'failed') {
 
 ---
 
-### 7. **No Validation Before Preview**
+### 7. **No Validation Before Preview** ✅ FIXED
 **Severity:** High  
 **Location:** `frontend/app/remote-execution/page.tsx:217-272`  
 **Description:** Preview button doesn't validate that user has entered command data. User can preview with empty FCM payload or shell command.
@@ -260,7 +261,7 @@ const handlePreview = async () => {
 
 ---
 
-### 8. **Preview Results Not Cleared on Mode/Target Change**
+### 8. **Preview Results Not Cleared on Mode/Target Change** ✅ FIXED
 **Severity:** High  
 **Location:** `frontend/app/remote-execution/page.tsx`  
 **Description:** When user switches modes (FCM ↔ Shell) or changes targets, preview results remain visible, showing stale/misleading information.
@@ -276,7 +277,7 @@ useEffect(() => {
 
 ---
 
-### 9. **Missing Backend Validation for Empty Devices List**
+### 9. **Missing Backend Validation for Empty Devices List** ✅ FIXED
 **Severity:** High  
 **Location:** `server/main.py:7084`  
 **Description:** After filtering devices, if no devices match (e.g., all filtered out due to missing FCM tokens), the code doesn't validate this before creating the exec record.
@@ -301,7 +302,7 @@ if dry_run:
 
 ---
 
-### 10. **Shell Preset Application Doesn't Clear Selection**
+### 10. **Shell Preset Application Doesn't Clear Selection** ✅ FIXED
 **Severity:** High  
 **Location:** `frontend/app/remote-execution/page.tsx:384-390`  
 **Description:** When applying a shell preset, the `selectedShellPreset` state is set but never cleared when user manually edits the command. This causes UX confusion where the preset dropdown shows selected but command is different.
@@ -322,7 +323,7 @@ if dry_run:
 
 ---
 
-### 11. **No Timeout Handling for FCM Requests**
+### 11. **No Timeout Handling for FCM Requests** ✅ FIXED
 **Severity:** High  
 **Location:** `server/main.py:7184`  
 **Description:** FCM requests have a 10-second timeout, but if FCM service is slow, the entire execution blocks. With 100+ devices, this could take 1000+ seconds.
