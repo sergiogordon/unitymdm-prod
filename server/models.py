@@ -423,6 +423,22 @@ class BloatwarePackage(Base):
         Index('idx_bloatware_enabled', 'enabled'),
     )
 
+class WiFiSettings(Base):
+    __tablename__ = "wifi_settings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ssid: Mapped[str] = mapped_column(String, nullable=False)
+    password: Mapped[str] = mapped_column(String, nullable=False)
+    security_type: Mapped[str] = mapped_column(String, nullable=False, default="wpa2")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_wifi_enabled', 'enabled'),
+    )
+
 class DeviceCommand(Base):
     __tablename__ = "device_commands"
     
