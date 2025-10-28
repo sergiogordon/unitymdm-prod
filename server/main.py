@@ -2743,7 +2743,12 @@ async def update_wifi_settings(
     wifi_settings = db.query(WiFiSettings).first()
     
     if not wifi_settings:
-        wifi_settings = WiFiSettings()
+        wifi_settings = WiFiSettings(
+            ssid="",
+            password="",
+            security_type="wpa2",
+            enabled=False
+        )
         db.add(wifi_settings)
     
     updates = {}
@@ -2789,6 +2794,7 @@ async def update_wifi_settings(
         "message": "WiFi settings updated successfully",
         "settings": {
             "ssid": wifi_settings.ssid,
+            "password": wifi_settings.password,
             "security_type": wifi_settings.security_type,
             "enabled": wifi_settings.enabled,
             "updated_at": wifi_settings.updated_at.isoformat() + "Z"

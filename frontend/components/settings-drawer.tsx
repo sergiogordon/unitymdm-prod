@@ -183,7 +183,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
         clearTimeout(autoSaveTimerRef.current)
       }
     }
-  }, [monitoringDefaults])
+  }, [monitoringDefaults, hasMonitoringChanges])
 
   const fetchWiFiSettings = async () => {
     try {
