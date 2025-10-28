@@ -7,16 +7,8 @@ import { ReactNode } from "react"
 import { SettingsProvider, useSettings } from "@/contexts/SettingsContext"
 import { SettingsDrawer } from "@/components/settings-drawer"
 
-function ConditionalSidebarContent({ children }: { children?: ReactNode }) {
-  const pathname = usePathname()
-  const { isAuthenticated } = useAuth()
+function SidebarLayout({ children }: { children?: ReactNode }) {
   const { isSettingsOpen, closeSettings } = useSettings()
-
-  const shouldShowSidebar = isAuthenticated && pathname !== '/login'
-
-  if (!shouldShowSidebar) {
-    return <>{children}</>
-  }
 
   return (
     <>
@@ -27,10 +19,23 @@ function ConditionalSidebarContent({ children }: { children?: ReactNode }) {
   )
 }
 
-export function ConditionalSidebar({ children }: { children?: ReactNode }) {
+function ConditionalSidebarContent({ children }: { children?: ReactNode }) {
+  const pathname = usePathname()
+  const { isAuthenticated } = useAuth()
+
+  const shouldShowSidebar = isAuthenticated && pathname !== '/login'
+
+  if (!shouldShowSidebar) {
+    return <>{children}</>
+  }
+
   return (
     <SettingsProvider>
-      <ConditionalSidebarContent>{children}</ConditionalSidebarContent>
+      <SidebarLayout>{children}</SidebarLayout>
     </SettingsProvider>
   )
+}
+
+export function ConditionalSidebar({ children }: { children?: ReactNode }) {
+  return <ConditionalSidebarContent>{children}</ConditionalSidebarContent>
 }
