@@ -4,8 +4,6 @@ import { ProtectedLayout } from "@/components/protected-layout"
 import { useState, useEffect } from "react"
 import { Plus, Trash2, Send, Settings, Battery, Shield } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Header } from "@/components/header"
-import { Sidebar } from "@/components/sidebar"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -204,22 +202,15 @@ function DeviceOptimizationContent() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <Sidebar />
-        <Header />
-        <div className="flex items-center justify-center h-[calc(100vh-64px)] ml-0 lg:ml-64">
-          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <Sidebar />
-      <Header />
-      
-      <main className="transition-all duration-300 container mx-auto px-4 pt-24 pb-8 max-w-7xl ml-0 lg:ml-64">
+    <>
+      <main className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-semibold text-gray-900 dark:text-white mb-2">
@@ -409,6 +400,6 @@ function DeviceOptimizationContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }
