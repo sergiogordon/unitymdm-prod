@@ -2691,6 +2691,236 @@ async def update_monitoring_defaults(
         "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 
+@app.get("/admin/settings/wifi")
+async def get_wifi_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get WiFi configuration settings.
+    Returns the current WiFi SSID, password, and security type.
+    """
+    wifi_settings = db.query(WiFiSettings).first()
+    
+    if not wifi_settings:
+        return {
+            "ssid": "",
+            "password": "",
+            "security_type": "wpa2",
+            "enabled": False,
+            "updated_at": None
+        }
+    
+    structured_logger.log_event(
+        "settings.wifi.read",
+        user=current_user.username
+    )
+    
+    return {
+        "ssid": wifi_settings.ssid,
+        "password": wifi_settings.password,
+        "security_type": wifi_settings.security_type,
+        "enabled": wifi_settings.enabled,
+        "updated_at": wifi_settings.updated_at.isoformat() + "Z" if wifi_settings.updated_at else None
+    }
+
+class UpdateWiFiSettingsRequest(BaseModel):
+    ssid: Optional[str] = None
+    password: Optional[str] = None
+    security_type: Optional[str] = None
+    enabled: Optional[bool] = None
+
+@app.post("/admin/settings/wifi")
+async def update_wifi_settings(
+    request: UpdateWiFiSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update WiFi configuration settings.
+    Creates or updates the WiFi settings for device connectivity.
+    """
+    wifi_settings = db.query(WiFiSettings).first()
+    
+    if not wifi_settings:
+        wifi_settings = WiFiSettings()
+        db.add(wifi_settings)
+    
+    updates = {}
+    
+    if request.ssid is not None:
+        if not request.ssid.strip():
+            raise HTTPException(status_code=422, detail="SSID cannot be empty")
+        wifi_settings.ssid = request.ssid.strip()
+        updates["ssid"] = wifi_settings.ssid
+    
+    if request.password is not None:
+        wifi_settings.password = request.password
+        updates["password_updated"] = True
+    
+    if request.security_type is not None:
+        valid_types = ["open", "wep", "wpa", "wpa2", "wpa3"]
+        if request.security_type not in valid_types:
+            raise HTTPException(
+                status_code=422, 
+                detail=f"Security type must be one of: {', '.join(valid_types)}"
+            )
+        wifi_settings.security_type = request.security_type
+        updates["security_type"] = wifi_settings.security_type
+    
+    if request.enabled is not None:
+        wifi_settings.enabled = request.enabled
+        updates["enabled"] = wifi_settings.enabled
+    
+    wifi_settings.updated_at = datetime.now(timezone.utc)
+    wifi_settings.updated_by = current_user.username
+    
+    db.commit()
+    db.refresh(wifi_settings)
+    
+    structured_logger.log_event(
+        "settings.wifi.update",
+        user=current_user.username,
+        updates=updates
+    )
+    
+    return {
+        "ok": True,
+        "message": "WiFi settings updated successfully",
+        "settings": {
+            "ssid": wifi_settings.ssid,
+            "security_type": wifi_settings.security_type,
+            "enabled": wifi_settings.enabled,
+            "updated_at": wifi_settings.updated_at.isoformat() + "Z"
+        }
+    }
+
+@app.post("/admin/wifi/push-to-devices")
+async def push_wifi_to_devices(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Push WiFi credentials to selected devices via FCM.
+    Devices must support Android 10+ for cmd wifi connect-network command.
+    """
+    body = await request.json()
+    device_ids = body.get("device_ids", [])
+    
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="device_ids is required")
+    
+    wifi_settings = db.query(WiFiSettings).first()
+    if not wifi_settings or not wifi_settings.enabled:
+        raise HTTPException(status_code=400, detail="WiFi settings not configured or disabled")
+    
+    import httpx
+    
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    print(f"[WIFI-PUSH] Pushing WiFi credentials to {len(device_ids)} device(s)")
+    
+    results = []
+    
+    async with httpx.AsyncClient() as client:
+        for device_id in device_ids:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if not device:
+                results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
+                continue
+            
+            if not device.fcm_token:
+                results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
+                continue
+            
+            request_id = str(uuid.uuid4())
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(request_id, device_id, "wifi_connect", timestamp)
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "wifi_connect",
+                        "request_id": request_id,
+                        "device_id": device_id,
+                        "ts": timestamp,
+                        "hmac": hmac_signature,
+                        "ssid": wifi_settings.ssid,
+                        "password": wifi_settings.password,
+                        "security_type": wifi_settings.security_type
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+                
+                if response.status_code == 200:
+                    results.append({
+                        "device_id": device_id,
+                        "alias": device.alias,
+                        "ok": True,
+                        "message": "WiFi credentials sent successfully"
+                    })
+                    
+                    log_device_event(db, device_id, "wifi_push", {
+                        "ssid": wifi_settings.ssid,
+                        "security_type": wifi_settings.security_type
+                    })
+                    
+                    print(f"[WIFI-PUSH] ✓ Sent to {device.alias} ({device_id})")
+                else:
+                    results.append({
+                        "device_id": device_id,
+                        "alias": device.alias,
+                        "ok": False,
+                        "error": f"FCM error: {response.status_code}"
+                    })
+                    print(f"[WIFI-PUSH] ✗ Failed for {device.alias}: FCM {response.status_code}")
+            except Exception as e:
+                results.append({
+                    "device_id": device_id,
+                    "alias": device.alias,
+                    "ok": False,
+                    "error": str(e)
+                })
+                print(f"[WIFI-PUSH] ✗ Failed for {device.alias}: {str(e)}")
+    
+    success_count = sum(1 for r in results if r.get("ok"))
+    print(f"[WIFI-PUSH] Complete: {success_count}/{len(device_ids)} successful")
+    
+    structured_logger.log_event(
+        "wifi.push",
+        user=current_user.username,
+        total=len(device_ids),
+        success=success_count,
+        failed=len(device_ids) - success_count
+    )
+    
+    return {
+        "ok": True,
+        "ssid": wifi_settings.ssid,
+        "total": len(device_ids),
+        "success_count": success_count,
+        "failed_count": len(device_ids) - success_count,
+        "results": results
+    }
+
 @app.get("/admin/bloatware-list")
 async def get_bloatware_list(
     admin_key: str = Header(..., alias="X-Admin-Key"),
