@@ -479,6 +479,20 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                   </Button>
                 </div>
               )}
+              {!hasWiFiChanges && wifiSettings.enabled && wifiSettings.ssid && (
+                <div className="mt-4">
+                  <Button
+                    onClick={() => {
+                      onClose()
+                      router.push('/wifi-push')
+                    }}
+                    className="w-full"
+                    variant="default"
+                  >
+                    Push to Devices →
+                  </Button>
+                </div>
+              )}
             </section>
 
             {/* Display Preferences */}

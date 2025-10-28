@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutGrid, Package, Terminal, Monitor, Rocket, Gauge, ChevronLeft, Settings } from "lucide-react"
+import { LayoutGrid, Package, Terminal, Monitor, Rocket, Gauge, ChevronLeft, Settings, Wifi } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSettings } from "@/contexts/SettingsContext"
@@ -13,6 +13,7 @@ const navigation = [
   { name: "ADB Setup", href: "/adb-setup", icon: Terminal },
   { name: "Remote Control", href: "/remote-control", icon: Monitor },
   { name: "Launch App", href: "/launch-app", icon: Rocket },
+  { name: "WiFi Push", href: "/wifi-push", icon: Wifi },
   { name: "Optimization", href: "/device-optimization", icon: Gauge },
   { name: "Remote Execution", href: "/remote-execution", icon: Terminal },
 ]

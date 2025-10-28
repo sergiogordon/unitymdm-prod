@@ -305,7 +305,7 @@ export default function WiFiPushPage() {
       
       <main className="container mx-auto px-4 py-8 max-w-7xl">
         <PageHeader 
-          icon={Wifi}
+          icon={<Wifi className="h-8 w-8" />}
           title="WiFi Push"
           description="Push WiFi credentials to devices via FCM"
         />
