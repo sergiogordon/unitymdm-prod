@@ -20,6 +20,14 @@ interface MonitoringDefaults {
   updated_at: string | null
 }
 
+interface WiFiSettings {
+  ssid: string
+  password: string
+  security_type: string
+  enabled: boolean
+  updated_at: string | null
+}
+
 export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -38,6 +46,17 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  const [wifiSettings, setWifiSettings] = useState<WiFiSettings>({
+    ssid: "",
+    password: "",
+    security_type: "wpa2",
+    enabled: false,
+    updated_at: null
+  })
+  const [wifiSettingsOriginal, setWifiSettingsOriginal] = useState<WiFiSettings | null>(null)
+  const [isSavingWifi, setIsSavingWifi] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
@@ -46,6 +65,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
       document.addEventListener("keydown", handleEscape)
       document.body.style.overflow = "hidden"
       fetchMonitoringDefaults()
+      fetchWiFiSettings()
     }
     return () => {
       document.removeEventListener("keydown", handleEscape)
@@ -165,6 +185,92 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     }
   }, [monitoringDefaults])
 
+  const fetchWiFiSettings = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.warn('No auth token available for WiFi settings')
+        return
+      }
+      
+      const response = await fetch('/v1/settings/wifi', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setWifiSettings(data)
+        setWifiSettingsOriginal(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch WiFi settings:', error)
+    }
+  }
+
+  const handleSaveWiFiSettings = async () => {
+    setIsSavingWifi(true)
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        setIsSavingWifi(false)
+        return
+      }
+      
+      const response = await fetch('/v1/settings/wifi', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(wifiSettings)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setWifiSettings(data.settings)
+        setWifiSettingsOriginal(data.settings)
+        toast({
+          title: "Success",
+          description: "WiFi settings saved successfully"
+        })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to save WiFi settings",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save WiFi settings",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSavingWifi(false)
+    }
+  }
+
+  const handleCancelWiFiSettings = () => {
+    if (wifiSettingsOriginal) {
+      setWifiSettings(wifiSettingsOriginal)
+    }
+  }
+
+  const hasWiFiChanges = wifiSettingsOriginal && (
+    wifiSettings.ssid !== wifiSettingsOriginal.ssid ||
+    wifiSettings.password !== wifiSettingsOriginal.password ||
+    wifiSettings.security_type !== wifiSettingsOriginal.security_type ||
+    wifiSettings.enabled !== wifiSettingsOriginal.enabled
+  )
+
   const handleSendTestAlert = () => {
     setLastTestAlert(new Date().toLocaleString())
   }
@@ -278,6 +384,95 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                     variant="outline"
                     onClick={handleCancelMonitoringDefaults}
                     disabled={isSavingMonitoring}
+                    className="flex-1"
+                  >
+                    Discard
+                  </Button>
+                </div>
+              )}
+            </section>
+
+            {/* WiFi Configuration */}
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">WiFi Configuration</h3>
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Configure WiFi credentials to push to devices. Requires Android 10+ (cmd wifi connect-network).
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Network Name (SSID)</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="MyNetworkName"
+                    value={wifiSettings.ssid}
+                    onChange={(e) => setWifiSettings({ ...wifiSettings, ssid: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      className="w-full rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm"
+                      placeholder="••••••••"
+                      value={wifiSettings.password}
+                      onChange={(e) => setWifiSettings({ ...wifiSettings, password: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Security Type</label>
+                  <select 
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    value={wifiSettings.security_type}
+                    onChange={(e) => setWifiSettings({ ...wifiSettings, security_type: e.target.value })}
+                  >
+                    <option value="open">Open (No Password)</option>
+                    <option value="wep">WEP</option>
+                    <option value="wpa">WPA</option>
+                    <option value="wpa2">WPA2</option>
+                    <option value="wpa3">WPA3</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-muted-foreground">Enable WiFi Push</label>
+                  <button
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      wifiSettings.enabled ? 'bg-primary' : 'bg-muted'
+                    }`}
+                    onClick={() => setWifiSettings({ ...wifiSettings, enabled: !wifiSettings.enabled })}
+                  >
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-background transition-transform ${
+                        wifiSettings.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              {hasWiFiChanges && (
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    onClick={handleSaveWiFiSettings}
+                    disabled={isSavingWifi}
+                    className="flex-1"
+                  >
+                    {isSavingWifi ? "Saving..." : "Save WiFi Settings"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelWiFiSettings}
+                    disabled={isSavingWifi}
                     className="flex-1"
                   >
                     Discard
