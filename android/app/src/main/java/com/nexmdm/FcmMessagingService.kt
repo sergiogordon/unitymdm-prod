@@ -635,13 +635,27 @@ class FcmMessagingService : FirebaseMessagingService() {
     private fun handleWiFiConnect(data: Map<String, String>) {
         Log.d(TAG, "Handling WiFi connection request")
         
+        val prefs = SecurePreferences(this)
+        val deviceId = prefs.deviceId
+        
+        Log.i(TAG, "[WIFI-FLOW-1] Retrieved deviceId: ${if (deviceId.isEmpty()) "**EMPTY**" else deviceId}")
+        
         val ssid = data["ssid"] ?: run {
             Log.e(TAG, "Missing SSID in WiFi connection request")
+            sendWiFiConnectionAck(data["request_id"] ?: "", deviceId, "ERROR", "Missing SSID")
             return
         }
         val password = data["password"] ?: ""
         val securityType = data["security_type"] ?: "wpa2"
         val requestId = data["request_id"] ?: ""
+        
+        if (requestId.isEmpty()) {
+            Log.w(TAG, "[WIFI-FLOW-ABORT] request_id is empty, cannot send ACK")
+        }
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "[WIFI-FLOW-ABORT] deviceId is EMPTY, ACK will fail!")
+        }
         
         try {
             // Build the cmd wifi command based on security type
@@ -654,41 +668,63 @@ class FcmMessagingService : FirebaseMessagingService() {
                 else -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""
             }
             
-            Log.i(TAG, "Executing WiFi connection command for SSID: $ssid (security: $securityType)")
+            Log.i(TAG, "[WIFI-FLOW-2] Executing WiFi connection command for SSID: $ssid (security: $securityType)")
             
-            // Execute the command
+            // Execute the command with timeout
             val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-            val exitCode = process.waitFor()
+            
+            val outputReader = process.inputStream.bufferedReader()
+            val errorReader = process.errorStream.bufferedReader()
+            
+            val timeout = 10000L // 10 seconds
+            val finished = process.waitFor(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+            
+            if (!finished) {
+                process.destroy()
+                Log.e(TAG, "[WIFI-FLOW-TIMEOUT] Command exceeded 10 second timeout")
+                sendWiFiConnectionAck(requestId, deviceId, "TIMEOUT", "Command exceeded 10 second timeout")
+                return
+            }
+            
+            val exitCode = process.exitValue()
+            val stdout = outputReader.readText()
+            val stderr = errorReader.readText()
+            val combinedOutput = (stdout + stderr).trim()
+            
+            outputReader.close()
+            errorReader.close()
+            
+            Log.i(TAG, "[WIFI-FLOW-3] Command completed: exitCode=$exitCode, output='$combinedOutput'")
             
             if (exitCode == 0) {
                 Log.i(TAG, "✓ Successfully connected to WiFi: $ssid")
-                sendWiFiConnectionAck(requestId, "OK", "Connected to $ssid")
+                sendWiFiConnectionAck(requestId, deviceId, "OK", "Connected to $ssid")
             } else {
-                val errorOutput = process.errorStream.bufferedReader().readText()
-                Log.e(TAG, "✗ Failed to connect to WiFi: $errorOutput")
-                sendWiFiConnectionAck(requestId, "FAILED", "Connection failed: $errorOutput")
+                val errorMsg = if (combinedOutput.isNotEmpty()) combinedOutput else "Exit code $exitCode"
+                Log.e(TAG, "✗ Failed to connect to WiFi (exit=$exitCode): $errorMsg")
+                sendWiFiConnectionAck(requestId, deviceId, "FAILED", "Connection failed: $errorMsg")
             }
             
         } catch (e: Exception) {
             Log.e(TAG, "✗ Exception connecting to WiFi", e)
-            sendWiFiConnectionAck(requestId, "ERROR", "Exception: ${e.message}")
+            sendWiFiConnectionAck(requestId, deviceId, "ERROR", "Exception: ${e.message}")
         }
     }
     
-    private fun sendWiFiConnectionAck(requestId: String, status: String, message: String) {
+    private fun sendWiFiConnectionAck(requestId: String, deviceId: String, status: String, message: String) {
+        Log.i(TAG, "[WIFI-ACK-FLOW-1] sendWiFiConnectionAck called: requestId=$requestId, deviceId=${if (deviceId.isEmpty()) "**EMPTY**" else deviceId}, status=$status")
+        
         if (requestId.isEmpty()) {
-            Log.w(TAG, "Cannot send WiFi ACK - missing request_id")
+            Log.w(TAG, "[WIFI-ACK-ABORT] Cannot send WiFi ACK - missing request_id")
+            return
+        }
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "[WIFI-ACK-ABORT] Cannot send WiFi ACK - deviceId is EMPTY!")
             return
         }
         
         val prefs = SecurePreferences(this)
-        val deviceId = prefs.deviceId
-        
-        if (deviceId.isEmpty()) {
-            Log.e(TAG, "Cannot send WiFi ACK - deviceId is EMPTY")
-            return
-        }
-        
         val queueManager = QueueManager(this, prefs)
         
         CoroutineScope(Dispatchers.IO).launch {
@@ -700,10 +736,13 @@ class FcmMessagingService : FirebaseMessagingService() {
                     "message" to message
                 ))
                 
+                Log.i(TAG, "[WIFI-ACK-FLOW-2] ACK payload created: $ackPayload")
+                
                 queueManager.enqueueActionResult(ackPayload)
-                Log.i(TAG, "[WIFI-ACK] Queued acknowledgment: $status - $message")
+                
+                Log.i(TAG, "[WIFI-ACK-FLOW-3] Successfully queued WIFI_CONNECT_ACK: status=$status, requestId=$requestId")
             } catch (e: Exception) {
-                Log.e(TAG, "[WIFI-ACK] Failed to queue acknowledgment", e)
+                Log.e(TAG, "[WIFI-ACK-ERROR] Failed to queue acknowledgment", e)
             }
         }
     }
