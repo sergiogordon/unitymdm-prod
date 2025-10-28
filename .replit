@@ -91,6 +91,10 @@ externalPort = 3003
 localPort = 44193
 externalPort = 5173
 
+[[ports]]
+localPort = 46281
+externalPort = 8008
+
 [deployment]
 deploymentTarget = "autoscale"
 run = ["python", "-m", "uvicorn", "server.main:app", "--host=0.0.0.0", "--port=5000"]

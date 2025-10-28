@@ -6,6 +6,7 @@ import { Toaster } from "sonner"
 import "./globals.css"
 import { ConditionalSidebar } from "@/components/conditional-sidebar"
 import { ThemeProvider } from "@/contexts/ThemeContext"
+import { SettingsProvider } from "@/contexts/SettingsContext"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -25,9 +26,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans antialiased`}>
         <ThemeProvider>
-          <ConditionalSidebar>
-            {children}
-          </ConditionalSidebar>
+          <SettingsProvider>
+            <ConditionalSidebar>
+              {children}
+            </ConditionalSidebar>
+          </SettingsProvider>
           <Toaster richColors position="top-right" />
           <Analytics />
         </ThemeProvider>
