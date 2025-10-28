@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import { isAuthenticated } from "@/lib/api-client"
+import { useSettings } from "@/contexts/SettingsContext"
 
 interface Device {
   id: string
@@ -39,6 +40,7 @@ interface WiFiSettings {
 export default function WiFiPushPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { openSettings } = useSettings()
   const [authChecked, setAuthChecked] = useState(false)
   
   const [scopeType, setScopeType] = useState<"all" | "filter" | "specific">("all")
@@ -206,10 +208,10 @@ export default function WiFiPushPage() {
   }
 
   const handlePushWiFi = async () => {
-    if (!wifiSettings || !wifiSettings.enabled) {
+    if (!wifiSettings || !wifiSettings.ssid) {
       toast({
         title: "Error",
-        description: "WiFi settings not configured or disabled",
+        description: "WiFi settings not configured",
         variant: "destructive"
       })
       return
@@ -303,7 +305,7 @@ export default function WiFiPushPage() {
     <div className="min-h-screen bg-background">
       <Header />
       
-      <main className="container mx-auto px-4 py-8 max-w-7xl">
+      <main className="container mx-auto px-4 py-8 mt-16 max-w-7xl">
         <PageHeader 
           icon={<Wifi className="h-8 w-8" />}
           title="WiFi Push"
@@ -316,12 +318,12 @@ export default function WiFiPushPage() {
               <div className="text-center text-muted-foreground">Loading WiFi settings...</div>
             </CardContent>
           </Card>
-        ) : !wifiSettings || !wifiSettings.enabled ? (
+        ) : !wifiSettings || !wifiSettings.ssid ? (
           <Card>
             <CardContent className="py-8">
               <div className="text-center space-y-4">
-                <p className="text-muted-foreground">WiFi settings not configured or disabled</p>
-                <Button onClick={() => router.push('/')}>
+                <p className="text-muted-foreground">WiFi settings not configured</p>
+                <Button onClick={openSettings}>
                   Configure WiFi Settings
                 </Button>
               </div>
