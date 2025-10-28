@@ -193,7 +193,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
         return
       }
       
-      const response = await fetch('/v1/settings/wifi', {
+      const response = await fetch('/api/proxy/v1/settings/wifi', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -222,7 +222,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
         return
       }
       
-      const response = await fetch('/v1/settings/wifi', {
+      const response = await fetch('/api/proxy/v1/settings/wifi', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
