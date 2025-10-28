@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { handleBackendError, handleProxyError } from '@/lib/api-error-handler'
 
 const BACKEND_URL = 'http://localhost:8000'
 
@@ -28,20 +29,12 @@ export async function DELETE(
     })
     
     if (!response.ok) {
-      const error = await response.json()
-      return NextResponse.json(
-        { error: error.detail || 'Failed to delete device' },
-        { status: response.status }
-      )
+      return handleBackendError(response, 'Failed to delete device')
     }
     
     const data = await response.json()
     return NextResponse.json(data)
   } catch (error) {
-    console.error('Error deleting device:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete device' },
-      { status: 500 }
-    )
+    return handleProxyError(error, 'Failed to delete device')
   }
 }
