@@ -115,6 +115,9 @@ class FcmMessagingService : FirebaseMessagingService() {
             "set_dnd" -> {
                 handleSetDndRequest(message.data)
             }
+            "wifi_connect" -> {
+                handleWiFiConnect(message.data)
+            }
             else -> {
                 Log.w(TAG, "Unknown action: $action")
             }
@@ -625,6 +628,82 @@ class FcmMessagingService : FirebaseMessagingService() {
                 Log.i(TAG, "[ACK-FLOW-4] Successfully queued LAUNCH_APP_ACK: status=$status, correlationId=$correlationId")
             } catch (e: Exception) {
                 Log.e(TAG, "[ACK-FLOW-ERROR] Failed to queue LAUNCH_APP_ACK", e)
+            }
+        }
+    }
+    
+    private fun handleWiFiConnect(data: Map<String, String>) {
+        Log.d(TAG, "Handling WiFi connection request")
+        
+        val ssid = data["ssid"] ?: run {
+            Log.e(TAG, "Missing SSID in WiFi connection request")
+            return
+        }
+        val password = data["password"] ?: ""
+        val securityType = data["security_type"] ?: "wpa2"
+        val requestId = data["request_id"] ?: ""
+        
+        try {
+            // Build the cmd wifi command based on security type
+            val command = when (securityType) {
+                "open" -> "cmd wifi connect-network \"$ssid\" open"
+                "wep" -> "cmd wifi connect-network \"$ssid\" wep \"$password\""
+                "wpa" -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""  // WPA uses wpa2 command
+                "wpa2" -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""
+                "wpa3" -> "cmd wifi connect-network \"$ssid\" wpa3 \"$password\""
+                else -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""
+            }
+            
+            Log.i(TAG, "Executing WiFi connection command for SSID: $ssid (security: $securityType)")
+            
+            // Execute the command
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            val exitCode = process.waitFor()
+            
+            if (exitCode == 0) {
+                Log.i(TAG, "✓ Successfully connected to WiFi: $ssid")
+                sendWiFiConnectionAck(requestId, "OK", "Connected to $ssid")
+            } else {
+                val errorOutput = process.errorStream.bufferedReader().readText()
+                Log.e(TAG, "✗ Failed to connect to WiFi: $errorOutput")
+                sendWiFiConnectionAck(requestId, "FAILED", "Connection failed: $errorOutput")
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Exception connecting to WiFi", e)
+            sendWiFiConnectionAck(requestId, "ERROR", "Exception: ${e.message}")
+        }
+    }
+    
+    private fun sendWiFiConnectionAck(requestId: String, status: String, message: String) {
+        if (requestId.isEmpty()) {
+            Log.w(TAG, "Cannot send WiFi ACK - missing request_id")
+            return
+        }
+        
+        val prefs = SecurePreferences(this)
+        val deviceId = prefs.deviceId
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "Cannot send WiFi ACK - deviceId is EMPTY")
+            return
+        }
+        
+        val queueManager = QueueManager(this, prefs)
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val ackPayload = gson.toJson(mapOf(
+                    "request_id" to requestId,
+                    "type" to "WIFI_CONNECT_ACK",
+                    "status" to status,
+                    "message" to message
+                ))
+                
+                queueManager.enqueueActionResult(ackPayload)
+                Log.i(TAG, "[WIFI-ACK] Queued acknowledgment: $status - $message")
+            } catch (e: Exception) {
+                Log.e(TAG, "[WIFI-ACK] Failed to queue acknowledgment", e)
             }
         }
     }
