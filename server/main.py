@@ -2691,7 +2691,7 @@ async def update_monitoring_defaults(
         "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 
-@app.get("/admin/settings/wifi")
+@app.get("/v1/settings/wifi")
 async def get_wifi_settings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2730,7 +2730,7 @@ class UpdateWiFiSettingsRequest(BaseModel):
     security_type: Optional[str] = None
     enabled: Optional[bool] = None
 
-@app.post("/admin/settings/wifi")
+@app.post("/v1/settings/wifi")
 async def update_wifi_settings(
     request: UpdateWiFiSettingsRequest,
     current_user: User = Depends(get_current_user),
@@ -2801,7 +2801,7 @@ async def update_wifi_settings(
         }
     }
 
-@app.post("/admin/wifi/push-to-devices")
+@app.post("/v1/wifi/push-to-devices")
 async def push_wifi_to_devices(
     request: Request,
     current_user: User = Depends(get_current_user),
