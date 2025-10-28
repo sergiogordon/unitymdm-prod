@@ -2385,12 +2385,32 @@ async def bulk_delete_devices_legacy(
 ):
     """
     Legacy bulk delete endpoint (deprecated - use /admin/devices/bulk-delete).
+    Maintained for backward compatibility. Redirects to the new implementation.
     """
     body = await request.json()
     device_ids = body.get("device_ids", [])
     
     if not device_ids:
         raise HTTPException(status_code=400, detail="No device IDs provided")
+    
+    # Rate limiting: 10 bulk delete operations per minute per user
+    rate_key = f"bulk_delete:{user.username if user else 'anonymous'}"
+    allowed, remaining = rate_limiter.check_rate_limit(
+        key=rate_key,
+        max_requests=10,
+        window_minutes=1
+    )
+    
+    if not allowed:
+        structured_logger.log_event(
+            "bulk_delete.rate_limited",
+            level="WARN",
+            username=user.username if user else "anonymous"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 10 bulk delete operations per minute."
+        )
     
     result = bulk_delete.bulk_delete_devices(
         db=db,
