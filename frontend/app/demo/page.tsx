@@ -12,7 +12,14 @@ import { AlertsDialog } from "@/components/alerts-dialog"
 import { Button } from "@/components/ui/button"
 import { DemoApiService } from "@/lib/demoApiService"
 import { toast } from "sonner"
-import type { Device, FilterType, MetricsResponse } from "@/lib/api"
+import type { Device, FilterType } from "@/lib/mock-data"
+
+interface MetricsResponse {
+  total: number
+  online: number
+  offline: number
+  low_battery: number
+}
 import { useTheme } from "@/contexts/ThemeContext"
 
 export const dynamic = 'force-dynamic'
