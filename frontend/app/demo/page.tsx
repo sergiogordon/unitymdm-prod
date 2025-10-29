@@ -15,6 +15,8 @@ import { toast } from "sonner"
 import type { Device, FilterType, MetricsResponse } from "@/lib/api"
 import { useTheme } from "@/contexts/ThemeContext"
 
+export const dynamic = 'force-dynamic'
+
 export default function DemoDashboard() {
   const { isDark, toggleTheme } = useTheme()
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)

@@ -6,6 +6,23 @@ set -e
 
 echo "🚀 Starting NexMDM Production Server..."
 
+# Prepare Next.js standalone build (copy static assets)
+echo "📦 Preparing Next.js standalone build..."
+if [ -d "frontend/.next/standalone" ]; then
+  # Copy static files to standalone directory
+  if [ -d "frontend/.next/static" ]; then
+    cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
+  fi
+  # Copy public files if they exist
+  if [ -d "frontend/public" ]; then
+    cp -r frontend/public frontend/.next/standalone/frontend/public
+  fi
+  echo "✅ Static assets prepared"
+else
+  echo "⚠️  Warning: Next.js standalone build not found. Building now..."
+  cd frontend && npm run build && cd ..
+fi
+
 # Start FastAPI backend on port 8000 in the background
 echo "📡 Starting FastAPI backend on port 8000..."
 cd server
@@ -30,11 +47,13 @@ done
 
 # Start Next.js frontend on port 5000
 echo "🌐 Starting Next.js frontend on port 5000..."
-cd frontend
+cd frontend/.next/standalone/frontend
 export BACKEND_URL=http://localhost:8000
-node .next/standalone/frontend/server.js &
+export PORT=5000
+export HOSTNAME=0.0.0.0
+node server.js &
 FRONTEND_PID=$!
-cd ..
+cd ../../../..
 
 echo "✨ NexMDM is now running!"
 echo "   Frontend: http://0.0.0.0:5000"
