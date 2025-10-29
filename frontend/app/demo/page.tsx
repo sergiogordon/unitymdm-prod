@@ -111,7 +111,8 @@ export default function DemoDashboard() {
           total={metrics.total} 
           online={metrics.online} 
           offline={metrics.offline} 
-          low_battery={metrics.low_battery} 
+          alerts={metrics.low_battery}
+          devices={devices}
         />
 
         <div className="space-y-6">
