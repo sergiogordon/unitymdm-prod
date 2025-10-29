@@ -93,7 +93,8 @@ externalPort = 5173
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["python", "-m", "uvicorn", "server.main:app", "--host=0.0.0.0", "--port=5000"]
+run = ["sh", "-c", "./start-production.sh"]
+build = ["sh", "-c", "cd frontend && npm install && npm run build"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"
