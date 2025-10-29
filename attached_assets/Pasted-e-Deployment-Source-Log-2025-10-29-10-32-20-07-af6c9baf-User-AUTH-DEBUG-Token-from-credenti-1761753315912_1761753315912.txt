@@ -1,0 +1,140 @@
+e
+Deployment
+Source
+Log
+2025-10-29 10:32:20.07
+af6c9baf
+User
+[AUTH DEBUG] Token from credentials: eyJhbGciOiJIUzI1NiIs...
+2025-10-29 10:47:29.58
+c93b41b4
+User
+📊 Configuration Summary:
+2025-10-29 10:47:29.58
+c93b41b4
+User
+• Admin Key: ✓ Set
+2025-10-29 10:47:29.58
+c93b41b4
+User
+• Firebase: ✓ JSON Secret (secure)
+2025-10-29 10:47:29.58
+c93b41b4
+User
+• Server URL: https://unitymdm.replit.app/
+2025-10-29 10:47:29.58
+c93b41b4
+User
+• Discord Alerts: ✓ Enabled
+2025-10-29 10:47:29.58
+c93b41b4
+User
+• Database: postgresql://neondb_owner:npg_Rmpn5OqlT2LN@ep-divi...
+2025-10-29 10:47:29.58
+c93b41b4
+User
+================================================================================
+2025-10-29 10:47:29.58
+c93b41b4
+User
+2025-10-29 10:47:29.58
+c93b41b4
+User
+2025-10-29 10:47:29.58
+c93b41b4
+User
+============================================================
+2025-10-29 10:47:29.58
+c93b41b4
+User
+NexMDM Configuration
+2025-10-29 10:47:29.58
+c93b41b4
+User
+============================================================
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Environment: Production
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Server URL: https://unitymdm.replit.app/
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Admin Key: ✓ Set
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Database: postgresql://neondb_owner:npg_Rmpn5OqlT2LN@ep-divine-bush-ahp6nejg.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Status: ✓ All required configuration present
+2025-10-29 10:47:29.58
+c93b41b4
+User
+============================================================
+2025-10-29 10:47:29.58
+c93b41b4
+User
+2025-10-29 10:47:29.58
+c93b41b4
+User
+INFO: 127.0.0.1:44122 - "GET /healthz HTTP/1.1" 200 OK
+2025-10-29 10:47:29.58
+c93b41b4
+User
+✅ Backend is ready!
+2025-10-29 10:47:29.58
+c93b41b4
+User
+🌐 Starting Next.js frontend on port 5000...
+2025-10-29 10:47:29.58
+c93b41b4
+User
+✨ NexMDM is now running!
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Frontend: http://0.0.0.0:5000
+2025-10-29 10:47:29.58
+c93b41b4
+User
+Backend: http://0.0.0.0:8000
+2025-10-29 10:47:30.28
+c93b41b4
+User
+▲ Next.js 15.5.4
+2025-10-29 10:47:30.28
+c93b41b4
+User
+- Local: http://localhost:5000
+2025-10-29 10:47:30.28
+c93b41b4
+User
+- Network: http://0.0.0.0:5000
+2025-10-29 10:47:30.28
+c93b41b4
+User
+2025-10-29 10:47:30.28
+c93b41b4
+User
+✓ Starting...
+2025-10-29 10:47:30.75
+c93b41b4
+User
+✓ Ready in 479ms
+2025-10-29 10:48:01.80
+af6c9baf
+User
+{"ts": "2025-10-29T15:48:01.802780+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.start"}
+2025-10-29 10:48:02.00
+af6c9baf
+User
+{"ts": "2025-10-29T15:48:02.006464+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.end", "devices_checked": 0, "alerts_found": 0, "latency_ms": 203.663}
+2025-10-29 10:48:02.03
+af6c9baf
+User
+{"ts": "2025-10-29T15:48:02.036156+00:00", "request_id": null, "level": 

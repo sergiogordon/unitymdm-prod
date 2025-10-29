@@ -53,7 +53,7 @@ class Config:
             if domains:
                 # REPLIT_DOMAINS is comma-separated, take the first one
                 domain = domains.split(",")[0].strip()
-                self._server_url = f"https://{domain}"
+                self._server_url = self._normalize_url(domain)
                 print(f"[CONFIG] Production mode detected, using: {self._server_url}")
             else:
                 print("[CONFIG] WARNING: Production mode but no REPLIT_DOMAINS found")
@@ -73,25 +73,26 @@ class Config:
     @staticmethod
     def _normalize_url(url: str) -> str:
         """
-        Normalize URL to ensure it has a protocol prefix.
+        Normalize URL to ensure it has a protocol prefix and no trailing slash.
         
         Args:
             url: URL that may or may not have a protocol
             
         Returns:
-            str: URL with https:// prefix (or http:// for localhost)
+            str: URL with https:// prefix (or http:// for localhost), without trailing slash
         """
         url = url.strip()
         
         # Already has protocol
         if url.startswith("http://") or url.startswith("https://"):
-            return url
+            # Strip trailing slash
+            return url.rstrip("/")
         
         # Use http for localhost, https for everything else
         if "localhost" in url or url.startswith("127.0.0.1"):
-            return f"http://{url}"
+            return f"http://{url}".rstrip("/")
         else:
-            return f"https://{url}"
+            return f"https://{url}".rstrip("/")
     
     def get_admin_key(self) -> Optional[str]:
         """Get the admin API key from environment"""
