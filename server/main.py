@@ -41,6 +41,7 @@ from purge_jobs import purge_manager
 from rate_limiter import rate_limiter
 from monitoring_defaults_cache import monitoring_defaults_cache
 from apk_download_service import download_apk_optimized, get_cache_statistics
+from config import config
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -469,13 +470,16 @@ def validate_configuration():
             )
     
     # Check SERVER_URL (helpful for enrollment)
-    server_url = os.getenv("SERVER_URL")
-    if not server_url:
-        warnings.append(
-            "⚠️  SERVER_URL is not set (device enrollment will not work)\n"
-            "   Set this to your Replit app URL (e.g., https://your-app.repl.co)\n"
-            "   You can find this in your Webview window after starting the app."
-        )
+    try:
+        server_url = config.server_url
+        if not server_url or server_url == "http://localhost:5000":
+            warnings.append(
+                "⚠️  SERVER_URL could not be auto-detected\n"
+                "   Set SERVER_URL manually in Secrets (e.g., https://your-app.repl.co)\n"
+                "   Or ensure REPLIT_DOMAINS (production) or REPLIT_DEV_DOMAIN (dev) are available."
+            )
+    except Exception as e:
+        warnings.append(f"⚠️  Error detecting SERVER_URL: {str(e)}")
     
     # Check optional Discord webhook
     discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
@@ -523,6 +527,9 @@ def validate_configuration():
     print(f"   • Discord Alerts: {'✓ Enabled' if discord_webhook else 'ℹ️  Disabled (console only)'}")
     print(f"   • Database: {os.getenv('DATABASE_URL', 'sqlite:///./data.db')[:50]}...")
     print("="*80 + "\n")
+    
+    # Print detailed config summary
+    config.print_config_summary()
 
 @app.on_event("startup")
 async def startup_event():
@@ -4720,9 +4727,7 @@ async def get_windows_enroll_script(
     from models import EnrollmentEvent
     
     # Get server configuration
-    server_url = os.getenv("SERVER_URL", "")
-    if not server_url:
-        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
+    server_url = config.server_url
     
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key:
@@ -5059,9 +5064,7 @@ async def get_bash_enroll_script(
     from models import EnrollmentEvent
     
     # Get server configuration
-    server_url = os.getenv("SERVER_URL", "")
-    if not server_url:
-        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
+    server_url = config.server_url
     
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key:
@@ -5375,9 +5378,7 @@ async def get_windows_one_liner_script(
     from models import EnrollmentEvent
     
     # Get server configuration
-    server_url = os.getenv("SERVER_URL", "")
-    if not server_url:
-        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
+    server_url = config.server_url
     
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key:
@@ -5439,9 +5440,7 @@ async def get_bash_one_liner_script(
     from models import EnrollmentEvent
     
     # Get server configuration
-    server_url = os.getenv("SERVER_URL", "")
-    if not server_url:
-        raise HTTPException(status_code=500, detail="SERVER_URL environment variable not set")
+    server_url = config.server_url
     
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key:
@@ -5522,9 +5521,7 @@ async def upload_apk(
         notes=notes
     )
     
-    base_url = os.getenv("SERVER_URL", "")
-    if not base_url:
-        base_url = "http://localhost:8000"
+    base_url = config.server_url
     
     return {
         "id": apk_version.id,
@@ -5548,9 +5545,7 @@ async def list_apks(
     
     apks = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).all()
     
-    base_url = os.getenv("SERVER_URL", "")
-    if not base_url:
-        base_url = "http://localhost:8000"
+    base_url = config.server_url
     
     result = []
     for apk in apks:
@@ -5883,9 +5878,7 @@ async def deploy_apk_to_devices(
     if not devices:
         raise HTTPException(status_code=400, detail="No devices found")
     
-    base_url = os.getenv("SERVER_URL", "")
-    if not base_url:
-        base_url = "http://localhost:8000"
+    base_url = config.server_url
     
     download_url = get_apk_download_url(apk, base_url)
     
@@ -6169,9 +6162,7 @@ async def agent_update_check(
     
     increment_deployment_stat(db, current_build.id, "total_eligible")
     
-    base_url = os.getenv("SERVER_URL", "")
-    if not base_url:
-        base_url = "http://localhost:8000"
+    base_url = config.server_url
     
     download_url = f"{base_url}/v1/apk/download/{current_build.id}"
     
