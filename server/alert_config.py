@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from config import config
 
 class AlertConfig:
     def __init__(self):
@@ -11,6 +12,6 @@ class AlertConfig:
         self.ALERTS_ENABLE_AUTOREMEDIATION = os.getenv("ALERTS_ENABLE_AUTOREMEDIATION", "false").lower() == "true"
         self.UNITY_DOWN_REQUIRE_CONSECUTIVE = os.getenv("UNITY_DOWN_REQUIRE_CONSECUTIVE", "false").lower() == "true"
         self.DISCORD_WEBHOOK_URL: Optional[str] = os.getenv("DISCORD_WEBHOOK_URL")
-        self.DASHBOARD_BASE_URL = os.getenv("SERVER_URL", "http://localhost:5000")
+        self.DASHBOARD_BASE_URL = config.server_url
 
 alert_config = AlertConfig()

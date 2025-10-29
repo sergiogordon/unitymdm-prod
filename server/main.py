@@ -1348,7 +1348,7 @@ async def request_password_reset(
         
         # Send reset email asynchronously
         try:
-            base_url = os.getenv("BASE_URL", "http://localhost:3000")
+            base_url = config.server_url
             await email_service.send_password_reset_email(
                 to_email=user.email,
                 reset_token=reset_token,
