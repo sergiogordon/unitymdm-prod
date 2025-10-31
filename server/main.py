@@ -7426,10 +7426,12 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
         r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
         r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
         r'^cmd\s+package\s+(list|resolve-activity)\s+[A-Za-z0-9._\s-]*$',  # More restrictive
+        r'^cmd\s+jobscheduler\s+run\s+(-f\s+)?[A-Za-z0-9._/]+\s+[0-9]+$',  # For triggering system update services
         r'^settings\s+(get|put)\s+(secure|system|global)\s+[A-Za-z0-9._]+(\s+[A-Za-z0-9._]+)?$',  # More restrictive
         r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
         r'^svc\s+(wifi|data)\s+(enable|disable)$',
         r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
+        r'^getprop\s+[A-Za-z0-9._]+$',  # For reading system properties (OS version, security patch)
     ]
     
     for pattern in allow_patterns:
