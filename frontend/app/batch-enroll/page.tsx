@@ -19,9 +19,28 @@ export default function BatchEnrollPage() {
       setServerUrl(window.location.origin.replace('5000', '8000'))
     }
     
-    // Fetch last alias info
+    // Fetch admin key and last alias info
+    fetchAdminKey()
     fetchLastAlias()
   }, [])
+
+  const fetchAdminKey = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch('/api/proxy/admin/config/admin-key', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setAdminKey(data.admin_key)
+      }
+    } catch (error) {
+      console.error('Failed to fetch admin key:', error)
+    }
+  }
 
   const fetchLastAlias = async () => {
     setLoading(true)
@@ -304,12 +323,6 @@ pause`
               <strong>Factory Reset:</strong> Devices must be factory reset (no accounts) for Device Owner mode
             </div>
           </div>
-          <div className="flex items-start gap-2">
-            <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-            <div>
-              <strong>Admin Key:</strong> Add your admin key to the script before running
-            </div>
-          </div>
         </div>
       </Card>
 
@@ -348,10 +361,7 @@ pause`
         <h2 className="text-xl font-semibold mb-4">Usage Instructions</h2>
         <ol className="space-y-3 text-sm list-decimal ml-6">
           <li>
-            <strong>Download the script</strong> using the button above
-          </li>
-          <li>
-            <strong>Edit the script</strong> and replace <code className="bg-muted px-1 py-0.5 rounded">YOUR_ADMIN_KEY_HERE</code> with your actual admin key
+            <strong>Download the script</strong> using the button above (admin key is pre-configured)
           </li>
           <li>
             <strong>Connect devices</strong> via USB and enable USB Debugging
