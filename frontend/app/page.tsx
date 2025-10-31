@@ -150,7 +150,12 @@ export default function Page() {
         />
       </main>
 
-      <DeviceDrawer device={selectedDevice} isOpen={!!selectedDevice} onClose={() => setSelectedDevice(null)} />
+      <DeviceDrawer 
+        device={selectedDevice} 
+        isOpen={!!selectedDevice} 
+        onClose={() => setSelectedDevice(null)}
+        onDeviceUpdated={handleRefresh}
+      />
     </div>
   )
 }

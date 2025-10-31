@@ -11,9 +11,10 @@ interface DeviceDrawerProps {
   device: Device | null
   isOpen: boolean
   onClose: () => void
+  onDeviceUpdated?: () => void
 }
 
-export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
+export function DeviceDrawer({ device, isOpen, onClose, onDeviceUpdated }: DeviceDrawerProps) {
   const { toast } = useToast()
   const [isEditing, setIsEditing] = useState(false)
   const [editedAlias, setEditedAlias] = useState("")
@@ -31,7 +32,8 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (isEditing) {
-          handleCancelEdit()
+          setEditedAlias(device?.alias || "")
+          setIsEditing(false)
         } else {
           onClose()
         }
@@ -45,7 +47,7 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
       document.removeEventListener("keydown", handleEscape)
       document.body.style.overflow = "unset"
     }
-  }, [isOpen, onClose, isEditing])
+  }, [isOpen, onClose, isEditing, device?.alias])
 
   const handleStartEdit = () => {
     setEditedAlias(device?.alias || "")
@@ -74,7 +76,7 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
 
     setIsSaving(true)
     try {
-      const response = await fetch(`/v1/devices/${device.id}/alias`, {
+      const response = await fetch(`/api/proxy/v1/devices/${device.id}/alias`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -87,15 +89,17 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
         throw new Error(error.error || "Failed to update alias")
       }
 
-      // Update local device object
-      device.alias = editedAlias.trim()
-      
       toast({
         title: "Success",
         description: "Device alias updated successfully",
       })
       
       setIsEditing(false)
+      
+      // Notify parent to refresh the device list
+      if (onDeviceUpdated) {
+        onDeviceUpdated()
+      }
     } catch (error) {
       toast({
         title: "Error",
