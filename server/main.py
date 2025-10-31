@@ -2307,6 +2307,43 @@ async def get_admin_devices(
     
     return result
 
+@app.get("/admin/devices/last-alias")
+async def get_last_alias(
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the highest D# alias number for batch enrollment continuity.
+    Returns the next available alias number.
+    Requires admin key authentication.
+    """
+    if not verify_admin_key(x_admin_key or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+    
+    # Get all devices
+    devices = db.query(Device).all()
+    
+    # Find highest D# alias
+    max_num = 0
+    for device in devices:
+        if device.alias and device.alias.startswith("D"):
+            try:
+                # Extract number from D## format
+                num_str = device.alias[1:]  # Remove 'D'
+                num = int(num_str)
+                if num > max_num:
+                    max_num = num
+            except ValueError:
+                # Skip aliases that don't match D## pattern
+                continue
+    
+    return {
+        "last_alias": f"D{max_num:02d}" if max_num > 0 else None,
+        "last_number": max_num,
+        "next_alias": f"D{(max_num + 1):02d}",
+        "next_number": max_num + 1
+    }
+
 @app.post("/admin/devices/selection")
 async def create_selection(
     request: Request,
