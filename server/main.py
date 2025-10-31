@@ -7411,34 +7411,113 @@ async def download_apk_optimized_endpoint(
         use_cache=True
     )
 
-def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
+def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
     """
-    Validate shell command against allow-list.
+    Validate a single shell command (without && chaining).
     Returns (is_valid, error_message)
     """
     import re
+    import shlex
     
-    command = command.strip()
-    if not command:
+    cmd = cmd.strip()
+    if not cmd:
         return False, "Command is empty"
     
+    # Tokenize the command safely
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False, "Invalid command syntax"
+    
+    if not tokens:
+        return False, "Command is empty"
+    
+    # Special handling for cmd jobscheduler (token-based validation)
+    if len(tokens) >= 4 and tokens[0] == "cmd" and tokens[1] == "jobscheduler" and tokens[2] == "run":
+        # Extract tokens after "cmd jobscheduler run"
+        remaining = tokens[3:]
+        
+        # Check for -f flag
+        has_f_flag = False
+        if remaining and remaining[0] == "-f":
+            has_f_flag = True
+            remaining = remaining[1:]
+        
+        # Must have at least service and job_id
+        if len(remaining) < 2:
+            return False, "Invalid jobscheduler command format"
+        
+        service_name = remaining[0]
+        job_id = remaining[1]
+        
+        # Verify no extra arguments
+        if len(remaining) > 2:
+            return False, "Unexpected arguments in jobscheduler command"
+        
+        # Validate service name (only SystemUpdateService allowed)
+        if service_name != "android/com.android.server.update.SystemUpdateService":
+            return False, "Only SystemUpdateService is allowed for jobscheduler"
+        
+        # Validate job_id is numeric
+        if not job_id.isdigit():
+            return False, "Job ID must be numeric"
+        
+        return True, None
+    
+    # Special handling for getprop (token-based validation)
+    if len(tokens) == 2 and tokens[0] == "getprop":
+        allowed_props = ["ro.build.version.release", "ro.build.version.security_patch"]
+        if tokens[1] in allowed_props:
+            return True, None
+        return False, f"Only {', '.join(allowed_props)} are allowed for getprop"
+    
+    # Regex-based validation for other commands
     allow_patterns = [
         r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
         r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
         r'^cmd\s+package\s+(list|resolve-activity)\s+[A-Za-z0-9._\s-]*$',  # More restrictive
-        r'^cmd\s+jobscheduler\s+run\s+(-f\s+)?[A-Za-z0-9._/]+\s+[0-9]+$',  # For triggering system update services
         r'^settings\s+(get|put)\s+(secure|system|global)\s+[A-Za-z0-9._]+(\s+[A-Za-z0-9._]+)?$',  # More restrictive
         r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
         r'^svc\s+(wifi|data)\s+(enable|disable)$',
         r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
-        r'^getprop\s+[A-Za-z0-9._]+$',  # For reading system properties (OS version, security patch)
     ]
     
     for pattern in allow_patterns:
-        if re.match(pattern, command):
+        if re.match(pattern, cmd):
             return True, None
     
     return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
+
+def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate shell command against allow-list, supporting && chaining.
+    Returns (is_valid, error_message)
+    """
+    command = command.strip()
+    if not command:
+        return False, "Command is empty"
+    
+    # Detect dangerous shell metacharacters (but allow &&)
+    # Block: |, ;, >, <, `, $, newlines, and single & (but allow &&)
+    dangerous_chars = ['|', ';', '>', '<', '`', '$', '\n', '\r']
+    if any(char in command for char in dangerous_chars):
+        return False, "Dangerous shell metacharacters not allowed"
+    
+    # Check for single & (not &&) - this prevents & for backgrounding
+    if '&' in command and '&&' not in command:
+        return False, "Single & not allowed (only && for chaining)"
+    
+    # If command contains &&, split and validate each subcommand
+    if '&&' in command:
+        subcommands = command.split('&&')
+        for i, subcmd in enumerate(subcommands):
+            is_valid, error_msg = validate_single_command(subcmd)
+            if not is_valid:
+                return False, f"Subcommand {i+1} failed validation: {error_msg}"
+        return True, None
+    else:
+        # Single command, validate directly
+        return validate_single_command(command)
 
 @app.post("/v1/remote-exec")
 async def create_remote_exec(
