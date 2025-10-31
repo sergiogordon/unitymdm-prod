@@ -125,6 +125,34 @@ async def exception_guard_middleware(request: Request, call_next):
             }
         )
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """
+    Add security headers to all responses for defense-in-depth protection.
+    
+    Headers added:
+    - X-Content-Type-Options: Prevents MIME-type sniffing
+    - X-Frame-Options: Protects against clickjacking
+    - X-XSS-Protection: Enables browser XSS filter
+    - Strict-Transport-Security: Enforces HTTPS (production only)
+    """
+    response = await call_next(request)
+    
+    # Prevent MIME-type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    # Prevent clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+    
+    # Enable XSS filter in older browsers
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    
+    # Enforce HTTPS in production (only when deployed)
+    if config.is_production:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    return response
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
