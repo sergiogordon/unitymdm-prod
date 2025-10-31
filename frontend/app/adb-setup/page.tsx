@@ -113,7 +113,7 @@ function ADBSetupContent() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 max-w-md">
             <div className="space-y-2">
               <Label>Windows (Command Prompt)</Label>
               <Button
@@ -136,7 +136,8 @@ function ADBSetupContent() {
               </Button>
             </div>
 
-            <div className="space-y-2">
+            {/* Linux / macOS (Bash) - Disabled for now, can be re-enabled later */}
+            {/* <div className="space-y-2">
               <Label>Linux / macOS (Bash)</Label>
               <Button
                 onClick={() => copyOneLiner('bash')}
@@ -156,7 +157,7 @@ function ADBSetupContent() {
                   </>
                 )}
               </Button>
-            </div>
+            </div> */}
           </div>
         </div>
 
@@ -183,8 +184,8 @@ function ADBSetupContent() {
               <h3 className="font-semibold mb-2">Steps</h3>
               <ol className="list-decimal list-inside space-y-2 text-muted-foreground ml-4">
                 <li>Connect the factory-reset Android device via USB</li>
-                <li>Copy the one-liner command for your platform (Windows or Bash)</li>
-                <li>Paste the command into your terminal and press Enter</li>
+                <li>Copy the Windows one-liner command</li>
+                <li>Paste the command into Command Prompt and press Enter</li>
                 <li>The script will automatically:
                   <ul className="list-disc list-inside ml-6 mt-1">
                     <li>Download the latest MDM agent APK</li>
