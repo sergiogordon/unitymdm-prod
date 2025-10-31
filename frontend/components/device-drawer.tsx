@@ -76,10 +76,12 @@ export function DeviceDrawer({ device, isOpen, onClose, onDeviceUpdated }: Devic
 
     setIsSaving(true)
     try {
+      const token = localStorage.getItem('token')
       const response = await fetch(`/api/proxy/v1/devices/${device.id}/alias`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
         },
         body: JSON.stringify({ alias: editedAlias.trim() }),
       })
