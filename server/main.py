@@ -2344,6 +2344,21 @@ async def get_last_alias(
         "next_number": max_num + 1
     }
 
+@app.get("/admin/config/admin-key")
+async def get_admin_key(
+    user: User = Depends(get_current_user)
+):
+    """
+    Get the admin key for authenticated users.
+    Requires JWT authentication.
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    return {
+        "admin_key": config.admin_key
+    }
+
 @app.post("/admin/devices/selection")
 async def create_selection(
     request: Request,
