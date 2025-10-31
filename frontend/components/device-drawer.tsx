@@ -1,8 +1,10 @@
 "use client"
 
-import { useEffect } from "react"
-import { X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { X, Pencil, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { useToast } from "@/hooks/use-toast"
 import type { Device } from "@/lib/mock-data"
 
 interface DeviceDrawerProps {
@@ -12,9 +14,28 @@ interface DeviceDrawerProps {
 }
 
 export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
+  const { toast } = useToast()
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedAlias, setEditedAlias] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Reset edit state when device changes or drawer closes
+  useEffect(() => {
+    if (device) {
+      setEditedAlias(device.alias)
+      setIsEditing(false)
+    }
+  }, [device?.id])
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
+      if (e.key === "Escape") {
+        if (isEditing) {
+          handleCancelEdit()
+        } else {
+          onClose()
+        }
+      }
     }
     if (isOpen) {
       document.addEventListener("keydown", handleEscape)
@@ -24,7 +45,67 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
       document.removeEventListener("keydown", handleEscape)
       document.body.style.overflow = "unset"
     }
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, isEditing])
+
+  const handleStartEdit = () => {
+    setEditedAlias(device?.alias || "")
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    setEditedAlias(device?.alias || "")
+    setIsEditing(false)
+  }
+
+  const handleSaveAlias = async () => {
+    if (!device || !editedAlias.trim()) {
+      toast({
+        title: "Error",
+        description: "Alias cannot be empty",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (editedAlias.trim() === device.alias) {
+      setIsEditing(false)
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/v1/devices/${device.id}/alias`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ alias: editedAlias.trim() }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to update alias")
+      }
+
+      // Update local device object
+      device.alias = editedAlias.trim()
+      
+      toast({
+        title: "Success",
+        description: "Device alias updated successfully",
+      })
+      
+      setIsEditing(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update alias",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   if (!isOpen || !device) return null
 
@@ -34,10 +115,59 @@ export function DeviceDrawer({ device, isOpen, onClose }: DeviceDrawerProps) {
       <div className="fixed right-0 top-0 z-50 h-full w-full max-w-[480px] animate-in slide-in-from-right">
         <div className="flex h-full flex-col bg-card shadow-2xl">
           <div className="flex items-center justify-between border-b border-border px-6 py-4">
-            <h2 className="text-lg font-semibold">{device.alias}</h2>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
+            {isEditing ? (
+              <div className="flex items-center gap-2 flex-1 mr-2">
+                <Input
+                  value={editedAlias}
+                  onChange={(e) => setEditedAlias(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSaveAlias()
+                    }
+                  }}
+                  className="flex-1"
+                  placeholder="Device alias"
+                  autoFocus
+                  disabled={isSaving}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleSaveAlias}
+                  disabled={isSaving}
+                  title="Save"
+                >
+                  <Check className="h-4 w-4 text-green-600" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  title="Cancel"
+                >
+                  <X className="h-4 w-4 text-red-600" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 flex-1">
+                <h2 className="text-lg font-semibold">{device.alias}</h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleStartEdit}
+                  className="h-7 w-7"
+                  title="Edit alias"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+            {!isEditing && (
+              <Button variant="ghost" size="icon" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-6">
