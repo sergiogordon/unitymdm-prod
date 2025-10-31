@@ -1,0 +1,80 @@
+Milestone: UnityMDM Remote OS Update — Security & System Firmware
+Goal
+
+Enable UnityMDM to remotely trigger, monitor, and verify Android OS and security updates across enrolled devices using ADB (and later FCM) commands, ensuring all fleet devices run the latest firmware and patch levels.
+
+Description
+
+This milestone adds a “Push System Update” capability to UnityMDM that:
+
+Detects eligible devices (based on manufacturer support).
+
+Initiates a silent system update check and installation using Android’s update_engine and SystemUpdateService APIs.
+
+Tracks update status (idle → downloading → verifying → reboot pending).
+
+Optionally reboots devices automatically once the update is ready.
+
+It uses standard Android cmd and am broadcast mechanisms allowed under Device Owner (DO) privileges.
+
+Implementation Command Block (CMD-compatible)
+cmd.exe /K "for /f "tokens=1" %D in ('adb devices ^| findstr "device$"') do (echo ============================================ & echo 🔄 Triggering OS Update for %D & echo ============================================ & adb -s %D shell settings put global auto_system_update_policy 1 >nul 2>&1 & adb -s %D shell cmd jobscheduler run -f android/com.android.server.update.SystemUpdateService 1 >nul 2>&1 & adb -s %D shell cmd jobscheduler run -f android/com.google.android.gms.update.SystemUpdateService 1 >nul 2>&1 & adb -s %D shell am broadcast -a android.intent.action.UPDATE_SYSTEM >nul 2>&1 & adb -s %D shell am broadcast -a com.google.android.gms.update.SystemUpdateService.UPDATE_NOW >nul 2>&1 & adb -s %D shell cmd jobscheduler run -f android/com.android.server.update.UpdateManager 1 >nul 2>&1 & echo ✅ System update triggered. Checking version info... & adb -s %D shell getprop ro.build.version.release & adb -s %D shell getprop ro.build.version.security_patch & echo ============================================)"
+
+What Happens
+
+For each connected device, UnityMDM:
+
+Sets the system update policy to “auto”.
+
+Calls multiple system services (SystemUpdateService, UpdateManager, GMS UpdateService) that handle OTA updates.
+
+Broadcasts Android intents that prompt the system updater to fetch and apply the latest firmware.
+
+Displays the current OS build and security patch for verification.
+
+If the update requires a reboot:
+
+adb -s <device_id> reboot
+
+
+can be triggered automatically or manually.
+
+Acceptance Criteria
+
+✅ Command triggers OTA check on all connected devices
+✅ Devices download and install latest firmware (if available)
+✅ Build version (ro.build.version.release) or patch level changes
+✅ Devices automatically reboot to apply update (configurable)
+✅ Logs per-device output to verify status (e.g., pre/post version)
+✅ Non-interactive — no user tap required
+
+Optional Add-ons (Future Enhancements)
+
+ Add backend API endpoint /admin/push-os-update
+
+ Capture pre/post ro.build.version.incremental for delta comparison
+
+ Add FCM command to trigger the same update check wirelessly
+
+ Add UI toggle in dashboard:
+
+“Trigger Security Patch Check”
+“Trigger Full OS Update”
+
+ Add update window scheduling (to avoid peak verification hours)
+
+⚠️ Device-Specific Notes
+
+AOSP-based devices (e.g., Orbic, Motorola, OnePlus) → fully supported.
+
+Samsung / Pixel → requires system_update permissions (granted under DO mode).
+
+Carrier-locked devices → may defer or block OTA updates; script still triggers the check.
+
+Milestone Summary
+
+Name: UnityMDM Remote OS Update — Security & System Firmware
+Purpose: Automate OTA update checks and firmware patching fleet-wide
+Trigger: Manual (CLI or Dashboard “Push OS Update”)
+Output: Current OS + Security Patch versions per device
+Recovery: If update fails or is unavailable, fallback logs reason from logcat | findstr "Update"
