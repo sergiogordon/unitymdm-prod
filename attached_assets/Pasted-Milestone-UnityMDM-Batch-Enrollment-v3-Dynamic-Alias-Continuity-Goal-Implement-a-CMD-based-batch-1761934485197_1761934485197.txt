@@ -1,0 +1,44 @@
+Milestone: UnityMDM Batch Enrollment v3 — Dynamic Alias Continuity
+Goal
+
+Implement a CMD-based batch enrollment feature that automatically enrolls all connected Android devices via ADB using the UnityMDM enrollment one-liner, assigning sequential D# aliases (D01, D02, D03, …) while avoiding duplicates by pulling the last used alias from the backend before each run.
+
+Description
+
+This milestone enhances the single-device enrollment process by adding:
+
+Batch Detection — Automatically detects all connected Android devices using adb devices.
+
+Alias Continuity — Queries the UnityMDM backend for existing aliases and resumes numbering from the highest detected D#.
+
+Sequential Processing — Runs the full 9-step enrollment (download, install, permissions, device owner, system tweaks, broadcast, verification) per device.
+
+Safety Checks — Ensures no duplicate aliases are assigned even when batch enrolling multiple devices across different sessions.
+
+Acceptance Criteria
+
+✅ Enumerates all devices connected via ADB
+✅ Fetches last used alias from backend via GET /admin/devices
+✅ Auto-increments alias sequence (e.g., next available after D23 → D24, D25, …)
+✅ Executes full enrollment flow for each device sequentially
+✅ Prints readable per-device progress output in console
+✅ Fully compatible with Windows CMD (no PowerShell needed)
+✅ Leaves existing enrolled devices untouched
+
+Implementation Command
+
+Paste directly into cmd.exe /K for execution:
+
+cmd.exe /K "setlocal enabledelayedexpansion & echo Fetching last alias from backend... & curl -s -H "X-Admin-Key: ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=" "https://unitymdm.replit.app/admin/devices" -o "%TEMP%\mdm_devices.json" >nul 2>&1 & set LAST=0 & for /f "tokens=2 delims=:," %A in ('findstr /R "\"alias\":\"D[0-9][0-9]*\"" "%TEMP%\mdm_devices.json"') do (set VAR=%A & set VAR=!VAR:D=! & set VAR=!VAR:"=! & if !VAR! gtr !LAST! set LAST=!VAR!) & echo Last used alias: D!LAST! & set /a COUNT=!LAST! & for /f "tokens=1" %D in ('adb devices ^| findstr "device$"') do (set /a COUNT+=1 & set PAD=00!COUNT! & set ALIAS=D!PAD:~-2! & echo ============================================ & echo UnityMDM Zero-Tap Enrollment v2 - !ALIAS! & echo ============================================ & echo [Device ID] %D & echo. & adb -s %D wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ Device not found) & echo. & curl -L -H "X-Admin-Key: ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=" "https://unitymdm.replit.app/v1/apk/download-latest" -o "%TEMP%\unitymdm.apk" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed) & adb -s %D install -r -g "%TEMP%\unitymdm.apk" >nul 2>&1 && (echo ✅ APK installed) || (echo ⚠️ Reinstalling...) & adb -s %D shell dpm set-device-owner com.nexmdm/.NexDeviceAdminReceiver >nul 2>&1 & adb -s %D shell am broadcast -a com.nexmdm.CONFIGURE -n com.nexmdm/.ConfigReceiver --receiver-foreground --es server_url "https://unitymdm.replit.app" --es admin_key "ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=" --es alias "!ALIAS!" >nul 2>&1 & adb -s %D shell monkey -p com.nexmdm -c android.intent.category.LAUNCHER 1 >nul 2>&1 & adb -s %D shell pidof com.nexmdm >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running) & echo ✅ Completed enrollment for !ALIAS! (%D) & echo. ) & del "%TEMP%\mdm_devices.json" >nul 2>&1 & echo All devices processed! & endlocal"
+
+Future Enhancements
+
+ Add per-device log output (%TEMP%\D##_enroll.log)
+
+ Add backend POST to mark aliases as enrolled
+
+ Add retry mechanism for failed steps
+
+ Support alias prefixes per rack (R1-D##)
+
+ Add UI feedback on Replit dashboard for progress
