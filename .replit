@@ -95,6 +95,10 @@ externalPort = 3003
 localPort = 44193
 externalPort = 5173
 
+[[ports]]
+localPort = 45925
+externalPort = 8080
+
 [deployment]
 deploymentTarget = "autoscale"
 run = ["sh", "-c", "./start-production.sh"]

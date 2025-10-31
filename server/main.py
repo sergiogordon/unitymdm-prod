@@ -2346,17 +2346,17 @@ async def get_last_alias(
 
 @app.get("/admin/config/admin-key")
 async def get_admin_key(
-    user: User = Depends(get_current_user)
+    x_admin: str = Header(None)
 ):
     """
-    Get the admin key for authenticated users.
-    Requires JWT authentication.
+    Get the admin key for batch enrollment script generation.
+    Requires admin key authentication via X-Admin header (auto-injected by frontend proxy).
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
     
     return {
-        "admin_key": config.admin_key
+        "admin_key": config.get_admin_key()
     }
 
 @app.post("/admin/devices/selection")
