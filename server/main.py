@@ -2309,16 +2309,16 @@ async def get_admin_devices(
 
 @app.get("/admin/devices/last-alias")
 async def get_last_alias(
-    user: User = Depends(get_current_user),
+    x_admin: str = Header(None),
     db: Session = Depends(get_db)
 ):
     """
     Get the highest D# alias number for batch enrollment continuity.
     Returns the next available alias number.
-    Requires JWT authentication.
+    Requires admin key authentication via X-Admin header (auto-injected by frontend proxy).
     """
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
     
     # Get all devices
     devices = db.query(Device).all()
