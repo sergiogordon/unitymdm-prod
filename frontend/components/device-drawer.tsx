@@ -76,7 +76,7 @@ export function DeviceDrawer({ device, isOpen, onClose, onDeviceUpdated }: Devic
 
     setIsSaving(true)
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('auth_token')
       const response = await fetch(`/api/proxy/v1/devices/${device.id}/alias`, {
         method: "PATCH",
         headers: {
