@@ -62,7 +62,8 @@ const FCM_PRESETS = {
 const SHELL_PRESETS = {
   suppress_wea: "settings put global zen_mode 2 && settings put global emergency_tone 0 && settings put global emergency_alerts_enabled 0",
   restore_normal: "settings put global zen_mode 0 && settings put global emergency_tone 1 && settings put global emergency_alerts_enabled 1",
-  trigger_os_update: "settings put global auto_system_update_policy 1",
+  enable_auto_update: "settings put global auto_system_update_policy 1",
+  disable_auto_update: "settings put global auto_system_update_policy 0",
   trigger_update_service: "cmd jobscheduler run -f android/com.android.server.update.SystemUpdateService 1",
   check_os_version: "getprop ro.build.version.release",
   check_security_patch: "getprop ro.build.version.security_patch"
@@ -695,7 +696,8 @@ export default function RemoteExecutionPage() {
                         <SelectContent>
                           <SelectItem value="suppress_wea">Suppress WEA & Enable DND</SelectItem>
                           <SelectItem value="restore_normal">Restore Normal Mode</SelectItem>
-                          <SelectItem value="trigger_os_update">🔄 Set Auto-Update Policy</SelectItem>
+                          <SelectItem value="enable_auto_update">✅ Enable Auto-Update Policy</SelectItem>
+                          <SelectItem value="disable_auto_update">❌ Disable Auto-Update Policy</SelectItem>
                           <SelectItem value="trigger_update_service">🔄 Trigger System Update Check</SelectItem>
                           <SelectItem value="check_os_version">📱 Check OS Version</SelectItem>
                           <SelectItem value="check_security_patch">🔒 Check Security Patch Level</SelectItem>
