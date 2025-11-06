@@ -40,7 +40,7 @@ class AppStorageService:
     Database paths use format: storage://apk/debug/{uuid}_{filename}.apk
     """
     
-    MAX_FILE_SIZE = 60 * 1024 * 1024  # 60 MB
+    MAX_FILE_SIZE = 120 * 1024 * 1024  # 120 MB
     MAX_RETRIES = 3
     RETRY_DELAY = 0.5  # seconds
     

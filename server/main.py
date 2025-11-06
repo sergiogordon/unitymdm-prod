@@ -6757,7 +6757,7 @@ async def upload_apk_file(
     - X-Admin header with admin key required
     
     **File Constraints:**
-    - Maximum size: 60MB (enforced by object storage)
+    - Maximum size: 120MB (enforced by object storage)
     - Must be a valid .apk file
     - Build metadata must be registered first via /admin/apk/register
     
