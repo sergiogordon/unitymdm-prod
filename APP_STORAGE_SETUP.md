@@ -97,7 +97,7 @@ User/Device Request → Download endpoint → object_storage.download_file()
 ### Storage Paths
 - Files stored with keys: `apk/debug/{uuid}_{filename}.apk`
 - Database stores paths as: `storage://apk/debug/{uuid}_{filename}.apk`
-- Maximum file size: 60 MB
+- Maximum file size: 120 MB
 - Only `.apk` files accepted
 
 ## 🔒 Security & Access
@@ -139,8 +139,8 @@ After enabling storage:
 - This forces re-provisioning of service account credentials
 - Restart the deployment after re-enabling
 
-### Error: "File too large: X MB. Maximum allowed: 60MB"
-- APK files are limited to 60MB
+### Error: "File too large: X MB. Maximum allowed: 120MB"
+- APK files are limited to 120MB
 - Check your APK size and optimize if needed
 
 ### Files Not Showing Up

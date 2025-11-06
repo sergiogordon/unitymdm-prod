@@ -6798,7 +6798,7 @@ async def upload_apk_file(
     - 400: Invalid file type (not .apk)
     - 403: Admin key required or invalid
     - 404: Build not registered (call /admin/apk/register first)
-    - 413: File too large (>60MB)
+    - 413: File too large (>120MB)
     - 500: Storage upload failed
     
     **Storage:**

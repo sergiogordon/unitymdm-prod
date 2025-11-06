@@ -455,8 +455,8 @@ class BugBashAPKTester:
         
         # Test 2: Upload oversized file (simulate with large content)
         print("\n🧪 Test 2: Uploading oversized file...")
-        # Create 70MB file (exceeds 60MB limit from replit.md)
-        large_content = b"X" * (70 * 1024 * 1024)
+        # Create 130MB file (exceeds 120MB limit)
+        large_content = b"X" * (130 * 1024 * 1024)
         files_large = {
             'file': ('huge.apk', io.BytesIO(large_content), 'application/vnd.android.package-archive')
         }
