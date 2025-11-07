@@ -8,22 +8,32 @@ trap 'echo "🛑 Shutting down services..."; kill 0; exit' EXIT SIGTERM SIGINT
 
 echo "🚀 Starting NexMDM Production Server..."
 
-# Prepare Next.js standalone build (copy static assets)
-echo "📦 Preparing Next.js standalone build..."
-if [ -d "frontend/.next/standalone" ]; then
-  # Copy static files to standalone directory
-  if [ -d "frontend/.next/static" ]; then
-    cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
-  fi
-  # Copy public files if they exist
-  if [ -d "frontend/public" ]; then
-    cp -r frontend/public frontend/.next/standalone/frontend/public
-  fi
-  echo "✅ Static assets prepared"
-else
-  echo "⚠️  Warning: Next.js standalone build not found. Building now..."
-  cd frontend && npm run build && cd ..
+# Verify Next.js standalone build exists
+echo "📦 Verifying Next.js standalone build..."
+if [ ! -d "frontend/.next/standalone" ]; then
+  echo "❌ ERROR: Next.js standalone build not found at frontend/.next/standalone"
+  echo "Build must complete successfully before deployment starts."
+  echo "Expected directory: frontend/.next/standalone"
+  exit 1
 fi
+
+# Copy static files to standalone directory
+if [ -d "frontend/.next/static" ]; then
+  echo "Copying static assets..."
+  mkdir -p frontend/.next/standalone/frontend/.next
+  cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
+else
+  echo "⚠️  Warning: No static assets found"
+fi
+
+# Copy public files if they exist
+if [ -d "frontend/public" ]; then
+  echo "Copying public assets..."
+  mkdir -p frontend/.next/standalone/frontend
+  cp -r frontend/public frontend/.next/standalone/frontend/public
+fi
+
+echo "✅ Static assets prepared"
 
 # Start FastAPI backend on port 8000 in the background
 echo "📡 Starting FastAPI backend on port 8000..."
@@ -56,6 +66,21 @@ export HOSTNAME=0.0.0.0
 node server.js &
 FRONTEND_PID=$!
 cd ../../../..
+
+# Wait for frontend to be ready
+echo "⏳ Waiting for frontend to start..."
+for i in {1..30}; do
+  if curl -s http://localhost:5000/api/health > /dev/null 2>&1; then
+    echo "✅ Frontend is ready!"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "❌ Frontend failed to start in time"
+    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+    exit 1
+  fi
+  sleep 1
+done
 
 echo "✨ NexMDM is now running!"
 echo "   Frontend: http://0.0.0.0:5000"

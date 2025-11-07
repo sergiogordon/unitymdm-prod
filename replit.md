@@ -67,7 +67,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 ## External Dependencies
 - **PostgreSQL**: Primary database.
 - **FastAPI**: Backend Python web framework.
-- **Next.js**: Frontend React framework.
+- **Next.js**: Frontend React framework (standalone output mode for production).
 - **shadcn/ui**: Frontend UI component library.
 - **Alembic**: Database migration tool.
 - **Firebase Cloud Messaging (FCM)**: For command dispatch.
@@ -75,3 +75,10 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Replit Mail**: Email service for notifications.
 - **Replit Object Storage**: Native Python SDK for persistent APK file storage.
 - **Room Database**: SQLite-based persistent storage for Android agent queue.
+
+## Production Deployment
+- **Build Process**: Next.js standalone build with static asset copying, verified before deployment starts.
+- **Startup Script**: `start-production.sh` with signal handling, fail-fast monitoring, and health check verification.
+- **Health Checks**: Frontend `/api/health` and backend `/healthz` endpoints for deployment verification.
+- **Port Configuration**: Frontend on 5000 (external), backend on 8000 (internal).
+- **Process Supervision**: Both services monitored with automatic shutdown if either fails.
