@@ -6805,11 +6805,25 @@ async def upload_apk_file(
     Files are stored in Replit Object Storage with automatic sidecar authentication.
     Storage path format: storage://apk/{build_type}/{uuid}_{filename}.apk
     """
+    # DEBUG: Log incoming upload request
+    print(f"[APK UPLOAD DEBUG] Received upload request")
+    print(f"[APK UPLOAD DEBUG] File: {file.filename}, Content-Type: {file.content_type}")
+    print(f"[APK UPLOAD DEBUG] build_id: {build_id}")
+    print(f"[APK UPLOAD DEBUG] version_code: {version_code}, version_name: {version_name}")
+    print(f"[APK UPLOAD DEBUG] build_type: {build_type}, package_name: {package_name}")
+    print(f"[APK UPLOAD DEBUG] X-Admin header present: {bool(x_admin)}")
+    
     if not verify_admin_key(x_admin or ""):
+        print(f"[APK UPLOAD DEBUG] Admin key verification FAILED")
         raise HTTPException(status_code=403, detail="Admin key required")
     
+    print(f"[APK UPLOAD DEBUG] Admin key verification SUCCESS")
+    
     if not file.filename or not file.filename.endswith('.apk'):
+        print(f"[APK UPLOAD DEBUG] Invalid file type: {file.filename}")
         raise HTTPException(status_code=400, detail="Invalid file type. Must be .apk")
+    
+    print(f"[APK UPLOAD DEBUG] File type validation passed")
     
     existing = db.query(ApkVersion).filter(
         ApkVersion.package_name == package_name,
@@ -6818,28 +6832,38 @@ async def upload_apk_file(
     ).first()
     
     if not existing:
+        print(f"[APK UPLOAD DEBUG] Build not found in database: {package_name}/{version_code}/{build_type}")
         raise HTTPException(
             status_code=404, 
             detail=f"APK build not found. Please call /admin/apk/register first to register metadata."
         )
     
+    print(f"[APK UPLOAD DEBUG] Found existing build record: ID={existing.id}")
+    
     # Upload to App Storage
     try:
+        print(f"[APK UPLOAD DEBUG] Reading file content...")
         content = await file.read()
         file_size = len(content)
+        print(f"[APK UPLOAD DEBUG] File read successfully: {file_size} bytes")
         
+        print(f"[APK UPLOAD DEBUG] Initializing object storage service...")
         storage = get_storage_service()
         final_filename = f"{package_name}_{version_code}_{build_type}.apk"
+        print(f"[APK UPLOAD DEBUG] Uploading to storage as: {final_filename}")
+        
         object_path = storage.upload_file(
             file_data=content,
             filename=final_filename,
             content_type="application/vnd.android.package-archive"
         )
+        print(f"[APK UPLOAD DEBUG] Upload to storage successful: {object_path}")
         
         existing.file_path = object_path
         existing.file_size = file_size
         db.commit()
         db.refresh(existing)
+        print(f"[APK UPLOAD DEBUG] Database updated successfully")
         
         structured_logger.log_event(
             "apk.upload",
@@ -6853,6 +6877,7 @@ async def upload_apk_file(
         
         metrics.inc_counter("apk_uploads_total", {"build_type": build_type})
         
+        print(f"[APK UPLOAD DEBUG] Upload complete! Returning success response")
         return {
             "success": True,
             "build_id": existing.id,
@@ -6861,6 +6886,9 @@ async def upload_apk_file(
             "message": "APK file uploaded successfully"
         }
     except Exception as e:
+        print(f"[APK UPLOAD DEBUG] ERROR during upload: {type(e).__name__}: {str(e)}")
+        import traceback
+        print(f"[APK UPLOAD DEBUG] Stack trace:\n{traceback.format_exc()}")
         structured_logger.log_event(
             "apk.upload.error",
             error=str(e),
