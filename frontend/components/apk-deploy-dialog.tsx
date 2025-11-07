@@ -126,7 +126,7 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
   const loadDevices = async () => {
     try {
       const token = localStorage.getItem('auth_token')
-      const response = await fetch('/v1/devices?page=1&limit=1000', {
+      const response = await fetch('/v1/devices?page=1&limit=200', {
         headers: {
           'Authorization': `Bearer ${token}`
         }

@@ -2095,7 +2095,7 @@ async def get_metrics(
 @app.get("/v1/devices")
 async def list_devices(
     page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=100),
+    limit: int = Query(25, ge=1, le=200),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
