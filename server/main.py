@@ -6803,7 +6803,7 @@ async def upload_apk_file(
     
     **Storage:**
     Files are stored in Replit Object Storage with automatic sidecar authentication.
-    Storage path format: storage://apk/{build_type}/{uuid}_{filename}.apk
+    Storage path format: storage://apk/{uuid}_{filename}.apk
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
