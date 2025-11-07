@@ -58,12 +58,38 @@ async function proxyRequest(
     const url = new URL(request.url)
     const backendUrl = `${BACKEND_URL}/${path}${url.search}`
 
+    // Get request body for POST/PUT/PATCH first to determine if it's FormData
+    let body: ArrayBuffer | FormData | undefined = undefined
+    let isFormData = false
+    if (method !== 'GET' && method !== 'DELETE') {
+      try {
+        // Check if this is a multipart form-data request
+        const contentType = request.headers.get('content-type') || ''
+        if (contentType.includes('multipart/form-data')) {
+          // For multipart/form-data, we need to get the formData and reconstruct it
+          // because we can't directly forward the boundary
+          const formData = await request.formData()
+          body = formData
+          isFormData = true
+        } else {
+          // For other content types, use arrayBuffer to preserve binary data
+          body = await request.arrayBuffer()
+        }
+      } catch (e) {
+        // No body or already consumed
+        console.error('[Proxy] Error reading request body:', e)
+      }
+    }
+
     // Forward headers
     const headers = new Headers()
     request.headers.forEach((value, key) => {
       // Skip Next.js internal headers (but allow X-Admin and other custom headers)
       const isNextJsHeader = key.startsWith('x-nextjs-') || key.startsWith('x-middleware-')
-      if (!isNextJsHeader && key !== 'host' && key !== 'connection') {
+      // Skip content-type and content-length for FormData as fetch will set them correctly
+      const skipHeader = isNextJsHeader || key === 'host' || key === 'connection' || 
+                         (isFormData && (key === 'content-type' || key === 'content-length'))
+      if (!skipHeader) {
         headers.set(key, value)
       }
     })
@@ -73,16 +99,6 @@ async function proxyRequest(
       const adminKey = process.env.ADMIN_KEY
       if (adminKey) {
         headers.set('X-Admin', adminKey)
-      }
-    }
-
-    // Get request body for POST/PUT/PATCH - use arrayBuffer to preserve binary data
-    let body: ArrayBuffer | undefined = undefined
-    if (method !== 'GET' && method !== 'DELETE') {
-      try {
-        body = await request.arrayBuffer()
-      } catch (e) {
-        // No body or already consumed
       }
     }
 
