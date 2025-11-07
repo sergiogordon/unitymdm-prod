@@ -498,6 +498,7 @@ def validate_configuration():
             )
     
     # Check SERVER_URL (helpful for enrollment)
+    server_url = None
     try:
         server_url = config.server_url
         if not server_url or server_url == "http://localhost:5000":

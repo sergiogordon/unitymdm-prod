@@ -14,7 +14,16 @@ class ReplitMailService:
     
     def __init__(self):
         self.api_url = "https://connectors.replit.com/api/v2/mailer/send"
-        self.auth_token = self._get_auth_token()
+        self.auth_token = None
+        self.is_available = False
+        
+        try:
+            self.auth_token = self._get_auth_token()
+            self.is_available = True
+            print("[EMAIL SERVICE] Initialized successfully")
+        except Exception as e:
+            print(f"[EMAIL SERVICE] Not available: {str(e)}")
+            print("[EMAIL SERVICE] Email functionality will be disabled")
     
     def _get_auth_token(self) -> str:
         """Get authentication token from Replit environment"""
@@ -26,7 +35,7 @@ class ReplitMailService:
         elif web_repl_renewal:
             return f"depl {web_repl_renewal}"
         else:
-            raise ValueError("No Replit authentication token found. Ensure you're running in Replit environment.")
+            raise ValueError("No Replit authentication token found. Email service requires REPL_IDENTITY or WEB_REPL_RENEWAL environment variable.")
     
     async def send_email(
         self,
@@ -49,6 +58,9 @@ class ReplitMailService:
         Returns:
             Response from the email service
         """
+        if not self.is_available or not self.auth_token:
+            raise Exception("Email service is not available. Missing Replit authentication tokens.")
+        
         payload = {
             "to": to,
             "subject": subject,
@@ -97,6 +109,9 @@ class ReplitMailService:
         Returns:
             Response from the email service
         """
+        if not self.is_available:
+            raise Exception("Email service is not available in this environment")
+        
         reset_link = f"{base_url}/reset-password?token={reset_token}"
         
         # HTML template with modern styling
@@ -213,6 +228,9 @@ UNITYmdm Team
         Returns:
             Response from the email service
         """
+        if not self.is_available:
+            raise Exception("Email service is not available in this environment")
+        
         html_content = f"""
         <!DOCTYPE html>
         <html lang="en">
