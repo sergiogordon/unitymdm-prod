@@ -4,6 +4,8 @@
 
 set -e
 
+trap 'echo "🛑 Shutting down services..."; kill 0; exit' EXIT SIGTERM SIGINT
+
 echo "🚀 Starting NexMDM Production Server..."
 
 # Prepare Next.js standalone build (copy static assets)
@@ -58,6 +60,13 @@ cd ../../../..
 echo "✨ NexMDM is now running!"
 echo "   Frontend: http://0.0.0.0:5000"
 echo "   Backend: http://0.0.0.0:8000"
+echo "   Backend PID: $BACKEND_PID"
+echo "   Frontend PID: $FRONTEND_PID"
+echo ""
+echo "Monitoring processes (will exit if either service fails)..."
 
-# Wait for both processes
-wait $BACKEND_PID $FRONTEND_PID
+# Wait for first process to exit (fail fast)
+wait -n
+EXIT_CODE=$?
+echo "❌ Service exited with code $EXIT_CODE. Shutting down..."
+exit $EXIT_CODE

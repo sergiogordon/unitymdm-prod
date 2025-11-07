@@ -60,10 +60,6 @@ localPort = 34757
 externalPort = 6800
 
 [[ports]]
-localPort = 34971
-externalPort = 8080
-
-[[ports]]
 localPort = 36749
 externalPort = 6000
 
@@ -101,7 +97,7 @@ externalPort = 5173
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "cd server && uvicorn main:app --host 0.0.0.0 --port 8000"]
+run = ["bash", "start-production.sh"]
 build = ["sh", "-c", "cd frontend && npm install && npm run build"]
 
 [objectStorage]
