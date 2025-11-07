@@ -96,8 +96,8 @@ localPort = 44193
 externalPort = 5173
 
 [deployment]
-deploymentTarget = "vm"
-run = ["bash", "start-production.sh"]
+deploymentTarget = "autoscale"
+run = ["bash", "start-autoscale.sh"]
 build = ["bash", "scripts/build-frontend.sh"]
 
 [objectStorage]
