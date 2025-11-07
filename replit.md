@@ -77,8 +77,9 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Room Database**: SQLite-based persistent storage for Android agent queue.
 
 ## Production Deployment
-- **Build Process**: Next.js standalone build with static asset copying, verified before deployment starts.
-- **Startup Script**: `start-production.sh` with signal handling, fail-fast monitoring, and health check verification.
+- **Build Process**: Wrapper script `scripts/build-frontend.sh` uses `npm --prefix frontend` to build Next.js standalone bundle from repository root, verified before deployment starts.
+- **Startup Script**: `start-production.sh` with signal handling, fail-fast monitoring, and health check verification for both services.
 - **Health Checks**: Frontend `/api/health` and backend `/healthz` endpoints for deployment verification.
 - **Port Configuration**: Frontend on 5000 (external), backend on 8000 (internal).
 - **Process Supervision**: Both services monitored with automatic shutdown if either fails.
+- **Deployment Type**: Reserved VM with dual-service orchestration.
