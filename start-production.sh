@@ -70,14 +70,23 @@ cd ../../../..
 # Wait for frontend to be ready
 echo "⏳ Waiting for frontend to start..."
 for i in {1..30}; do
-  if curl -s http://localhost:5000/api/health > /dev/null 2>&1; then
-    echo "✅ Frontend is ready!"
+  # Check both health endpoint and root route
+  HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/api/health 2>/dev/null || echo "000")
+  ROOT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/ 2>/dev/null || echo "000")
+  
+  if [ "$HEALTH_STATUS" = "200" ] && [ "$ROOT_STATUS" != "000" ]; then
+    echo "✅ Frontend is ready! (Health: $HEALTH_STATUS, Root: $ROOT_STATUS)"
     break
   fi
+  
   if [ $i -eq 30 ]; then
-    echo "❌ Frontend failed to start in time"
+    echo "❌ Frontend failed health check (Health: $HEALTH_STATUS, Root: $ROOT_STATUS)"
     kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
     exit 1
+  fi
+  
+  if [ $((i % 5)) -eq 0 ]; then
+    echo "   Attempt $i/30: Health=$HEALTH_STATUS, Root=$ROOT_STATUS"
   fi
   sleep 1
 done
