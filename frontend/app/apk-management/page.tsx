@@ -149,13 +149,7 @@ export default function ApkManagementPage() {
       const buildId = `manual-${Date.now()}`
       const versionCode = parseInt(uploadVersionName.replace(/\./g, '')) || Math.floor(Date.now() / 1000)
 
-      console.log('[APK Upload] Starting upload process')
-      console.log(`[APK Upload] File: ${uploadFile.name} (${uploadFile.size} bytes)`)
-      console.log(`[APK Upload] Version: ${uploadVersionName}, Code: ${versionCode}`)
-      console.log(`[APK Upload] Package: ${uploadPackageName}, Build Type: ${uploadBuildType}`)
-
       // Step 1: Register the APK build
-      console.log('[APK Upload] Step 1: Registering APK metadata...')
       const registerResponse = await fetch('/api/proxy/admin/apk/register', {
         method: 'POST',
         headers: {
@@ -171,21 +165,14 @@ export default function ApkManagementPage() {
         })
       })
 
-      console.log(`[APK Upload] Register response: ${registerResponse.status} ${registerResponse.statusText}`)
-
       if (!registerResponse.ok) {
         const errorData = await registerResponse.json().catch(() => ({}))
-        console.error('[APK Upload] Register failed:', errorData)
         throw new Error(errorData.detail || 'Failed to register APK')
       }
-
-      const registerData = await registerResponse.json()
-      console.log('[APK Upload] Register success:', registerData)
 
       setUploadProgress(30)
 
       // Step 2: Upload the actual file
-      console.log('[APK Upload] Step 2: Uploading APK file...')
       const formData = new FormData()
       formData.append('file', uploadFile)
       formData.append('build_id', buildId)
@@ -194,47 +181,19 @@ export default function ApkManagementPage() {
       formData.append('build_type', uploadBuildType)
       formData.append('package_name', uploadPackageName)
 
-      console.log('[APK Upload] FormData prepared with fields:')
-      for (const [key, value] of formData.entries()) {
-        if (value instanceof File) {
-          console.log(`  ${key}: File(${value.name}, ${value.size} bytes)`)
-        } else {
-          console.log(`  ${key}: ${value}`)
-        }
-      }
-
-      console.log('[APK Upload] Sending POST to /api/proxy/admin/apk/upload...')
       const uploadResponse = await fetch('/api/proxy/admin/apk/upload', {
         method: 'POST',
         body: formData
       })
 
-      console.log(`[APK Upload] Upload response: ${uploadResponse.status} ${uploadResponse.statusText}`)
-      console.log(`[APK Upload] Response headers:`, Object.fromEntries(uploadResponse.headers.entries()))
-
       if (!uploadResponse.ok) {
-        let errorData: any = {}
-        const contentType = uploadResponse.headers.get('content-type')
-        console.log(`[APK Upload] Error response content-type: ${contentType}`)
-        
-        try {
-          const responseText = await uploadResponse.text()
-          console.log(`[APK Upload] Error response body: ${responseText.substring(0, 500)}`)
-          errorData = JSON.parse(responseText)
-        } catch (parseErr) {
-          console.error('[APK Upload] Failed to parse error response:', parseErr)
-        }
-        
-        throw new Error(errorData.detail || errorData.error || 'Failed to upload APK file')
+        const errorData = await uploadResponse.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to upload APK file')
       }
-
-      const uploadData = await uploadResponse.json()
-      console.log('[APK Upload] Upload success:', uploadData)
 
       setUploadProgress(100)
 
       // Success!
-      console.log('[APK Upload] Upload complete! Refreshing build list...')
       setTimeout(() => {
         setShowUploadModal(false)
         setUploadFile(null)
@@ -246,8 +205,7 @@ export default function ApkManagementPage() {
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
-      console.error('[APK Upload] ERROR:', err)
-      console.error('[APK Upload] Error stack:', err instanceof Error ? err.stack : 'No stack')
+      console.error('Upload error:', err)
     } finally {
       setIsUploading(false)
     }

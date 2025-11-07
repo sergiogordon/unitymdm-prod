@@ -58,38 +58,22 @@ async function proxyRequest(
     const url = new URL(request.url)
     const backendUrl = `${BACKEND_URL}/${path}${url.search}`
 
-    // DEBUG: Log request details
-    console.log(`[Proxy] ${method} ${path}`)
-    const contentType = request.headers.get('content-type') || ''
-    console.log(`[Proxy] Content-Type: ${contentType}`)
-
     // Get request body for POST/PUT/PATCH first to determine if it's FormData
     let body: ArrayBuffer | FormData | undefined = undefined
     let isFormData = false
     if (method !== 'GET' && method !== 'DELETE') {
       try {
         // Check if this is a multipart form-data request
+        const contentType = request.headers.get('content-type') || ''
         if (contentType.includes('multipart/form-data')) {
           // For multipart/form-data, we need to get the formData and reconstruct it
           // because we can't directly forward the boundary
-          console.log('[Proxy] Detected multipart/form-data, parsing FormData...')
           const formData = await request.formData()
           body = formData
           isFormData = true
-          
-          // DEBUG: Log FormData contents
-          console.log('[Proxy] FormData fields:')
-          for (const [key, value] of formData.entries()) {
-            if (value instanceof File) {
-              console.log(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`)
-            } else {
-              console.log(`  ${key}: ${value}`)
-            }
-          }
         } else {
           // For other content types, use arrayBuffer to preserve binary data
           body = await request.arrayBuffer()
-          console.log(`[Proxy] Using ArrayBuffer body (${body.byteLength} bytes)`)
         }
       } catch (e) {
         // No body or already consumed
@@ -118,13 +102,6 @@ async function proxyRequest(
       }
     }
 
-    // DEBUG: Log outgoing headers
-    console.log('[Proxy] Forwarding request headers:')
-    headers.forEach((value, key) => {
-      console.log(`  ${key}: ${value.substring(0, 50)}${value.length > 50 ? '...' : ''}`)
-    })
-    console.log(`[Proxy] Forwarding to: ${backendUrl}`)
-
     // Forward request to backend
     const response = await fetch(backendUrl, {
       method,
@@ -132,12 +109,8 @@ async function proxyRequest(
       body,
     })
 
-    console.log(`[Proxy] Backend response: ${response.status} ${response.statusText}`)
-    console.log(`[Proxy] Backend response content-type: ${response.headers.get('content-type')}`)
-
     // Stream the response body to preserve binary data (APK files, etc.)
     const responseBody = await response.arrayBuffer()
-    console.log(`[Proxy] Response body size: ${responseBody.byteLength} bytes`)
 
     // Forward response headers
     const responseHeaders = new Headers()
@@ -159,7 +132,6 @@ async function proxyRequest(
     })
   } catch (error) {
     console.error('[Proxy] Error:', error)
-    console.error('[Proxy] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     return NextResponse.json(
       { error: 'Proxy request failed', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
