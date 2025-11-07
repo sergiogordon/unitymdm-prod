@@ -72,7 +72,7 @@ export default function ApkDeployPage() {
       // Fetch APK details and devices in parallel
       const [apkRes, devicesRes] = await Promise.all([
         fetch(`/admin/apk/builds?limit=100&order=desc`),
-        fetch('/v1/devices?page=1&limit=200', {
+        fetch('/api/proxy/v1/devices?page=1&limit=200', {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
