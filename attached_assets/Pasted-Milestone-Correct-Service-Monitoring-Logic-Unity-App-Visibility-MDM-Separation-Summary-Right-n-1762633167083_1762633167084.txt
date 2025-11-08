@@ -1,0 +1,109 @@
+Milestone: Correct Service Monitoring Logic (Unity App Visibility + MDM Separation)
+Summary
+
+Right now, devices report accurate MDM agent data under agent.version, but the “Service” monitoring field (unity) is incorrectly pulling that same agent version.
+We need to separate these two data sources so:
+
+The MDM agent continues reporting its own version and health (agent.version = 1.0.161-426db70).
+
+The Unity app (com.unitynetwork.unityapp) is actively monitored and reflected under the unity field, with its own version and running status.
+
+This ensures the dashboard shows:
+
+Agent → MDM version (NextMDM)
+Service → Unity app + version + running status
+
+⚙️ Scope of Work
+1. Backend — Telemetry Logic
+
+ In the device heartbeat or monitoring routine (likely monitoring.py or telemetry_worker.py):
+
+Continue collecting MDM agent info under the agent field (no changes).
+
+Add a separate app inspection for the Unity app package (com.unitynetwork.unityapp).
+
+Capture:
+
+Package name
+
+Version name / version code
+
+Foreground or background state
+
+Running status (using pm list packages, dumpsys activity or existing service ping)
+
+ Store this data under the unity key in the JSON payload:
+
+"unity": {
+  "package": "com.unitynetwork.unityapp",
+  "version": "0.1.1",
+  "status": "running"
+}
+
+
+ If Unity app is not found or inactive, report:
+
+"unity": {
+  "status": "not_installed" | "inactive"
+}
+
+2. Dashboard — Display Logic
+
+ Device table:
+
+Keep Agent column showing MDM version (unchanged).
+
+Keep Service column tied to Unity app status.
+
+If running → Unity (Running) with green badge
+
+If inactive → gray “Idle” or “Not running” tag
+
+If missing → red “Not installed”
+
+ Device Details Drawer:
+
+next MDM Version → continues showing agent version
+
+Monitored Service → Unity
+
+Unity Version (from unity.version)
+
+Unity Status (from unity.status)
+
+ Ensure settings.monitored_package (currently com.unitynetwork.unityapp) is what drives this lookup globally, so you can later change it for other services if needed.
+
+3. Data Flow Example
+
+Before (current):
+
+"agent": { "version": "1.0.161-426db70" },
+"unity": { "version": "1.0.161-426db70", "status": "running" }
+
+
+After (fixed):
+
+"agent": { "version": "1.0.161-426db70" },
+"unity": { "package": "com.unitynetwork.unityapp", "version": "0.1.1", "status": "running" }
+
+✅ Deliverables
+
+agent.version continues to reflect Next MDM version.
+
+unity reflects Unity app’s actual package, version, and running status.
+
+Dashboard shows “Unity (Running)” under Service column, even when MDM version differs.
+
+“Unknown” only appears when the monitored package is not installed or not responding.
+
+Global monitoring defaults apply to new devices.
+
+🚫 Do Not Change
+
+❌ Do not modify agent version logic or heartbeat payload structure for agent.
+
+❌ Do not rename existing DB fields or add migrations.
+
+❌ Do not change global monitoring setting schema (just use it).
+
+❌ Do not touch unrelated dashboards (Battery, Network, Alerts, etc.).
