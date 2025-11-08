@@ -152,6 +152,7 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
           version_code: parseInt(versionCode),
           filename: file.name,
           total_chunks: totalChunks,
+          build_type: 'release',
         }),
       })
 
