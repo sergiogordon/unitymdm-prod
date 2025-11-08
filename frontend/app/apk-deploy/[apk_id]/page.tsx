@@ -193,13 +193,13 @@ export default function ApkDeployPage() {
         total: devicesToDeploy.length,
         details: [
           ...(result.installations || []).map((inst: any) => ({
-            device_id: inst.device_id || '',
-            alias: inst.alias || '',
+            device_id: inst.device?.id || '',
+            alias: inst.device?.alias || 'Unknown',
             success: true
           })),
           ...(result.failed_devices || []).map((failed: any) => ({
             device_id: failed.device_id || '',
-            alias: failed.alias || '',
+            alias: failed.alias || 'Unknown',
             success: false,
             reason: failed.reason || 'Unknown error'
           }))
