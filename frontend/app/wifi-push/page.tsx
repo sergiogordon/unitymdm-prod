@@ -199,9 +199,14 @@ export default function WiFiPushPage() {
         ? allDevices.filter(d => d.status === 'online').map(d => d.id)
         : allDevices.map(d => d.id)
     } else if (scopeType === "filter") {
-      return onlineOnly 
-        ? allDevices.filter(d => d.status === 'online').map(d => d.id)
-        : allDevices.map(d => d.id)
+      // Return only selected devices, filtered by online status if needed
+      const filtered = onlineOnly 
+        ? selectedDeviceIds.filter(id => {
+            const device = allDevices.find(d => d.id === id)
+            return device?.status === 'online'
+          })
+        : selectedDeviceIds
+      return filtered
     } else {
       return selectedDeviceIds
     }

@@ -193,8 +193,8 @@ export default function ApkDeployPage() {
         total: devicesToDeploy.length,
         details: [
           ...(result.installations || []).map((inst: any) => ({
-            device_id: inst.device?.id || '',
-            alias: inst.device?.alias || '',
+            device_id: inst.device_id || '',
+            alias: inst.alias || '',
             success: true
           })),
           ...(result.failed_devices || []).map((failed: any) => ({
@@ -213,6 +213,9 @@ export default function ApkDeployPage() {
     }
   }
 
+  // Online detection threshold in minutes
+  const ONLINE_THRESHOLD_MINUTES = 5
+
   const formatFileSize = (bytes: number): string => {
     const mb = bytes / (1024 * 1024)
     return `${mb.toFixed(1)} MB`
@@ -222,7 +225,7 @@ export default function ApkDeployPage() {
     const lastSeenDate = new Date(lastSeen)
     const now = new Date()
     const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / (1000 * 60)
-    return diffMinutes < 5 // Consider online if seen in last 5 minutes
+    return diffMinutes < ONLINE_THRESHOLD_MINUTES
   }
 
   if (isLoading) {
