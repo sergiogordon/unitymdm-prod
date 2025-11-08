@@ -1,0 +1,90 @@
+Milestone: Fix APK Upload Reliability (Chunked Upload + Streaming Backend)
+Summary
+
+Resolve the current issue where APK uploads above ~30 MB fail silently around 30% progress and disappear without appearing in the APK Management list.
+Implement streaming and chunked uploads to support APKs up to 500 MB, with visible progress, retry support, and logging — without modifying or breaking any other existing frontend pages or backend routes.
+
+Scope of Work
+Frontend (React / NextJS)
+
+ Replace current axios.post() single upload call with a chunked upload mechanism:
+
+Split large files into 5 MB chunks.
+
+Upload sequentially (or in limited parallel) to /api/apk/upload with metadata (uuid, chunkIndex, totalChunks, filename).
+
+Automatically retry failed chunks up to 3×.
+
+ Display a real progress bar reflecting combined chunk progress.
+
+ On upload completion, call a /api/apk/complete endpoint to finalize metadata (SHA-256, file size, etc.).
+
+ Add visible error toast/alert if upload fails, instead of modal auto-close.
+
+ Validate file size ≤ 500 MB before upload.
+
+ No visual/UI design changes outside the APK Management page.
+
+Backend (FastAPI / Server)
+
+ Convert upload handler to stream file writes to disk in chunks instead of loading full file into memory:
+
+@router.post("/api/apk/upload")
+async def upload_apk_chunk(uuid: str, chunkIndex: int, totalChunks: int, file: UploadFile = File(...)):
+    CHUNK_SIZE = 5 * 1024 * 1024
+    dest_dir = Path("/data/apk_uploads") / uuid
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = dest_dir / f"part_{chunkIndex}"
+    with open(chunk_path, "wb") as f:
+        while data := await file.read(CHUNK_SIZE):
+            f.write(data)
+    return {"status": "ok"}
+
+
+ Add /api/apk/complete to merge chunks, compute SHA-256 hash, and insert metadata into apk_management table.
+
+ Increase upload limits:
+
+uvicorn --limit-max-request-size 1024 (1 GB).
+
+If using Replit, ensure replit.yaml or Procfile enforces same.
+
+ Add apk_uploads.log file recording filename, uploader, size, duration, and outcome.
+
+Error Logging & Metrics
+
+ Capture frontend promise rejections and backend exceptions (via console or Sentry).
+
+ Include timestamps and uuid in logs for easy traceability.
+
+Testing Criteria
+
+ Upload 10 MB, 50 MB, 100 MB, and 300 MB test APKs successfully.
+
+ Verify resumable behavior after partial failure (auto-retry chunk).
+
+ Confirm successful entries appear instantly in the APK Management list.
+
+ Validate that no regressions occur in:
+
+Device Management
+
+Dashboard pages
+
+Other API endpoints or modals
+
+Deliverables
+
+✅ Reliable large-file upload (≤ 500 MB) via streaming and chunked upload
+✅ Progress bar & retry logic visible to user
+✅ Log + DB record for each upload
+✅ No console or modal errors on failed uploads
+✅ Existing UI/UX and routes outside APK Management remain fully functional
+
+Do Not Change / Out-of-Scope
+
+🚫 No edits to global frontend state management (e.g., Redux/Zustand)
+🚫 No CSS or layout updates outside /apk-management
+🚫 No API schema changes for devices, commands, or dashboard
+🚫 No DB migrations unrelated to apk_management table
+🚫 No authentication, session, or routing modifications
