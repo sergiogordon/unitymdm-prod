@@ -4,36 +4,24 @@
 
 set -e
 
-trap 'echo "🛑 Shutting down services..."; kill 0; exit' EXIT SIGTERM SIGINT
-
 echo "🚀 Starting NexMDM Production Server..."
 
-# Verify Next.js standalone build exists
-echo "📦 Verifying Next.js standalone build..."
-if [ ! -d "frontend/.next/standalone" ]; then
-  echo "❌ ERROR: Next.js standalone build not found at frontend/.next/standalone"
-  echo "Build must complete successfully before deployment starts."
-  echo "Expected directory: frontend/.next/standalone"
-  exit 1
-fi
-
-# Copy static files to standalone directory
-if [ -d "frontend/.next/static" ]; then
-  echo "Copying static assets..."
-  mkdir -p frontend/.next/standalone/frontend/.next
-  cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
+# Prepare Next.js standalone build (copy static assets)
+echo "📦 Preparing Next.js standalone build..."
+if [ -d "frontend/.next/standalone" ]; then
+  # Copy static files to standalone directory
+  if [ -d "frontend/.next/static" ]; then
+    cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
+  fi
+  # Copy public files if they exist
+  if [ -d "frontend/public" ]; then
+    cp -r frontend/public frontend/.next/standalone/frontend/public
+  fi
+  echo "✅ Static assets prepared"
 else
-  echo "⚠️  Warning: No static assets found"
+  echo "⚠️  Warning: Next.js standalone build not found. Building now..."
+  cd frontend && npm run build && cd ..
 fi
-
-# Copy public files if they exist
-if [ -d "frontend/public" ]; then
-  echo "Copying public assets..."
-  mkdir -p frontend/.next/standalone/frontend
-  cp -r frontend/public frontend/.next/standalone/frontend/public
-fi
-
-echo "✅ Static assets prepared"
 
 # Start FastAPI backend on port 8000 in the background
 echo "📡 Starting FastAPI backend on port 8000..."
@@ -67,40 +55,9 @@ node server.js &
 FRONTEND_PID=$!
 cd ../../../..
 
-# Wait for frontend to be ready
-echo "⏳ Waiting for frontend to start..."
-for i in {1..30}; do
-  # Check both health endpoint and root route
-  HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/api/health 2>/dev/null || echo "000")
-  ROOT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/ 2>/dev/null || echo "000")
-  
-  if [ "$HEALTH_STATUS" = "200" ] && [ "$ROOT_STATUS" != "000" ]; then
-    echo "✅ Frontend is ready! (Health: $HEALTH_STATUS, Root: $ROOT_STATUS)"
-    break
-  fi
-  
-  if [ $i -eq 30 ]; then
-    echo "❌ Frontend failed health check (Health: $HEALTH_STATUS, Root: $ROOT_STATUS)"
-    kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
-    exit 1
-  fi
-  
-  if [ $((i % 5)) -eq 0 ]; then
-    echo "   Attempt $i/30: Health=$HEALTH_STATUS, Root=$ROOT_STATUS"
-  fi
-  sleep 1
-done
-
 echo "✨ NexMDM is now running!"
 echo "   Frontend: http://0.0.0.0:5000"
 echo "   Backend: http://0.0.0.0:8000"
-echo "   Backend PID: $BACKEND_PID"
-echo "   Frontend PID: $FRONTEND_PID"
-echo ""
-echo "Monitoring processes (will exit if either service fails)..."
 
-# Wait for first process to exit (fail fast)
-wait -n
-EXIT_CODE=$?
-echo "❌ Service exited with code $EXIT_CODE. Shutting down..."
-exit $EXIT_CODE
+# Wait for both processes
+wait $BACKEND_PID $FRONTEND_PID

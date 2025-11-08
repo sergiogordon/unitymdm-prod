@@ -97,8 +97,8 @@ externalPort = 5173
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "start-autoscale.sh"]
-build = ["bash", "scripts/build-frontend.sh"]
+run = ["sh", "-c", "./start-production.sh"]
+build = ["sh", "-c", "cd frontend && npm install && npm run build"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"

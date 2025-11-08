@@ -40,7 +40,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Android Agent CI/CD**: Automated build, sign, verify, and upload of APKs.
 - **Android Agent Runtime**: Device Owner Mode, HMAC-validated FCM execution, 5-minute heartbeats, structured logging, reliability features.
 - **OTA Updates (Milestone 4)**: Secure fleet-wide agent updates with staged rollouts, rollback capability, and adoption telemetry.
-- **APK Management (CI Integration)**: Admin dashboard for managing CI-built APKs (simplified to release-only uploads), including registration, upload to Replit Object Storage, download, and deletion, all secured by admin key authentication. Enhanced error handling captures specific Object Storage errors (DefaultBucketError, ForbiddenError, UnauthorizedError) with actionable guidance. Diagnostic endpoint `/admin/storage/status` tests storage connectivity (init, write, read, cleanup) and reports detailed health status for troubleshooting production issues.
+- **APK Management (CI Integration)**: Admin dashboard for managing CI-built debug APKs, including registration, upload to Replit Object Storage, download, and deletion, all secured by admin key authentication.
 - **Reliability Features (Milestone 5)**: Android agent hardening with persistent Room database-backed queue, network resilience (NetworkCallback, exponential backoff), power management awareness, queue management (size limits, pruning), dual-key HMAC SHA-256 validation for FCM commands, and enhanced observability.
 - **Bulk Launch App**: Enterprise-grade bulk app launching with three targeting modes (entire fleet, filtered set, device IDs list), dry-run preview, rate-limited FCM dispatch (20 msg/sec), real-time result tracking, and comprehensive status reporting with device-level acknowledgments. Android agent sends LAUNCH_APP_ACK after app launch attempts with status codes (OK/ERROR) and descriptive messages. Recent launches limited to 3 most recent commands for clean UI.
 - **Remote Execution**: Comprehensive remote command execution system with two modes: FCM (JSON payload dispatching ping, ring, reboot, launch_app commands) and Shell (restricted shell commands with server-side and agent-side allow-list validation). Supports three targeting modes (entire fleet, filtered set, device aliases with multi-select picker), dry-run preview, CSV export of results, and real-time ACK tracking. Android agent validates commands using regex patterns (am start, am force-stop, pm list, settings get/put, input keyevent/tap/swipe, svc wifi/data, cmd package), executes via Runtime.exec() with 8-second timeout, captures stdout/stderr (2KB limit), and sends ACK responses to /v1/remote-exec/ack with status (OK/FAILED/TIMEOUT/DENIED), exit_code, and output. Frontend displays real-time stats (sent/acked/errors), per-device results table, preset commands dropdown (FCM and Shell presets including WEA suppression and OS update triggers), multi-select device picker with checkboxes and selection badges, and recent runs sidebar. Shell presets include "Suppress WEA & Enable DND" (zen_mode 2, disable emergency alerts), "Restore Normal Mode", and OS update commands. Backend includes database models (RemoteExec, RemoteExecResult), four API endpoints, audit logging with user_id/IP/payload_hash, and correlation_id tracking for each device execution. Command validation uses token-based parsing with shlex.split() for security, blocking dangerous metacharacters (|, ;, >, <, `, $) while allowing safe && chaining. Special token-based validation for cmd jobscheduler (SystemUpdateService only) and getprop (OS version and security patch only).
@@ -67,7 +67,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 ## External Dependencies
 - **PostgreSQL**: Primary database.
 - **FastAPI**: Backend Python web framework.
-- **Next.js**: Frontend React framework (standalone output mode for production).
+- **Next.js**: Frontend React framework.
 - **shadcn/ui**: Frontend UI component library.
 - **Alembic**: Database migration tool.
 - **Firebase Cloud Messaging (FCM)**: For command dispatch.
@@ -75,11 +75,3 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Replit Mail**: Email service for notifications.
 - **Replit Object Storage**: Native Python SDK for persistent APK file storage.
 - **Room Database**: SQLite-based persistent storage for Android agent queue.
-
-## Production Deployment
-- **Build Process**: Wrapper script `scripts/build-frontend.sh` uses `npm --prefix frontend` to build Next.js standalone bundle from repository root, verified before deployment starts.
-- **Startup Script**: `start-production.sh` with signal handling, fail-fast monitoring, and health check verification for both services.
-- **Health Checks**: Frontend `/api/health` and backend `/healthz` endpoints for deployment verification.
-- **Port Configuration**: Frontend on 5000 (external), backend on 8000 (internal).
-- **Process Supervision**: Both services monitored with automatic shutdown if either fails.
-- **Deployment Type**: Reserved VM with dual-service orchestration.

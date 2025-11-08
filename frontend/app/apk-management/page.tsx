@@ -36,6 +36,7 @@ export default function ApkManagementPage() {
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [uploadVersionName, setUploadVersionName] = useState("")
   const [uploadPackageName, setUploadPackageName] = useState("")
+  const [uploadBuildType, setUploadBuildType] = useState<"debug" | "release">("release")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
 
@@ -43,7 +44,7 @@ export default function ApkManagementPage() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch('/admin/apk/builds?limit=50')
+      const response = await fetch('/admin/apk/builds?build_type=release&limit=50')
       if (!response.ok) {
         throw new Error('Failed to fetch APK builds')
       }
@@ -158,7 +159,7 @@ export default function ApkManagementPage() {
           build_id: buildId,
           version_code: versionCode,
           version_name: uploadVersionName,
-          build_type: 'release',
+          build_type: uploadBuildType,
           file_size_bytes: uploadFile.size,
           package_name: uploadPackageName
         })
@@ -177,7 +178,7 @@ export default function ApkManagementPage() {
       formData.append('build_id', buildId)
       formData.append('version_code', versionCode.toString())
       formData.append('version_name', uploadVersionName)
-      formData.append('build_type', 'release')
+      formData.append('build_type', uploadBuildType)
       formData.append('package_name', uploadPackageName)
 
       const uploadResponse = await fetch('/api/proxy/admin/apk/upload', {
@@ -198,6 +199,7 @@ export default function ApkManagementPage() {
         setUploadFile(null)
         setUploadVersionName("")
         setUploadPackageName("")
+        setUploadBuildType("release")
         fetchApkBuilds()
       }, 500)
 
@@ -406,6 +408,31 @@ export default function ApkManagementPage() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   Human-readable version (e.g., 1.2.3)
                 </p>
+              </div>
+
+              {/* Build Type Selector */}
+              <div>
+                <Label className="mb-2 block text-sm font-medium">Build Type</Label>
+                <div className="flex gap-2">
+                  <Button
+                    variant={uploadBuildType === "debug" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setUploadBuildType("debug")}
+                    disabled={isUploading}
+                    className="flex-1"
+                  >
+                    Debug
+                  </Button>
+                  <Button
+                    variant={uploadBuildType === "release" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setUploadBuildType("release")}
+                    disabled={isUploading}
+                    className="flex-1"
+                  >
+                    Release
+                  </Button>
+                </div>
               </div>
 
               {/* Progress Bar */}

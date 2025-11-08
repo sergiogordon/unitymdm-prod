@@ -109,7 +109,7 @@ class AppStorageService:
             content_type: MIME type
             
         Returns:
-            Storage path in format: storage://apk/{uuid}_{filename}
+            Storage path in format: storage://apk/debug/{uuid}_{filename}
             
         Raises:
             ValueError: If file validation fails
@@ -120,7 +120,7 @@ class AppStorageService:
         
         # Generate unique key
         object_id = str(uuid.uuid4())
-        storage_key = f"apk/{object_id}_{filename}"
+        storage_key = f"apk/debug/{object_id}_{filename}"
         
         self._log_event(
             "storage.upload.start",
@@ -166,8 +166,8 @@ class AppStorageService:
         Download a file from Replit Object Storage.
         
         Args:
-            storage_path: Path in format storage://apk/{uuid}_{filename}
-                         or just apk/{uuid}_{filename}
+            storage_path: Path in format storage://apk/debug/{uuid}_{filename}
+                         or just apk/debug/{uuid}_{filename}
             use_cache: If True, check in-memory cache first (default: True)
             
         Returns:

@@ -498,7 +498,6 @@ def validate_configuration():
             )
     
     # Check SERVER_URL (helpful for enrollment)
-    server_url = None
     try:
         server_url = config.server_url
         if not server_url or server_url == "http://localhost:5000":
@@ -6804,7 +6803,7 @@ async def upload_apk_file(
     
     **Storage:**
     Files are stored in Replit Object Storage with automatic sidecar authentication.
-    Storage path format: storage://apk/{uuid}_{filename}.apk
+    Storage path format: storage://apk/{build_type}/{uuid}_{filename}.apk
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
@@ -6825,7 +6824,6 @@ async def upload_apk_file(
         )
     
     # Upload to App Storage
-    file_size = 0
     try:
         content = await file.read()
         file_size = len(content)
@@ -6862,176 +6860,14 @@ async def upload_apk_file(
             "file_size": file_size,
             "message": "APK file uploaded successfully"
         }
-    except ValueError as e:
+    except Exception as e:
         structured_logger.log_event(
-            "apk.upload.validation_error",
+            "apk.upload.error",
             error=str(e),
-            error_type="ValueError",
             package_name=package_name,
-            version_code=version_code,
-            file_size=file_size
+            version_code=version_code
         )
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        from replit.object_storage.errors import (
-            DefaultBucketError, BucketNotFoundError, 
-            ForbiddenError, UnauthorizedError, TooManyRequestsError
-        )
-        
-        error_type = type(e).__name__
-        error_detail = str(e)
-        
-        if isinstance(e, DefaultBucketError):
-            error_detail = "Object Storage default bucket not configured. Please configure a default bucket in the Object Storage settings."
-        elif isinstance(e, BucketNotFoundError):
-            error_detail = "Object Storage bucket not found. Please verify bucket configuration."
-        elif isinstance(e, ForbiddenError):
-            error_detail = "Object Storage access forbidden. Please check deployment permissions."
-        elif isinstance(e, UnauthorizedError):
-            error_detail = "Object Storage authentication failed. Please verify deployment is authorized."
-        elif isinstance(e, TooManyRequestsError):
-            error_detail = "Object Storage rate limit exceeded. Please try again in a moment."
-        
-        structured_logger.log_event(
-            "apk.upload.storage_error",
-            error=str(e),
-            error_type=error_type,
-            error_detail=error_detail,
-            package_name=package_name,
-            version_code=version_code,
-            file_size=file_size,
-            is_production=os.getenv("REPLIT_DEPLOYMENT") == "1"
-        )
-        
-        raise HTTPException(status_code=500, detail=f"Storage error: {error_detail}")
-
-@app.get("/admin/storage/status")
-async def check_storage_status(
-    x_admin: Optional[str] = Header(None)
-):
-    """
-    Diagnostic endpoint to check Object Storage connectivity and configuration.
-    Tests storage service initialization, bucket access, and basic operations.
-    Returns detailed status information for troubleshooting.
-    """
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=403, detail="Admin key required")
-    
-    from replit.object_storage.errors import (
-        DefaultBucketError, BucketNotFoundError,
-        ForbiddenError, UnauthorizedError, TooManyRequestsError
-    )
-    
-    diagnostics = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "is_production": os.getenv("REPLIT_DEPLOYMENT") == "1",
-        "environment": "production" if os.getenv("REPLIT_DEPLOYMENT") == "1" else "development",
-        "tests": {}
-    }
-    
-    try:
-        storage = get_storage_service()
-        diagnostics["tests"]["service_init"] = {
-            "status": "success",
-            "message": "Storage service initialized successfully"
-        }
-    except Exception as e:
-        diagnostics["tests"]["service_init"] = {
-            "status": "failed",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-        diagnostics["overall_status"] = "failed"
-        return diagnostics
-    
-    test_key = ""
-    try:
-        test_key = f"diagnostics/test_{uuid.uuid4()}.txt"
-        test_data = b"Object Storage connectivity test"
-        
-        storage.client.upload_from_bytes(test_key, test_data)
-        diagnostics["tests"]["write_test"] = {
-            "status": "success",
-            "message": "Successfully wrote test file",
-            "test_key": test_key
-        }
-    except DefaultBucketError as e:
-        diagnostics["tests"]["write_test"] = {
-            "status": "failed",
-            "error": "Default bucket not configured",
-            "error_type": "DefaultBucketError",
-            "recommendation": "Configure a default bucket in Object Storage settings"
-        }
-    except BucketNotFoundError as e:
-        diagnostics["tests"]["write_test"] = {
-            "status": "failed",
-            "error": "Bucket not found",
-            "error_type": "BucketNotFoundError",
-            "recommendation": "Verify bucket exists in Object Storage settings"
-        }
-    except ForbiddenError as e:
-        diagnostics["tests"]["write_test"] = {
-            "status": "failed",
-            "error": "Access forbidden",
-            "error_type": "ForbiddenError",
-            "recommendation": "Check deployment permissions for Object Storage"
-        }
-    except UnauthorizedError as e:
-        diagnostics["tests"]["write_test"] = {
-            "status": "failed",
-            "error": "Authentication failed",
-            "error_type": "UnauthorizedError",
-            "recommendation": "Verify deployment is authorized for Object Storage"
-        }
-    except Exception as e:
-        diagnostics["tests"]["write_test"] = {
-            "status": "failed",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
-    
-    if diagnostics["tests"]["write_test"]["status"] == "success":
-        try:
-            exists = storage.client.exists(test_key)
-            diagnostics["tests"]["read_test"] = {
-                "status": "success" if exists else "failed",
-                "message": "File exists in storage" if exists else "File not found after upload",
-                "test_key": test_key
-            }
-        except Exception as e:
-            diagnostics["tests"]["read_test"] = {
-                "status": "failed",
-                "error": str(e),
-                "error_type": type(e).__name__
-            }
-        
-        try:
-            storage.client.delete(test_key)
-            diagnostics["tests"]["cleanup"] = {
-                "status": "success",
-                "message": "Test file deleted successfully"
-            }
-        except Exception as e:
-            diagnostics["tests"]["cleanup"] = {
-                "status": "warning",
-                "error": str(e),
-                "message": "Test file may remain in storage"
-            }
-    
-    all_passed = all(
-        test.get("status") in ["success", "warning"] 
-        for test in diagnostics["tests"].values()
-    )
-    diagnostics["overall_status"] = "healthy" if all_passed else "unhealthy"
-    
-    structured_logger.log_event(
-        "storage.diagnostics",
-        overall_status=diagnostics["overall_status"],
-        is_production=diagnostics["is_production"],
-        test_results={k: v.get("status") for k, v in diagnostics["tests"].items()}
-    )
-    
-    return diagnostics
+        raise HTTPException(status_code=500, detail=f"Failed to save APK file: {str(e)}")
 
 @app.get("/admin/apk/builds")
 async def list_apk_builds(
