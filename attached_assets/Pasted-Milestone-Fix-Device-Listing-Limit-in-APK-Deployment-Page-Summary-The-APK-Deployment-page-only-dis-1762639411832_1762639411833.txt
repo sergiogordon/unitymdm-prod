@@ -1,0 +1,103 @@
+Milestone: Fix Device Listing Limit in APK Deployment Page
+Summary
+
+The APK Deployment page only displays 25 devices, even though more are enrolled and the frontend requests a limit=200.
+Root cause appears to be that the backend /v1/devices endpoint’s limit parameter (default 25) is not being respected or passed through correctly.
+The objective is to ensure that when the frontend specifies limit=200, all 50+ devices are returned and visible for selection.
+
+Root Cause Analysis
+
+Observed Behavior:
+/api/proxy/v1/devices?page=1&limit=200 returns only 25 devices.
+
+Expected Behavior:
+Should return all available devices (e.g. 50) since limit=200 is below the max allowed.
+
+Identified Points of Failure:
+
+Query parameter (limit) not reaching the backend.
+
+Proxy layer dropping or mis-encoding query params.
+
+Backend endpoint not honoring incoming limit param (always defaulting to 25).
+
+Environment variable override or pagination misalignment.
+
+⚙️ Scope of Work
+1. Backend — server/main.py
+
+ Locate /v1/devices endpoint:
+
+@app.get("/v1/devices")
+def list_devices(page: int = 1, limit: int = Query(25, ge=1, le=200)):
+
+
+ Add temporary debug log:
+
+print(f"[DEBUG] Received limit parameter: {limit}")
+
+
+to confirm parameter passing.
+
+ Verify limit is dynamically applied to the query:
+
+devices = db.query(Device).offset((page - 1) * limit).limit(limit).all()
+
+
+If hardcoded (limit=25), replace with variable.
+
+ Ensure pagination boundaries (page, offset) are correct and not double-applied through proxy.
+
+2. Proxy Verification
+
+ Inspect /api/proxy handler to confirm query strings are forwarded:
+
+params = request.query_params
+backend_url = f"{API_BASE}/v1/devices?{params}"
+
+
+ If proxy drops params, adjust to forward encoded query string properly:
+
+requests.get(backend_url, headers=headers, params=request.query_params)
+
+3. Frontend — APK Deployment Page
+
+ Confirm request includes limit=200:
+
+const response = await fetch(`/api/proxy/v1/devices?page=1&limit=200`);
+
+
+ Add console log before fetch to verify URL.
+
+ After backend fix, verify UI list populates all 50 devices.
+
+4. Validation
+
+ Log output should confirm:
+[DEBUG] Received limit parameter: 200
+
+ Browser network tab → /v1/devices?page=1&limit=200 response should include 50 device objects.
+
+ Deploy page displays all devices (no missing rows).
+
+ Regression test: ensure other tables (e.g., Device Management) still paginate at 25 by default.
+
+✅ Deliverables
+
+Devices list now honors frontend limit parameter.
+
+All 50+ devices appear in the deployment modal.
+
+Debug logs confirm limit value received correctly.
+
+Pagination behavior consistent across all pages.
+
+🚫 Do Not Change
+
+Do not modify authentication or proxy authorization headers.
+
+Do not change database schema or pagination defaults elsewhere.
+
+Do not hardcode limit=200 globally — only respect frontend parameter dynamically.
+
+Do not alter frontend layout or styling.
