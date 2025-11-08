@@ -213,7 +213,7 @@ class MonitorService : Service() {
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
-        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(prefs.speedtestPackage)
+        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency("com.unitynetwork.unityapp")
         
         val appVersionsMap = mutableMapOf<String, AppVersion>()
         appVersionsMap[prefs.speedtestPackage] = AppVersion(
