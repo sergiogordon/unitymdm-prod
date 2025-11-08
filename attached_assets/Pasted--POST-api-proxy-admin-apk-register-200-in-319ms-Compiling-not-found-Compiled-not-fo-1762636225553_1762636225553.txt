@@ -1,0 +1,61 @@
+ POST /api/proxy/admin/apk/register 200 in 319ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 1650ms (1898 modules)
+ ⨯ [Error: Body exceeded 1 MB limit.
+To configure the body size limit for Server Actions, see: https://nextjs.org/docs/app/api-reference/next-config-js/serverActions#bodysizelimit] {
+  statusCode: 413
+}
+ ⨯ [Error: Body exceeded 1 MB limit.
+To configure the body size limit for Server Actions, see: https://nextjs.org/docs/app/api-reference/next-config-js/serverActions#bodysizelimit] {
+  statusCode: 413
+}
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 596ms (1991 modules)
+ POST /api/apk/upload 500 in 2906ms
+ ✓ Compiled /admin/apk/builds in 234ms (1095 modules)
+ GET /admin/apk/builds?build_type=release&limit=50 200 in 509ms
+ ○ Compiling /apk-deploy/[apk_id] ...
+ ✓ Compiled /apk-deploy/[apk_id] in 2.6s (2008 modules)
+ GET /apk-deploy/71 200 in 4162ms
+ GET /admin/apk/builds?limit=100&order=desc 200 in 299ms
+ GET /api/proxy/v1/devices?page=1&limit=200 200 in 400ms
+ GET /admin/apk/builds?limit=100&order=desc 200 in 146ms
+ GET /api/proxy/v1/devices?page=1&limit=200 200 in 151ms
+ ○ Compiling /v1/apk/deploy ...
+ ✓ Compiled /v1/apk/deploy in 832ms (1912 modules)
+ POST /v1/apk/deploy 200 in 1568ms
+ ○ Compiling /v1/apk/download/[id] ...
+ ✓ Compiled /v1/apk/download/[id] in 1201ms (1916 modules)
+ POST /v1/apk/installation/update 200 in 2058ms
+ GET /v1/apk/download/71 500 in 2489ms
+ GET /v1/apk/download/71 500 in 730ms
+ GET /v1/apk/download/71 500 in 603ms
+ GET /v1/apk/download/71 500 in 468ms
+ POST /v1/apk/installation/update 200 in 553ms
+ ○ Compiling /v1/heartbeat ...
+ ✓ Compiled /v1/apk/installation/update in 802ms (1009 modules)
+ ✓ Compiled (1011 modules)
+ POST /v1/apk/installation/update 200 in 2111ms
+ POST /v1/heartbeat 200 in 2472ms
+ POST /v1/heartbeat 200 in 826ms
+ POST /v1/heartbeat 200 in 922ms
+ POST /v1/heartbeat 200 in 810ms
+ GET /apk-deploy/71 200 in 497ms
+ ○ Compiling /api/proxy/[...path] ...
+ ✓ Compiled /api/proxy/[...path] in 522ms (1011 modules)
+ ✓ Compiled (1013 modules)
+ GET /admin/apk/builds?limit=100&order=desc 200 in 1287ms
+ GET /api/proxy/v1/devices?page=1&limit=200 200 in 1288ms
+ GET /admin/apk/builds?limit=100&order=desc 200 in 155ms
+ GET /api/proxy/v1/devices?page=1&limit=200 200 in 239ms
+ ○ Compiling /v1/apk/deploy ...
+ ✓ Compiled /v1/apk/deploy in 647ms (1015 modules)
+ POST /v1/apk/deploy 200 in 1221ms
+ ✓ Compiled /v1/apk/download/[id] in 327ms (1017 modules)
+ ✓ Compiled (1019 modules)
+ POST /v1/apk/installation/update 200 in 1611ms
+ GET /v1/apk/download/71 500 in 1614ms
+ GET /v1/apk/download/71 500 in 478ms
+ GET /v1/apk/download/71 500 in 572ms
+ GET /v1/apk/download/71 500 in 522ms
+ POST /v1/apk/installation/update 200 in 561ms
