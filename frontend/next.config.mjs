@@ -10,6 +10,12 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // Increase body size limit for APK uploads (500MB)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '500mb',
+    },
+  },
   // Allow cross-origin requests from Replit domains
   allowedDevOrigins: [
     '*.replit.dev',

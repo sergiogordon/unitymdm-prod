@@ -5998,6 +5998,20 @@ async def download_apk_version(
         if not apk:
             raise HTTPException(status_code=404, detail="APK not found")
     
+    # Validate that file_path exists (not empty or None)
+    if not apk.file_path or apk.file_path.strip() == "":
+        structured_logger.log_event(
+            "apk.download.error",
+            error="missing_file_path",
+            build_id=apk.id,
+            version_code=apk.version_code,
+            package_name=apk.package_name
+        )
+        raise HTTPException(
+            status_code=500, 
+            detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
+        )
+    
     # Download from App Storage
     try:
         storage = get_storage_service()
@@ -6058,6 +6072,13 @@ async def download_apk_web(
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
     
+    # Validate that file_path exists (not empty or None)
+    if not apk.file_path or apk.file_path.strip() == "":
+        raise HTTPException(
+            status_code=500, 
+            detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
+        )
+    
     # Download from App Storage
     try:
         storage = get_storage_service()
@@ -6100,6 +6121,13 @@ async def download_latest_apk(
     
     if not apk:
         raise HTTPException(status_code=404, detail="No APK versions available")
+    
+    # Validate that file_path exists (not empty or None)
+    if not apk.file_path or apk.file_path.strip() == "":
+        raise HTTPException(
+            status_code=500, 
+            detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
+        )
     
     # Download from App Storage
     try:
