@@ -1,0 +1,15 @@
+So I tested it after implmenting this but still not showing in the apk list. I don't get confirmation or a toast message that its been uploaded - it still jumps to 30% and stays there til the window dissapoears I see this in the logs. : "event": "storage.upload.start", "key": "apk/debug/6da9f06a-3725-4901-8d15-099eb26c2571_Unity_10_release.apk", "file_size": 95971562, "filename": "Unity_10_release.apk"}
+{"event": "storage.upload.success", "key": "apk/debug/6da9f06a-3725-4901-8d15-099eb26c2571_Unity_10_release.apk", "storage_path": "storage://apk/debug/6da9f06a-3725-4901-8d15-099eb26c2571_Unity_10_release.apk", "file_size": 95971562}
+{"ts": "2025-11-08T18:28:27.492613+00:00", "request_id": "4d002924-0776-443f-915e-f7238bcb95ed", "level": "INFO", "event": "apk.upload", "build_id": 63, "version_code": 10, "version_name": "0.1.0", "build_type": "release", "file_size": 95971562, "file_path": "storage://apk/debug/6da9f06a-3725-4901-8d15-099eb26c2571_Unity_10_release.apk"}
+INFO:     10.83.8.6:0 - "POST /admin/apk/upload HTTP/1.1" 200 OK
+{"ts": "2025-11-08T18:28:28.204446+00:00", "request_id": "79827ac4-c8d6-46e3-ae76-7ac43ed2a982", "level": "INFO", "event": "apk.list", "build_type": "release", "count": 10, "limit": 50}
+INFO:     127.0.0.1:60642 - "GET /admin/apk/builds?build_type=release&limit=50&order=desc HTTP/1.1" 200 OK
+{"ts": "2025-11-08T18:28:31.446881+00:00", "request_id": "0e7899e5-cfe2-4004-a44c-21b294ec6616", "level": "INFO", "event": "apk.list", "build_type": "release", "count": 10, "limit": 50}
+INFO:     127.0.0.1:60642 - "GET /admin/apk/builds?build_type=release&limit=50&order=desc HTTP/1.1" 200 OK
+{"ts": "2025-11-08T18:28:32.030466+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.start"}
+{"ts": "2025-11-08T18:28:32.180617+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 60.216508}
+{"ts": "2025-11-08T18:28:32.180748+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "af7c9f4d-f3d0-4cdd-be80-096bbdd449cc", "source": "global_defaults"}
+{"ts": "2025-11-08T18:28:32.202062+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.end", "devices_checked": 1, "alerts_found": 0, "latency_ms": 171.587}
+{"ts": "2025-11-08T18:28:32.222629+00:00", "request_id": null, "level": "INFO", "event": "alert.scheduler.tick", "latency_ms": 192.214}
+{"ts": "2025-11-08T18:28:34.699037+00:00", "request_id": "2b3086b2-f7e7-4133-bebd-180ba361681c", "level": "INFO", "event": "apk.list", "build_type": "release", "count": 10, "limit": 50}
+INFO:     127.0.0.1:60642 - "GET /admin/apk/builds?build_type=release&limit=50&order=desc HTTP/1.1" 200 OK
