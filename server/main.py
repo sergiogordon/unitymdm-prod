@@ -5688,6 +5688,7 @@ async def complete_apk_upload(
     version_code = body.get("version_code")
     filename = body.get("filename")
     total_chunks = body.get("total_chunks")
+    build_type = body.get("build_type", "release")
     
     if not all([upload_id, package_name, version_name, version_code, filename, total_chunks]):
         raise HTTPException(status_code=400, detail="Missing required fields")
@@ -5724,16 +5725,26 @@ async def complete_apk_upload(
                 sha256_hash.update(chunk)
         sha256 = sha256_hash.hexdigest()
         
-        existing = db.query(ApkVersion).filter(
-            ApkVersion.package_name == package_name,
-            ApkVersion.version_code == version_code
-        ).first()
+        original_version_code = version_code
+        while True:
+            existing = db.query(ApkVersion).filter(
+                ApkVersion.package_name == package_name,
+                ApkVersion.version_code == version_code
+            ).first()
+            
+            if not existing:
+                break
+            
+            version_code += 1
         
-        if existing:
-            shutil.rmtree(dest_dir)
-            raise HTTPException(
-                status_code=409, 
-                detail=f"APK version {version_name} (code {version_code}) already exists for {package_name}"
+        if version_code != original_version_code:
+            structured_logger.log_event(
+                "apk.version_code_incremented",
+                level="INFO",
+                package_name=package_name,
+                original_version_code=original_version_code,
+                new_version_code=version_code,
+                user=current_user.username
             )
         
         with open(merged_path, "rb") as f:
@@ -5756,7 +5767,8 @@ async def complete_apk_upload(
             uploaded_at=datetime.now(timezone.utc),
             uploaded_by=current_user.username,
             is_active=True,
-            sha256=sha256
+            sha256=sha256,
+            build_type=build_type
         )
         
         db.add(apk_version)
