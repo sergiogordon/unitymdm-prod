@@ -1718,14 +1718,19 @@ async def heartbeat(
     # PERFORMANCE OPTIMIZATION: Persist heartbeat to partitioned table + dual-write to device_last_status
     from db_utils import record_heartbeat_with_bucketing
     
+    # Extract Unity app info (ALWAYS from com.unitynetwork.unityapp)
     unity_running = None
-    if device.monitored_package and device.monitored_package in payload.app_versions:
-        app_info = payload.app_versions.get(device.monitored_package)
-        if app_info and app_info.installed:
-            if device.monitored_package == "org.zwanoo.android.speedtest":
-                has_notif = payload.speedtest_running_signals.has_service_notification
-                fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
-                unity_running = (has_notif or (fg_seconds is not None and fg_seconds < 60))
+    unity_pkg_version = None
+    unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
+    if unity_app_info and unity_app_info.installed:
+        unity_pkg_version = unity_app_info.version_name
+        # If Unity is the monitored package, we can determine running status
+        if device.monitored_package == "com.unitynetwork.unityapp":
+            fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+            unity_running = (fg_seconds is not None and fg_seconds < 60)
+        else:
+            # Unity is not being monitored - status unknown
+            unity_running = None
     
     heartbeat_data = {
         'ip': str(payload.network.ip) if payload.network and payload.network.ip else None,
@@ -1737,7 +1742,7 @@ async def heartbeat(
         'signal_dbm': None,  # Not available in current schema
         'uptime_s': uptime_s,
         'ram_used_mb': payload.memory.total_ram_mb - payload.memory.avail_ram_mb if payload.memory else None,
-        'unity_pkg_version': payload.app_version,
+        'unity_pkg_version': unity_pkg_version,
         'unity_running': unity_running,
         'agent_version': payload.app_version
     }
@@ -1895,10 +1900,41 @@ async def heartbeat(
     last_status_dict["monitored_foreground_recent_s"] = monitored_foreground_recent_s
     last_status_dict["monitored_threshold_min"] = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
     
-    # Add unity/agent status for frontend (agent is always running if sending heartbeats)
-    last_status_dict["unity"] = {
-        "version": payload.app_version or "unknown",
-        "running": True
+    # Add unity/agent status for frontend
+    # Unity field ALWAYS reflects com.unitynetwork.unityapp, NOT the monitored package
+    unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
+    if unity_app_info and unity_app_info.installed:
+        # Unity app is installed - determine running status
+        # If Unity is the monitored package, use service_up status
+        # Otherwise, we can't determine running status without monitoring it
+        if monitoring_settings["package"] == "com.unitynetwork.unityapp":
+            # Unity is being monitored - use service_up status
+            if service_up is True:
+                unity_status = "running"
+            elif service_up is False:
+                unity_status = "inactive"
+            else:
+                # service_up is None - monitoring hasn't determined status yet
+                unity_status = "unknown"
+        else:
+            # Unity is installed but not being monitored - status unknown
+            unity_status = "unknown"
+        
+        last_status_dict["unity"] = {
+            "package": "com.unitynetwork.unityapp",
+            "version": unity_app_info.version_name or "unknown",
+            "status": unity_status
+        }
+    else:
+        # Unity app not installed
+        last_status_dict["unity"] = {
+            "package": "com.unitynetwork.unityapp",
+            "status": "not_installed"
+        }
+    
+    # Agent field always reflects MDM agent version (always running if sending heartbeats)
+    last_status_dict["agent"] = {
+        "version": payload.app_version or "unknown"
     }
     
     device.last_status = json.dumps(last_status_dict)

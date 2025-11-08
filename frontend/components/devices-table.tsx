@@ -62,7 +62,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
       device.alias.toLowerCase().includes(query) ||
       device.status.toLowerCase().includes(query) ||
       device.network.name.toLowerCase().includes(query) ||
-      device.unity.version.toLowerCase().includes(query) ||
+      (device.unity.version?.toLowerCase().includes(query) ?? false) ||
       device.unity.status.toLowerCase().includes(query) ||
       (device.monitoring?.monitored_app_name?.toLowerCase().includes(query) ?? false) ||
       (device.monitoring?.monitored_package?.toLowerCase().includes(query) ?? false)

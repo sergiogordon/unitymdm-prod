@@ -210,13 +210,29 @@ export function DeviceDrawer({ device, isOpen, onClose, onDeviceUpdated }: Devic
                     </td>
                   </tr>
                   <tr className="hover:bg-muted/80 transition-colors">
-                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">next MDM Version</td>
-                    <td className="px-4 py-3 text-sm font-medium font-mono text-xs">{device.unity.version}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">MDM Agent Version</td>
+                    <td className="px-4 py-3 text-sm font-medium font-mono text-xs">
+                      {device.agent?.version || "unknown"}
+                    </td>
                   </tr>
-                  <tr className="hover:bg-muted/80 transition-colors">
-                    <td className="px-4 py-3 text-sm text-muted-foreground font-medium">next MDM Status</td>
-                    <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
-                  </tr>
+                  {device.unity.version && (
+                    <>
+                      <tr className="hover:bg-muted/80 transition-colors">
+                        <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity App Version</td>
+                        <td className="px-4 py-3 text-sm font-medium font-mono text-xs">{device.unity.version}</td>
+                      </tr>
+                      <tr className="hover:bg-muted/80 transition-colors">
+                        <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity App Status</td>
+                        <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
+                      </tr>
+                    </>
+                  )}
+                  {!device.unity.version && device.unity.status && (
+                    <tr className="hover:bg-muted/80 transition-colors">
+                      <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity App Status</td>
+                      <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
+                    </tr>
+                  )}
                   {device.monitoring?.monitor_enabled && device.monitoring.monitored_app_name && (
                     <tr className="hover:bg-muted/80 transition-colors">
                       <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Monitored Service</td>

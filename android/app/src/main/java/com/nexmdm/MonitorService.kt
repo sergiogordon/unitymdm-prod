@@ -209,23 +209,30 @@ class MonitorService : Service() {
 
     private suspend fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
         val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
+        val unityInfo = speedtestDetector.detectSpeedtest("com.unitynetwork.unityapp")
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
         val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(prefs.speedtestPackage)
+        
+        val appVersionsMap = mutableMapOf<String, AppVersion>()
+        appVersionsMap[prefs.speedtestPackage] = AppVersion(
+            installed = speedtestInfo.installed,
+            version_name = speedtestInfo.versionName,
+            version_code = speedtestInfo.versionCode?.toLong() ?: 0L
+        )
+        appVersionsMap["com.unitynetwork.unityapp"] = AppVersion(
+            installed = unityInfo.installed,
+            version_name = unityInfo.versionName,
+            version_code = unityInfo.versionCode?.toLong() ?: 0L
+        )
         
         return HeartbeatPayload(
             device_id = prefs.deviceId,
             alias = prefs.deviceAlias,
             app_version = BuildConfig.VERSION_NAME,
             timestamp_utc = java.time.Instant.now().toString(),
-            app_versions = mapOf(
-                prefs.speedtestPackage to AppVersion(
-                    installed = speedtestInfo.installed,
-                    version_name = speedtestInfo.versionName,
-                    version_code = speedtestInfo.versionCode?.toLong() ?: 0L
-                )
-            ),
+            app_versions = appVersionsMap,
             speedtest_running_signals = SpeedtestRunningSignals(
                 has_service_notification = speedtestInfo.hasNotification,
                 foreground_recent_seconds = speedtestInfo.lastForegroundSeconds ?: -1
