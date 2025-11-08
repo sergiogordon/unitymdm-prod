@@ -7,18 +7,26 @@ export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies()
     const sessionCookie = cookieStore.get('session_token')
+    const authHeader = request.headers.get('authorization')
 
     const body = await request.json()
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 60000)
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    } else if (sessionCookie) {
+      headers['Cookie'] = `session_token=${sessionCookie.value}`
+    }
+
     const response = await fetch(`${API_URL}/v1/apk/complete`, {
       method: 'POST',
-      headers: {
-        'Cookie': sessionCookie ? `session_token=${sessionCookie.value}` : '',
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     })

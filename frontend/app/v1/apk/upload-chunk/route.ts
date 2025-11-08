@@ -7,17 +7,24 @@ export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies()
     const sessionCookie = cookieStore.get('session_token')
+    const authHeader = request.headers.get('authorization')
 
     const formData = await request.formData()
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 120000)
 
+    const headers: Record<string, string> = {}
+    
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    } else if (sessionCookie) {
+      headers['Cookie'] = `session_token=${sessionCookie.value}`
+    }
+
     const response = await fetch(`${API_URL}/v1/apk/upload-chunk`, {
       method: 'POST',
-      headers: {
-        'Cookie': sessionCookie ? `session_token=${sessionCookie.value}` : '',
-      },
+      headers,
       body: formData,
       signal: controller.signal,
     })
