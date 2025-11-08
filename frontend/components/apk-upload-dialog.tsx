@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
+import { Progress } from "@/components/ui/progress"
 
 interface ApkUploadDialogProps {
   isOpen: boolean
   onClose: () => void
   onUploadComplete: () => void
 }
+
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB
+const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB chunks
 
 export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUploadDialogProps) {
   const [file, setFile] = useState<File | null>(null)
@@ -21,6 +25,7 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
   const [versionName, setVersionName] = useState("")
   const [versionCode, setVersionCode] = useState("")
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -28,6 +33,10 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
     
     const droppedFile = e.dataTransfer.files[0]
     if (droppedFile && droppedFile.name.endsWith('.apk')) {
+      if (droppedFile.size > MAX_FILE_SIZE) {
+        toast.error('File size exceeds 500 MB limit')
+        return
+      }
       setFile(droppedFile)
     } else {
       toast.error('Please upload a valid APK file')
@@ -47,10 +56,55 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile && selectedFile.name.endsWith('.apk')) {
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        toast.error('File size exceeds 500 MB limit')
+        return
+      }
       setFile(selectedFile)
     } else {
       toast.error('Please upload a valid APK file')
     }
+  }
+
+  const uploadChunkWithRetry = async (
+    chunk: Blob,
+    uploadId: string,
+    chunkIndex: number,
+    totalChunks: number,
+    retries = 3
+  ): Promise<boolean> => {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const formData = new FormData()
+        formData.append('file', chunk)
+        formData.append('upload_id', uploadId)
+        formData.append('chunk_index', chunkIndex.toString())
+        formData.append('total_chunks', totalChunks.toString())
+        formData.append('filename', file!.name)
+
+        const token = localStorage.getItem('auth_token')
+        const response = await fetch('/v1/apk/upload-chunk', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData,
+        })
+
+        if (response.ok) {
+          return true
+        }
+
+        if (attempt < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        }
+      } catch (error) {
+        if (attempt < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        }
+      }
+    }
+    return false
   }
 
   const handleUpload = async () => {
@@ -60,43 +114,73 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
     }
 
     setIsUploading(true)
+    setUploadProgress(0)
+
+    const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('package_name', packageName)
-      formData.append('version_name', versionName)
-      formData.append('version_code', versionCode)
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE
+        const end = Math.min(start + CHUNK_SIZE, file.size)
+        const chunk = file.slice(start, end)
+
+        const success = await uploadChunkWithRetry(chunk, uploadId, chunkIndex, totalChunks)
+        
+        if (!success) {
+          toast.error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`)
+          setIsUploading(false)
+          setUploadProgress(0)
+          return
+        }
+
+        const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100)
+        setUploadProgress(progress)
+      }
 
       const token = localStorage.getItem('auth_token')
-      const response = await fetch('/v1/apk/upload', {
+      const completeResponse = await fetch('/v1/apk/complete', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
-        body: formData,
+        body: JSON.stringify({
+          upload_id: uploadId,
+          package_name: packageName,
+          version_name: versionName,
+          version_code: parseInt(versionCode),
+          filename: file.name,
+          total_chunks: totalChunks,
+        }),
       })
 
-      if (response.ok) {
+      if (completeResponse.ok) {
+        toast.success('APK uploaded successfully')
         onUploadComplete()
         handleClose()
       } else {
-        const error = await response.json()
-        toast.error(error.error || 'Failed to upload APK')
+        const error = await completeResponse.json()
+        toast.error(error.error || 'Failed to finalize upload')
       }
     } catch (error) {
+      console.error('Upload error:', error)
       toast.error('Failed to upload APK')
     } finally {
       setIsUploading(false)
+      setUploadProgress(0)
     }
   }
 
   const handleClose = () => {
+    if (isUploading) {
+      return
+    }
     setFile(null)
     setPackageName("")
     setVersionName("")
     setVersionCode("")
-    setIsUploading(false)
+    setUploadProgress(0)
     onClose()
   }
 
@@ -189,17 +273,27 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
               />
             </div>
           </div>
+
+          {isUploading && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Upload Progress</span>
+                <span className="font-medium">{uploadProgress}%</span>
+              </div>
+              <Progress value={uploadProgress} />
+            </div>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={isUploading}>
             Cancel
           </Button>
           <Button onClick={handleUpload} disabled={isUploading || !file || !packageName || !versionName || !versionCode}>
             {isUploading ? (
               <>
                 <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Uploading...
+                Uploading {uploadProgress}%
               </>
             ) : (
               <>

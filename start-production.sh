@@ -26,7 +26,7 @@ fi
 # Start FastAPI backend on port 8000 in the background
 echo "📡 Starting FastAPI backend on port 8000..."
 cd server
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 &
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --limit-max-requests 1000000 &
 BACKEND_PID=$!
 cd ..
 

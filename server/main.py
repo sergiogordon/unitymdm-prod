@@ -14,6 +14,7 @@ import json
 import asyncio
 import os
 import time
+import hashlib
 
 from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
@@ -170,8 +171,8 @@ async def limit_request_size(request: Request, call_next):
     Uses streaming size guard to enforce limit regardless of Content-Length header,
     chunked encoding, or other transfer methods.
     """
-    # Exempt APK upload endpoint from size limit (needs to handle 18MB+ APK files)
-    if request.url.path == "/admin/apk/upload":
+    # Exempt APK upload endpoints from size limit (needs to handle large APK files)
+    if request.url.path in ["/admin/apk/upload", "/v1/apk/upload-chunk", "/v1/apk/complete"]:
         return await call_next(request)
     
     max_size = 1 * 1024 * 1024  # 1MB
@@ -5614,6 +5615,233 @@ async def upload_apk(
         "download_url": get_apk_download_url(apk_version, base_url),
         "notes": apk_version.notes
     }
+
+@app.post("/v1/apk/upload-chunk")
+async def upload_apk_chunk(
+    file: UploadFile = File(...),
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    filename: str = Form(...),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Upload a single chunk of an APK file"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    from pathlib import Path
+    import re
+    
+    if not re.match(r'^[a-zA-Z0-9\-_]+$', upload_id):
+        raise HTTPException(status_code=400, detail="Invalid upload_id format")
+    
+    CHUNK_SIZE = 5 * 1024 * 1024
+    dest_dir = Path("/tmp/apk_uploads") / upload_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    
+    chunk_path = dest_dir / f"part_{chunk_index}"
+    
+    try:
+        with open(chunk_path, "wb") as f:
+            while data := await file.read(CHUNK_SIZE):
+                f.write(data)
+        
+        structured_logger.log_event(
+            "apk.chunk_uploaded",
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            filename=filename,
+            user=current_user.username
+        )
+        
+        return {"status": "ok", "chunk_index": chunk_index}
+    except Exception as e:
+        structured_logger.log_event(
+            "apk.chunk_upload_failed",
+            level="ERROR",
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            error=str(e),
+            user=current_user.username
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to save chunk: {str(e)}")
+
+@app.post("/v1/apk/complete")
+async def complete_apk_upload(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Complete a chunked APK upload by merging chunks and creating database entry"""
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    from pathlib import Path
+    import shutil
+    import re
+    
+    body = await request.json()
+    upload_id = body.get("upload_id")
+    package_name = body.get("package_name")
+    version_name = body.get("version_name")
+    version_code = body.get("version_code")
+    filename = body.get("filename")
+    total_chunks = body.get("total_chunks")
+    
+    if not all([upload_id, package_name, version_name, version_code, filename, total_chunks]):
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    
+    if not re.match(r'^[a-zA-Z0-9\-_]+$', upload_id):
+        raise HTTPException(status_code=400, detail="Invalid upload_id format")
+    
+    start_time = time.time()
+    dest_dir = Path("/tmp/apk_uploads") / upload_id
+    
+    try:
+        
+        if not dest_dir.exists():
+            raise HTTPException(status_code=404, detail="Upload not found")
+        
+        for i in range(total_chunks):
+            chunk_path = dest_dir / f"part_{i}"
+            if not chunk_path.exists():
+                raise HTTPException(status_code=400, detail=f"Missing chunk {i}")
+        
+        merged_path = dest_dir / "merged.apk"
+        
+        with open(merged_path, "wb") as outfile:
+            for i in range(total_chunks):
+                chunk_path = dest_dir / f"part_{i}"
+                with open(chunk_path, "rb") as infile:
+                    shutil.copyfileobj(infile, outfile)
+        
+        file_size = merged_path.stat().st_size
+        
+        sha256_hash = hashlib.sha256()
+        with open(merged_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                sha256_hash.update(chunk)
+        sha256 = sha256_hash.hexdigest()
+        
+        existing = db.query(ApkVersion).filter(
+            ApkVersion.package_name == package_name,
+            ApkVersion.version_code == version_code
+        ).first()
+        
+        if existing:
+            shutil.rmtree(dest_dir)
+            raise HTTPException(
+                status_code=409, 
+                detail=f"APK version {version_name} (code {version_code}) already exists for {package_name}"
+            )
+        
+        with open(merged_path, "rb") as f:
+            content = f.read()
+        
+        storage = get_storage_service()
+        final_filename = f"{package_name}_{version_code}.apk"
+        object_path = storage.upload_file(
+            file_data=content,
+            filename=final_filename,
+            content_type="application/vnd.android.package-archive"
+        )
+        
+        apk_version = ApkVersion(
+            version_name=version_name,
+            version_code=version_code,
+            file_path=object_path,
+            file_size=file_size,
+            package_name=package_name,
+            uploaded_at=datetime.now(timezone.utc),
+            uploaded_by=current_user.username,
+            is_active=True,
+            sha256=sha256
+        )
+        
+        db.add(apk_version)
+        db.commit()
+        db.refresh(apk_version)
+        
+        shutil.rmtree(dest_dir)
+        
+        duration = time.time() - start_time
+        
+        log_dir = Path("/tmp/logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "apk_uploads.log"
+        
+        with open(log_file, "a") as f:
+            log_entry = (
+                f"{datetime.now(timezone.utc).isoformat()} | "
+                f"SUCCESS | {filename} | "
+                f"uploader={current_user.username} | "
+                f"size={file_size} bytes | "
+                f"duration={duration:.2f}s | "
+                f"sha256={sha256}\n"
+            )
+            f.write(log_entry)
+        
+        structured_logger.log_event(
+            "apk.upload_completed",
+            upload_id=upload_id,
+            filename=filename,
+            package_name=package_name,
+            version_name=version_name,
+            version_code=version_code,
+            file_size=file_size,
+            duration_seconds=duration,
+            user=current_user.username,
+            sha256=sha256
+        )
+        
+        base_url = config.server_url
+        
+        return {
+            "id": apk_version.id,
+            "package_name": apk_version.package_name,
+            "version_name": apk_version.version_name,
+            "version_code": apk_version.version_code,
+            "file_size": apk_version.file_size,
+            "uploaded_at": apk_version.uploaded_at.isoformat(),
+            "uploaded_by": apk_version.uploaded_by,
+            "download_url": get_apk_download_url(apk_version, base_url),
+            "sha256": sha256
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        duration = time.time() - start_time
+        
+        log_dir = Path("/tmp/logs")
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "apk_uploads.log"
+        
+        with open(log_file, "a") as f:
+            log_entry = (
+                f"{datetime.now(timezone.utc).isoformat()} | "
+                f"FAILED | {filename} | "
+                f"uploader={current_user.username} | "
+                f"duration={duration:.2f}s | "
+                f"error={str(e)}\n"
+            )
+            f.write(log_entry)
+        
+        structured_logger.log_event(
+            "apk.upload_failed",
+            level="ERROR",
+            upload_id=upload_id,
+            filename=filename,
+            error=str(e),
+            duration_seconds=duration,
+            user=current_user.username
+        )
+        
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
+        
+        raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
 
 @app.get("/v1/apk/list")
 async def list_apks(

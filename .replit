@@ -32,7 +32,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd server && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+args = "cd server && uvicorn main:app --host 0.0.0.0 --port 8000 --reload --limit-max-requests 1000000"
 waitForPort = 8000
 
 [[workflows.workflow]]
@@ -56,10 +56,6 @@ localPort = 8000
 externalPort = 8000
 
 [[ports]]
-localPort = 34757
-externalPort = 6800
-
-[[ports]]
 localPort = 36749
 externalPort = 6000
 
@@ -70,6 +66,10 @@ externalPort = 5000
 [[ports]]
 localPort = 38709
 externalPort = 4200
+
+[[ports]]
+localPort = 39541
+externalPort = 6800
 
 [[ports]]
 localPort = 40735
