@@ -223,14 +223,46 @@ export function DeviceDrawer({ device, isOpen, onClose, onDeviceUpdated }: Devic
                       </tr>
                       <tr className="hover:bg-muted/80 transition-colors">
                         <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity App Status</td>
-                        <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            device.unity.status === "running" 
+                              ? "bg-green-500/10 text-green-500" 
+                              : device.unity.status === "inactive"
+                              ? "bg-gray-500/10 text-gray-500"
+                              : device.unity.status === "not_installed"
+                              ? "bg-red-500/10 text-red-500"
+                              : "bg-gray-400/10 text-gray-400"
+                          }`}>
+                            {device.unity.status === "running" ? "Running" 
+                              : device.unity.status === "inactive" ? "Inactive"
+                              : device.unity.status === "not_installed" ? "Not Installed"
+                              : device.unity.status === "down" ? "Down"
+                              : "Unknown"}
+                          </span>
+                        </td>
                       </tr>
                     </>
                   )}
                   {!device.unity.version && device.unity.status && (
                     <tr className="hover:bg-muted/80 transition-colors">
                       <td className="px-4 py-3 text-sm text-muted-foreground font-medium">Unity App Status</td>
-                      <td className="px-4 py-3 text-sm font-medium capitalize">{device.unity.status}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          device.unity.status === "running" 
+                            ? "bg-green-500/10 text-green-500" 
+                            : device.unity.status === "inactive"
+                            ? "bg-gray-500/10 text-gray-500"
+                            : device.unity.status === "not_installed"
+                            ? "bg-red-500/10 text-red-500"
+                            : "bg-gray-400/10 text-gray-400"
+                        }`}>
+                          {device.unity.status === "running" ? "Running" 
+                            : device.unity.status === "inactive" ? "Inactive"
+                            : device.unity.status === "not_installed" ? "Not Installed"
+                            : device.unity.status === "down" ? "Down"
+                            : "Unknown"}
+                        </span>
+                      </td>
                     </tr>
                   )}
                   {device.monitoring?.monitor_enabled && device.monitoring.monitored_app_name && (
