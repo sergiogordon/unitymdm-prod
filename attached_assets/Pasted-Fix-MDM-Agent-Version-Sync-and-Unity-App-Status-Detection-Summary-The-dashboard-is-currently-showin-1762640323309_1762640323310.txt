@@ -1,0 +1,134 @@
+Fix MDM Agent Version Sync and Unity App Status Detection
+Summary
+
+The dashboard is currently showing:
+
+MDM Agent Version: 1.0.0 (stale — should be 1.0.165-cabec49)
+
+Unity App Status: Unknown (even though installed and running)
+
+This milestone ensures:
+
+The agent version reported by the device matches the actual deployed MDM build version.
+
+The Unity app monitoring logic correctly reflects the app’s installed and running state, using live telemetry from the agent.
+
+⚙️ Scope of Work
+1. Backend — Telemetry/Heartbeat Update
+
+ In the device heartbeat handler (likely telemetry_worker.py or device_monitor.py):
+
+Ensure the MDM agent version field (agent.version) is read dynamically from the agent metadata or build ID (e.g., BuildConfig.VERSION_NAME or your heartbeat payload).
+
+Replace any hard-coded or cached value:
+
+device.agent_version = payload.get("agent", {}).get("version")
+
+
+Persist that on each heartbeat to ensure it updates when the APK changes.
+
+ For Unity app status, enhance the monitoring logic:
+
+Validate the monitored package (com.unitynetwork.unityapp) exists on the device via:
+
+pm list packages | grep com.unitynetwork.unityapp
+
+Determine running state via:
+
+dumpsys activity activities | grep com.unitynetwork.unityapp
+
+Report:
+
+"unity": {
+  "package": "com.unitynetwork.unityapp",
+  "version": "1.0.0",
+  "status": "running"
+}
+
+
+If not found → "status": "not_installed".
+
+If found but not active → "status": "inactive".
+
+ Add error-handling to prevent status:"unknown" fallback when detection succeeds.
+
+2. Android Agent — Telemetry Payload
+
+ In the agent’s heartbeat broadcast (AgentService.java or TelemetryWorker.kt):
+
+Confirm BuildConfig.VERSION_NAME (e.g., 1.0.165-cabec49) is sent inside:
+
+"agent": {
+  "version": BuildConfig.VERSION_NAME,
+  "status": "running"
+}
+
+
+Add Unity package check:
+
+val unityAppInstalled = isPackageInstalled("com.unitynetwork.unityapp")
+val unityRunning = isAppRunning("com.unitynetwork.unityapp")
+payload["unity"] = mapOf(
+    "package" to "com.unitynetwork.unityapp",
+    "version" to unityAppVersion,
+    "status" to if (unityRunning) "running" else "inactive"
+)
+
+
+This ensures backend receives real-time version + state.
+
+3. Dashboard — Frontend Display
+
+ Keep MDM Agent Version sourced from agent.version.
+
+If backend updates it, UI should auto-refresh via SWR/useEffect or revalidate.
+
+ Update Unity App Status badges:
+
+"running" → green “Running” badge
+
+"inactive" → gray “Idle”
+
+"not_installed" → red “Not Installed”
+
+"unknown" → default gray, only when backend truly lacks data
+
+ Ensure that Unity App Version displays unity.version (not agent.version).
+
+4. Validation
+
+ Deploy latest MDM (1.0.165-cabec49) and Unity (1.0.0) APKs.
+
+ Verify heartbeat JSON includes:
+
+"agent": { "version": "1.0.165-cabec49" },
+"unity": { "version": "1.0.0", "status": "running" }
+
+
+ Dashboard should reflect:
+
+MDM Agent Version → 1.0.165-cabec49
+
+Unity App Version → 1.0.0
+
+Unity App Status → Running
+
+✅ Deliverables
+
+Accurate, real-time MDM agent version on all devices.
+
+Unity app correctly identified as “Running.”
+
+“Unknown” status removed except for truly missing telemetry.
+
+No regression to battery/network/uptime telemetry.
+
+🚫 Do Not Change
+
+❌ No database schema changes.
+
+❌ No layout or styling updates to dashboard.
+
+❌ No changes to other monitored services (e.g., battery or network).
+
+❌ Do not alter API authentication or token flow.
