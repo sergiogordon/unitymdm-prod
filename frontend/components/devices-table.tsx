@@ -409,11 +409,13 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
                       </td>
                       <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm">{device.unity.version}</span>
+                          <span className="text-sm">{device.agent?.version || 'unknown'}</span>
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs ${
                               device.unity.status === "running"
                                 ? "bg-status-online/10 text-status-online"
+                                : device.unity.status === "inactive"
+                                ? "bg-muted text-muted-foreground"
                                 : "bg-status-offline/10 text-status-offline"
                             }`}
                           >
