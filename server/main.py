@@ -1700,7 +1700,9 @@ async def heartbeat(
         })
     
     device.last_seen = datetime.now(timezone.utc)
-    device.app_version = payload.app_version
+    # Update device.app_version from heartbeat payload to keep dashboard table in sync
+    if payload.app_version:
+        device.app_version = payload.app_version
     
     if payload.fcm_token:
         device.fcm_token = payload.fcm_token
