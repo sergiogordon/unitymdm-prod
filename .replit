@@ -56,13 +56,13 @@ localPort = 8000
 externalPort = 8000
 
 [[ports]]
-localPort = 34349
-externalPort = 8081
+localPort = 34391
+externalPort = 6800
 exposeLocalhost = true
 
 [[ports]]
-localPort = 34391
-externalPort = 6800
+localPort = 35533
+externalPort = 8099
 exposeLocalhost = true
 
 [[ports]]
@@ -80,6 +80,11 @@ externalPort = 4200
 [[ports]]
 localPort = 38913
 externalPort = 8080
+exposeLocalhost = true
+
+[[ports]]
+localPort = 39533
+externalPort = 8081
 exposeLocalhost = true
 
 [[ports]]
@@ -105,6 +110,11 @@ externalPort = 3003
 [[ports]]
 localPort = 44193
 externalPort = 5173
+
+[[ports]]
+localPort = 46413
+externalPort = 9000
+exposeLocalhost = true
 
 [deployment]
 deploymentTarget = "autoscale"
