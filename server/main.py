@@ -54,6 +54,38 @@ def ensure_utc(dt: Optional[datetime]) -> datetime:
         return datetime.now(timezone.utc)
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
+def get_device_by_token(token: str, db: Session) -> Optional[Device]:
+    """
+    Look up a device by its token using efficient token_id lookup.
+    Mirrors the logic from auth.verify_device_token but returns None instead of raising.
+    
+    Args:
+        token: The device token to look up
+        db: Database session
+        
+    Returns:
+        Device if found and token matches, None otherwise
+    """
+    # Compute token_id for fast lookup
+    token_id = compute_token_id(token)
+    
+    # First try fast lookup by token_id (for new devices)
+    device = db.query(Device).filter(Device.token_id == token_id).first()
+    if device and verify_token(token, device.token_hash):
+        return device
+    
+    # Fallback: check devices without token_id (legacy devices)
+    # This will only run for old devices until they're migrated
+    legacy_devices = db.query(Device).filter(Device.token_id.is_(None)).all()
+    for device in legacy_devices:
+        if verify_token(token, device.token_hash):
+            # Migrate legacy device by setting token_id
+            device.token_id = token_id
+            db.commit()
+            return device
+    
+    return None
+
 app = FastAPI(title="NexMDM API")
 
 # Registration queue to prevent connection pool saturation
@@ -5972,13 +6004,10 @@ async def download_apk_version(
     
     # Try device token authentication if not admin
     if auth_source != "admin" and x_device_token:
-        devices = db.query(Device).limit(100).all()
-        for d in devices:
-            if verify_token(x_device_token, d.token_hash):
-                device = d
-                token_id_last4 = device.token_id[-4:] if device.token_id else "none"
-                auth_source = "device"
-                break
+        device = get_device_by_token(x_device_token, db)
+        if device:
+            token_id_last4 = device.token_id[-4:] if device.token_id else "none"
+            auth_source = "device"
     
     # Require valid authentication (either admin key or device token)
     if auth_source not in ["admin", "device"]:
@@ -6515,12 +6544,7 @@ async def agent_update_check(
     from ota_utils import get_current_build, is_device_eligible_for_rollout, increment_deployment_stat, log_ota_event, calculate_sha256
     from models import ApkDownloadEvent
     
-    devices = db.query(Device).limit(100).all()
-    device = None
-    for d in devices:
-        if verify_token(x_device_token, d.token_hash):
-            device = d
-            break
+    device = get_device_by_token(x_device_token, db)
     
     if not device:
         metrics.inc_counter("ota_checks_total", {"status": "unauthorized"})
@@ -7698,13 +7722,10 @@ async def download_apk_optimized_endpoint(
     if x_admin_key and verify_admin_key(x_admin_key):
         pass  # Admin authenticated
     elif x_device_token:
-        devices = db.query(Device).limit(100).all()
-        for d in devices:
-            if verify_token(x_device_token, d.token_hash):
-                device = d
-                device_id = d.id
-                break
-        if not device:
+        device = get_device_by_token(x_device_token, db)
+        if device:
+            device_id = device.id
+        else:
             raise HTTPException(status_code=401, detail="Invalid device token")
     else:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -8116,6 +8137,15 @@ async def remote_exec_ack(
     db: Session = Depends(get_db)
 ):
     """Receive ACK from device for remote execution"""
+    # Authenticate device via token
+    x_device_token = request.headers.get("X-Device-Token")
+    if not x_device_token:
+        raise HTTPException(status_code=401, detail="Missing X-Device-Token header")
+    
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+    
     body = await request.json()
     
     exec_id = body.get("exec_id")
@@ -8128,6 +8158,21 @@ async def remote_exec_ack(
     if not all([exec_id, device_id, correlation_id, status]):
         raise HTTPException(status_code=400, detail="Missing required fields")
     
+    # Validate device_id matches authenticated device
+    if device_id != device.id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Device ID in payload does not match authenticated device"
+        )
+    
+    # Validate correlation_id format and ownership
+    expected_correlation_id = f"{exec_id}-{device.id}"
+    if correlation_id != expected_correlation_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not match expected format or device"
+        )
+    
     result = db.query(RemoteExecResult).filter(
         RemoteExecResult.correlation_id == correlation_id
     ).first()
@@ -8135,6 +8180,13 @@ async def remote_exec_ack(
     if not result:
         print(f"[REMOTE-EXEC-ACK] No result found for correlation_id={correlation_id}")
         return {"ok": False, "error": "Result not found"}
+    
+    # Additional validation: verify result belongs to authenticated device
+    if result.device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not belong to authenticated device"
+        )
     
     result.status = status.upper()
     result.exit_code = exit_code
