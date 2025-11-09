@@ -1280,6 +1280,20 @@ class FcmMessagingService : FirebaseMessagingService() {
     }
     
     private fun isCommandAllowed(command: String): Boolean {
+        // Heuristic to detect bloatware removal scripts before applying regex patterns
+        // These scripts use heredoc syntax and contain metacharacters that would normally be blocked
+        val trimmedCommand = command.trim()
+        val isBloatwareScript = (
+            trimmedCommand.contains("cat >") &&
+            trimmedCommand.contains("<< 'EOF'") &&
+            trimmedCommand.contains("pm disable-user")
+        )
+        
+        if (isBloatwareScript) {
+            // This is a bloatware removal script, allow it
+            return true
+        }
+        
         val allowPatterns = listOf(
             Regex("^am\\s+start(\\s|-).+"),
             Regex("^am\\s+force-stop\\s+[A-Za-z0-9._]+$"),
@@ -1294,7 +1308,7 @@ class FcmMessagingService : FirebaseMessagingService() {
             Regex("^mkdir\\s+-p\\s+/data/data/com\\.nexmdm/files.*pm\\s+disable-user.*$", setOf(RegexOption.DOT_MATCHES_ALL))
         )
         
-        val parts = command.trim().split("&&").map { it.trim() }
+        val parts = trimmedCommand.split("&&").map { it.trim() }
         
         return parts.all { part ->
             allowPatterns.any { pattern -> pattern.matches(part) } ||

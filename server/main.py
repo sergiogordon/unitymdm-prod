@@ -7893,14 +7893,49 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     """
     import re
     
-    # Check if this is a bloatware batch script
-    # Pattern starts with mkdir -p /data/data/com.nexmdm/files followed by heredoc at the same path
-    expected_dir = "/data/data/com.nexmdm/files"
-    if not command.startswith(f"mkdir -p {expected_dir}"):
+    # Allowed directories for temporary files
+    allowed_dirs = [
+        "/data/local/tmp",
+        "/data/data/com.nexmdm/files"
+    ]
+    
+    # Check if this looks like a bloatware batch script by looking for key patterns
+    # Must have: cat > ... heredoc, pm disable-user, and file reading
+    if 'cat >' not in command or "<< 'EOF'" not in command:
         return False, "Not a bloatware batch script"
     
-    if f"cat > {expected_dir}/bloat_list.txt" not in command:
-        return False, "Invalid bloatware script format: missing cat heredoc"
+    if 'pm disable-user --user 0 "$pkg"' not in command:
+        return False, "Not a bloatware batch script"
+    
+    # Dynamically detect the file path from "cat > /path/to/file"
+    cat_pattern = r'cat\s+>\s+([^\s<]+)'
+    cat_match = re.search(cat_pattern, command)
+    if not cat_match:
+        return False, "Invalid bloatware script format: could not find file path in cat command"
+    
+    file_path = cat_match.group(1).strip()
+    
+    # Verify the path is in an allowed directory
+    path_allowed = False
+    for allowed_dir in allowed_dirs:
+        if file_path.startswith(allowed_dir + "/") or file_path == allowed_dir:
+            path_allowed = True
+            break
+    
+    if not path_allowed:
+        return False, f"File path {file_path} is not in an allowed directory"
+    
+    # Verify the script uses the same path when reading (done < ...)
+    # Use regex to allow for flexible spacing
+    done_pattern = rf'done\s+<\s+["\']?{re.escape(file_path)}["\']?'
+    if not re.search(done_pattern, command):
+        return False, f"Script does not read from the same file path: {file_path}"
+    
+    # Verify the script deletes the file (rm -f ...)
+    # Use regex to allow for flexible spacing and optional quotes
+    rm_pattern = rf'rm\s+-f\s+["\']?{re.escape(file_path)}["\']?'
+    if not re.search(rm_pattern, command):
+        return False, f"Script does not clean up the temporary file: {file_path}"
     
     # Extract package names from the script
     # They appear between << 'EOF' and EOF
@@ -7915,10 +7950,6 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     
     if not packages:
         return False, "No packages found in bloatware script"
-    
-    # Verify the script uses the expected pm disable-user command pattern
-    if 'pm disable-user --user 0 "$pkg"' not in command:
-        return False, "Script does not use expected pm disable-user pattern"
     
     # Verify all packages are in the enabled bloatware database
     db = None
@@ -7962,15 +7993,24 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
     if not command:
         return False, "Command is empty"
     
-    # Check if this is a batch bloatware script (special case that uses heredoc syntax)
-    is_batch_script, batch_error = validate_batch_bloatware_script(command)
-    if is_batch_script:
-        # This is a valid batch bloatware script, allow it
-        return True, None
+    # Heuristic to detect bloatware batch scripts before applying generic security checks
+    # Look for key patterns: heredoc syntax, pm disable-user, and file operations
+    looks_like_bloatware_script = (
+        'cat >' in command and
+        "<< 'EOF'" in command and
+        'pm disable-user' in command and
+        ('done <' in command or 'while' in command)
+    )
     
-    # If it looks like a bloatware script but validation failed, return the error
-    if command.startswith(f"mkdir -p /data/data/com.nexmdm/files"):
-        return False, batch_error or "Invalid bloatware batch script"
+    # If it looks like a bloatware script, validate it with the specialized validator
+    if looks_like_bloatware_script:
+        is_batch_script, batch_error = validate_batch_bloatware_script(command)
+        if is_batch_script:
+            # This is a valid batch bloatware script, allow it
+            return True, None
+        else:
+            # It looked like a bloatware script but validation failed, return specific error
+            return False, batch_error or "Invalid bloatware batch script"
     
     # For non-batch commands, apply standard validation
     # Detect dangerous shell metacharacters (but allow &&)
