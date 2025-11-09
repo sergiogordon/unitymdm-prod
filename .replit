@@ -56,9 +56,8 @@ localPort = 8000
 externalPort = 8000
 
 [[ports]]
-localPort = 35105
+localPort = 24678
 externalPort = 6800
-exposeLocalhost = true
 
 [[ports]]
 localPort = 35533
@@ -76,11 +75,6 @@ externalPort = 5000
 [[ports]]
 localPort = 38709
 externalPort = 4200
-
-[[ports]]
-localPort = 38913
-externalPort = 8080
-exposeLocalhost = true
 
 [[ports]]
 localPort = 39533

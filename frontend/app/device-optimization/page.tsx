@@ -2,12 +2,22 @@
 import { ProtectedLayout } from "@/components/protected-layout"
 
 import { useState, useEffect } from "react"
-import { Plus, Trash2, Send, Settings, Battery, Shield } from "lucide-react"
+import {
+  Plus,
+  Trash2,
+  Send,
+  Settings,
+  Battery,
+  Shield,
+  PackageMinus,
+  PackagePlus,
+  Loader2,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useTheme } from "@/contexts/ThemeContext"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
@@ -39,6 +49,13 @@ interface WhitelistEntry {
   added_at: string
   enabled: boolean
   added_by: string
+}
+
+interface BloatwarePackage {
+  id: number
+  package_name: string
+  enabled: boolean
+  description?: string | null
 }
 
 const ADB_MODIFICATIONS = [
@@ -73,15 +90,25 @@ export default function DeviceOptimizationPage() {
 
 function DeviceOptimizationContent() {
   const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([])
+  const [bloatwarePackages, setBloatwarePackages] = useState<BloatwarePackage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [packageName, setPackageName] = useState("")
   const [appName, setAppName] = useState("")
   const [isApplying, setIsApplying] = useState(false)
+  const [isBloatDialogOpen, setIsBloatDialogOpen] = useState(false)
+  const [bloatwareInput, setBloatwareInput] = useState("")
+  const [isUpdatingBloatware, setIsUpdatingBloatware] = useState(false)
 
   useEffect(() => {
-    loadWhitelist()
+    loadAllData()
   }, [])
+
+  const loadAllData = async () => {
+    setIsLoading(true)
+    await Promise.all([loadWhitelist(), loadBloatwarePackages()])
+    setIsLoading(false)
+  }
 
   const loadWhitelist = async () => {
     try {
@@ -101,8 +128,27 @@ function DeviceOptimizationContent() {
     } catch (error) {
       console.error('Failed to load whitelist:', error)
       toast.error('Failed to load battery whitelist')
-    } finally {
-      setIsLoading(false)
+    }
+  }
+
+  const loadBloatwarePackages = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch('/admin/bloatware-list/json', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setBloatwarePackages(data.packages ?? [])
+      } else {
+        toast.error('Failed to load disabled apps list')
+      }
+    } catch (error) {
+      console.error('Failed to load bloatware list:', error)
+      toast.error('Failed to load disabled apps list')
     }
   }
 
@@ -131,7 +177,7 @@ function DeviceOptimizationContent() {
         setIsAddDialogOpen(false)
         setPackageName("")
         setAppName("")
-        loadWhitelist()
+        await loadWhitelist()
       } else {
         const error = await response.json()
         toast.error(error.detail || 'Failed to add to whitelist')
@@ -158,7 +204,7 @@ function DeviceOptimizationContent() {
 
       if (response.ok) {
         toast.success(`Removed ${appName} from whitelist`)
-        loadWhitelist()
+        await loadWhitelist()
       } else {
         toast.error('Failed to remove from whitelist')
       }
@@ -200,10 +246,115 @@ function DeviceOptimizationContent() {
     }
   }
 
+  const handleAddBloatwarePackages = async () => {
+    const parsedPackages = Array.from(
+      new Set(
+        bloatwareInput
+          .split(/[\n,]+/)
+          .map((pkg) => pkg.trim())
+          .filter((pkg) => pkg.length > 0)
+      )
+    )
+
+    if (parsedPackages.length === 0) {
+      toast.error('Enter at least one package name (one per line or separated by commas)')
+      return
+    }
+
+    const packageRegex = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/
+    const invalidPackages = parsedPackages.filter((pkg) => !packageRegex.test(pkg))
+
+    if (invalidPackages.length > 0) {
+      toast.error(`Invalid package name(s): ${invalidPackages.join(', ')}`)
+      return
+    }
+
+    const existingNames = new Set(bloatwarePackages.map((pkg) => pkg.package_name))
+    const newPackages = parsedPackages.filter((pkg) => !existingNames.has(pkg))
+
+    if (newPackages.length === 0) {
+      toast.info('All packages already exist in the disabled list')
+      return
+    }
+
+    setIsUpdatingBloatware(true)
+
+    try {
+      const token = localStorage.getItem('auth_token')
+      const added: string[] = []
+      const skipped: string[] = []
+
+      for (const pkg of newPackages) {
+        const response = await fetch('/admin/bloatware-list/add', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ package_name: pkg }),
+        })
+
+        if (response.ok) {
+          added.push(pkg)
+        } else {
+          const error = await response.json().catch(() => ({}))
+          skipped.push(error.detail ?? pkg)
+        }
+      }
+
+      if (added.length > 0) {
+        toast.success(`Added ${added.length} package${added.length === 1 ? '' : 's'} to disabled list`)
+      }
+
+      if (skipped.length > 0) {
+        toast.error(`Skipped: ${skipped.join(', ')}`)
+      }
+
+      await loadBloatwarePackages()
+      setIsBloatDialogOpen(false)
+      setBloatwareInput("")
+    } catch (error) {
+      console.error('Failed to add disabled apps:', error)
+      toast.error('Failed to add disabled apps')
+    } finally {
+      setIsUpdatingBloatware(false)
+    }
+  }
+
+  const handleRemoveBloatwarePackage = async (packageName: string) => {
+    if (!confirm(`Remove ${packageName} from the disabled apps list?`)) {
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch(`/admin/bloatware-list/${encodeURIComponent(packageName)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        toast.success(`Removed ${packageName}`)
+        await loadBloatwarePackages()
+      } else {
+        const error = await response.json().catch(() => ({}))
+        toast.error(error.detail || 'Failed to remove package')
+      }
+    } catch (error) {
+      console.error('Failed to remove disabled app:', error)
+      toast.error('Failed to remove package')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+        <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading…
+        </div>
       </div>
     )
   }
@@ -248,6 +399,66 @@ function DeviceOptimizationContent() {
                     </ul>
                   </div>
                 ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-gray-200 dark:border-gray-800">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <PackageMinus className="h-5 w-5 text-red-600 dark:text-red-400" />
+                <CardTitle>Disabled Apps (Bloatware)</CardTitle>
+              </div>
+              <CardDescription>
+                Packages that ADB enrollment scripts disable during provisioning
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => setIsBloatDialogOpen(true)}
+                    size="sm"
+                    className="flex items-center gap-2"
+                  >
+                    <PackagePlus className="h-4 w-4" />
+                    Add Packages
+                  </Button>
+                </div>
+
+                {bloatwarePackages.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                    No packages in the disabled list. Add package names to disable unwanted apps during enrollment.
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Package Name</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bloatwarePackages.map((pkg) => (
+                        <TableRow key={pkg.id}>
+                          <TableCell className="font-mono text-sm text-gray-700 dark:text-gray-300">
+                            {pkg.package_name}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              onClick={() => handleRemoveBloatwarePackage(pkg.package_name)}
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -396,6 +607,48 @@ function DeviceOptimizationContent() {
             </Button>
             <Button onClick={handleAddToWhitelist}>
               Add to Whitelist
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBloatDialogOpen} onOpenChange={setIsBloatDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Disabled Apps</DialogTitle>
+            <DialogDescription>
+              Paste package names (newline or comma separated) to disable during device enrollment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="bloatwarePackages">Package Names</Label>
+              <Textarea
+                id="bloatwarePackages"
+                placeholder={`com.example.app.one\ncom.example.app.two`}
+                value={bloatwareInput}
+                onChange={(e) => setBloatwareInput(e.target.value)}
+                className="font-mono text-sm"
+                rows={6}
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Use Android package format (e.g., com.company.app). Existing packages are ignored automatically.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBloatDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddBloatwarePackages} disabled={isUpdatingBloatware}>
+              {isUpdatingBloatware ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Adding…
+                </span>
+              ) : (
+                'Add Packages'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import { isAuthenticated } from "@/lib/api-client"
+import { buildBloatwareDisableCommand } from "@/lib/bloatwarePreset"
 
 interface ExecResult {
   device_id: string
@@ -452,11 +453,70 @@ export default function RemoteExecutionPage() {
     }
   }
 
-  const applyShellPreset = (presetName: string) => {
+  const applyShellPreset = async (presetName: string) => {
+    setSelectedShellPreset(presetName)
+    
+    if (presetName === "apply_bloatware") {
+      const token = getAuthToken()
+      if (!token) {
+        toast({
+          title: "Not authenticated",
+          description: "Please sign in again before using presets.",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      try {
+        const response = await fetch("/admin/bloatware-list/json", {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        })
+        
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}))
+          throw new Error(error.error || "Failed to fetch disabled apps list")
+        }
+        
+        const data = await response.json()
+        const packages: string[] = data.packages?.map((pkg: { package_name: string }) => pkg.package_name) ?? []
+        
+        if (packages.length === 0) {
+          toast({
+            title: "No packages configured",
+            description: "Add packages to the disabled apps list before running this preset.",
+            variant: "destructive"
+          })
+          setShellCommand("")
+          return
+        }
+        
+        const command = buildBloatwareDisableCommand(packages)
+
+        setShellCommand(command)
+        toast({
+          title: "Preset loaded",
+          description: `Prepared disable commands for ${packages.length} package${packages.length === 1 ? "" : "s"}.`,
+        })
+      } catch (error) {
+        console.error("Failed to build bloatware command:", error)
+        toast({
+          title: "Failed to load preset",
+          description: error instanceof Error ? error.message : "Unexpected error building command.",
+          variant: "destructive"
+        })
+        setShellCommand("")
+        setSelectedShellPreset("")
+      }
+      
+      return
+    }
+    
     const preset = SHELL_PRESETS[presetName as keyof typeof SHELL_PRESETS]
     if (preset) {
       setShellCommand(preset)
-      setSelectedShellPreset(presetName)
     }
   }
 
@@ -701,6 +761,7 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="trigger_update_service">🔄 Trigger System Update Check</SelectItem>
                           <SelectItem value="check_os_version">📱 Check OS Version</SelectItem>
                           <SelectItem value="check_security_patch">🔒 Check Security Patch Level</SelectItem>
+                          <SelectItem value="apply_bloatware">🚫 Apply Disabled Apps List</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

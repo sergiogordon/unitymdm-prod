@@ -1281,7 +1281,8 @@ class FcmMessagingService : FirebaseMessagingService() {
         val parts = command.trim().split("&&").map { it.trim() }
         
         return parts.all { part ->
-            allowPatterns.any { pattern -> pattern.matches(part) }
+            allowPatterns.any { pattern -> pattern.matches(part) } ||
+            Regex("^pm\\s+disable-user\\s+--user\\s+0\\s+([A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+)$").matches(part)
         }
     }
     

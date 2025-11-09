@@ -7799,6 +7799,33 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return True, None
         return False, f"Only {', '.join(allowed_props)} are allowed for getprop"
     
+    # Allow disabling packages that are in the managed bloatware list
+    disable_match = re.match(r'^pm\s+disable-user\s+--user\s+0\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)$', cmd)
+    if disable_match:
+        package_name = disable_match.group(1)
+        db = None
+        try:
+            db = SessionLocal()
+            exists = (
+                db.query(BloatwarePackage)
+                .filter(
+                    BloatwarePackage.package_name == package_name,
+                    BloatwarePackage.enabled == True
+                )
+                .first()
+                is not None
+            )
+        except Exception as e:
+            print(f"[REMOTE-EXEC] Failed to validate bloatware package {package_name}: {e}")
+            exists = False
+        finally:
+            if db:
+                db.close()
+        
+        if exists:
+            return True, None
+        return False, f"Package {package_name} is not in the enabled bloatware list"
+    
     # Regex-based validation for other commands
     allow_patterns = [
         r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
