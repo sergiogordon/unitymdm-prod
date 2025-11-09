@@ -1724,12 +1724,14 @@ async def heartbeat(
     unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
     if unity_app_info and unity_app_info.installed:
         unity_pkg_version = unity_app_info.version_name
-        # If Unity is the monitored package, we can determine running status
-        if device.monitored_package == "com.unitynetwork.unityapp":
-            fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
-            unity_running = (fg_seconds is not None and fg_seconds < 60)
+        # Android agent sends monitored_foreground_recent_s specifically for Unity
+        # Use this directly to determine running status (10 minute threshold = 600 seconds)
+        fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+        if fg_seconds is not None:
+            # Unity is running if it was in foreground within the last 10 minutes
+            unity_running = fg_seconds < 600
         else:
-            # Unity is not being monitored - status unknown
+            # No foreground data available - status unknown
             unity_running = None
     
     heartbeat_data = {
@@ -1904,20 +1906,19 @@ async def heartbeat(
     # Unity field ALWAYS reflects com.unitynetwork.unityapp, NOT the monitored package
     unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
     if unity_app_info and unity_app_info.installed:
-        # Unity app is installed - determine running status
-        # If Unity is the monitored package, use service_up status
-        # Otherwise, we can't determine running status without monitoring it
-        if monitoring_settings["package"] == "com.unitynetwork.unityapp":
-            # Unity is being monitored - use service_up status
-            if service_up is True:
+        # Unity app is installed - determine running status using foreground recency
+        # Android agent sends monitored_foreground_recent_s specifically for Unity
+        # Use this directly with a 10 minute threshold (600 seconds)
+        unity_fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+        
+        if unity_fg_seconds is not None:
+            # Unity is running if it was in foreground within the last 10 minutes
+            if unity_fg_seconds < 600:
                 unity_status = "running"
-            elif service_up is False:
-                unity_status = "inactive"
             else:
-                # service_up is None - monitoring hasn't determined status yet
-                unity_status = "unknown"
+                unity_status = "inactive"
         else:
-            # Unity is installed but not being monitored - status unknown
+            # No foreground data available - status unknown
             unity_status = "unknown"
         
         last_status_dict["unity"] = {
