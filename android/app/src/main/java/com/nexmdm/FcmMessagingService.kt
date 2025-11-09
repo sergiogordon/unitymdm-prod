@@ -1275,7 +1275,11 @@ class FcmMessagingService : FirebaseMessagingService() {
             Regex("^settings\\s+(get|put)\\s+(secure|system|global)\\s+\\S+\\s*.*$"),
             Regex("^input\\s+(keyevent|tap|swipe)\\s+.*$"),
             Regex("^svc\\s+(wifi|data)\\s+(enable|disable)$"),
-            Regex("^pm\\s+list\\s+packages.*$")
+            Regex("^pm\\s+list\\s+packages.*$"),
+            // Batch bloatware disable script: accepts both with and without sh -c wrapper
+            // (Backend sends without wrapper since we add it automatically in exec())
+            Regex("^sh\\s+-c\\s+.*(cat|while|read|pm\\s+disable-user|rm|echo).*$"),
+            Regex("^cat\\s+>\\s+/data/local/tmp/bloat_list\\.txt\\s+<<\\s+'EOF'.*pm\\s+disable-user.*$", RegexOption.DOT_MATCHES_ALL)
         )
         
         val parts = command.trim().split("&&").map { it.trim() }

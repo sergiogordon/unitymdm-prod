@@ -317,42 +317,88 @@ export default function RemoteExecutionPage() {
   }
 
   const handleExecute = async () => {
-    const token = getAuthToken()
-    if (!token) return
+    console.log("[REMOTE-EXEC] Execute button clicked")
+    
+    let token = getAuthToken()
+    console.log("[REMOTE-EXEC] Token check:", token ? "Token found" : "No token")
+    
+    if (!token) {
+      console.error("[REMOTE-EXEC] No auth token - redirecting to login")
+      toast({
+        title: "Session expired",
+        description: "Please sign in again to continue.",
+        variant: "destructive"
+      })
+      router.push("/login")
+      return
+    }
+
+    console.log("[REMOTE-EXEC] Mode:", mode, "Scope:", scopeType)
+    console.log("[REMOTE-EXEC] Preview count:", previewCount)
+    console.log("[REMOTE-EXEC] Require confirmation:", requireConfirmation)
 
     if (requireConfirmation && previewCount && previewCount > 25) {
       const confirmed = confirm(`You are about to execute this command on ${previewCount} devices. Continue?`)
+      console.log("[REMOTE-EXEC] User confirmation:", confirmed)
       if (!confirmed) return
     }
 
+    // Re-fetch the token right before executing in case it expired during confirmation
+    token = getAuthToken()
+    if (!token) {
+      console.error("[REMOTE-EXEC] Token expired during confirmation - redirecting to login")
+      toast({
+        title: "Session expired",
+        description: "Please sign in again to continue.",
+        variant: "destructive"
+      })
+      router.push("/login")
+      return
+    }
+    const authToken = token
+
+    console.log("[REMOTE-EXEC] Starting execution...")
     setIsExecuting(true)
+    
     try {
+      console.log("[REMOTE-EXEC] Building targets...")
       const targets = buildTargets()
+      console.log("[REMOTE-EXEC] Targets built:", JSON.stringify(targets))
+      
       const payload = mode === "fcm" ? getFcmPayload() : null
       const command = mode === "shell" ? shellCommand : null
+      console.log("[REMOTE-EXEC] Payload/Command:", mode === "fcm" ? payload : command)
 
+      const requestBody = {
+        mode,
+        targets,
+        payload,
+        command,
+        dry_run: false
+      }
+      console.log("[REMOTE-EXEC] Request body:", JSON.stringify(requestBody))
+
+      console.log("[REMOTE-EXEC] Sending POST to /api/proxy/v1/remote-exec...")
       const response = await fetch("/api/proxy/v1/remote-exec", {
         method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          mode,
-          targets,
-          payload,
-          command,
-          dry_run: false
-        })
+        body: JSON.stringify(requestBody)
       })
 
+      console.log("[REMOTE-EXEC] Response status:", response.status)
+
       if (response.status === 401) {
+        console.error("[REMOTE-EXEC] 401 Unauthorized - redirecting to login")
         router.push('/login')
         return
       }
 
       if (response.ok) {
         const data = await response.json()
+        console.log("[REMOTE-EXEC] Success response:", data)
         setExecId(data.exec_id)
         setIsPolling(true)
         toast({
@@ -361,15 +407,31 @@ export default function RemoteExecutionPage() {
         })
         fetchRecentExecutions()
       } else {
-        const error = await response.json()
+        const errorText = await response.text()
+        console.error("[REMOTE-EXEC] Error response status:", response.status)
+        console.error("[REMOTE-EXEC] Error response body:", errorText)
+        
+        let errorDetail = "Failed to execute command"
+        try {
+          const error = JSON.parse(errorText)
+          errorDetail = error.detail || errorDetail
+          console.error("[REMOTE-EXEC] Parsed error detail:", errorDetail)
+        } catch (e) {
+          console.error("[REMOTE-EXEC] Could not parse error response as JSON")
+          errorDetail = errorText || errorDetail
+        }
+        
         toast({
-          title: "Execution Failed",
-          description: error.detail || "Failed to execute command",
+          title: `Execution Failed (${response.status})`,
+          description: errorDetail,
           variant: "destructive"
         })
       }
     } catch (error) {
+      console.error("[REMOTE-EXEC] Exception caught:", error)
       if (error instanceof Error) {
+        console.error("[REMOTE-EXEC] Error message:", error.message)
+        console.error("[REMOTE-EXEC] Error stack:", error.stack)
         toast({
           title: "Validation Error",
           description: error.message,
@@ -383,6 +445,7 @@ export default function RemoteExecutionPage() {
         })
       }
     } finally {
+      console.log("[REMOTE-EXEC] Execution finished, resetting state")
       setIsExecuting(false)
     }
   }

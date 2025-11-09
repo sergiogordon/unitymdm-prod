@@ -7739,6 +7739,43 @@ async def download_apk_optimized_endpoint(
         use_cache=True
     )
 
+def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
+    """
+    Build a shell script that disables a list of packages gracefully.
+    Uses a loop over a temp file to avoid command-line length limits.
+    Skips packages that don't exist or are already disabled.
+    
+    Returns the complete shell script as a single string.
+    
+    Note: Does NOT wrap in 'sh -c' because the Android app adds that wrapper automatically.
+    """
+    # Escape and join packages with newlines
+    escaped_packages = "\n".join([f'"{pkg}"' for pkg in package_names])
+    
+    # Build the script using a heredoc to pass package list to a loop
+    # pm disable-user exits with 0 for success and non-0 for failure
+    # We use || true to skip gracefully and continue with the next package
+    # Note: Android app wraps this in 'sh -c' automatically, so we don't add it here
+    script = f"""cat > /data/local/tmp/bloat_list.txt << 'EOF'
+{chr(10).join(package_names)}
+EOF
+count=0
+failed=0
+while IFS= read -r pkg; do
+  if [ -z "$pkg" ]; then
+    continue
+  fi
+  if pm disable-user --user 0 "$pkg" 2>/dev/null; then
+    count=$((count + 1))
+  else
+    failed=$((failed + 1))
+  fi
+done < /data/local/tmp/bloat_list.txt
+rm -f /data/local/tmp/bloat_list.txt
+echo "Disabled $count packages ($failed skipped or failed)" """
+    
+    return script
+
 def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
     """
     Validate a single shell command (without && chaining).
@@ -7843,6 +7880,75 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
     
     return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
 
+def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate a batch bloatware disable script.
+    These scripts use heredoc syntax which contains metacharacters that would normally be blocked.
+    We validate that the script only disables packages from the approved bloatware list.
+    
+    Note: Command should NOT be wrapped in 'sh -c' as the Android app adds that automatically.
+    
+    Returns (is_valid, error_message)
+    """
+    import re
+    
+    # Check if this is a bloatware batch script
+    # Pattern: cat > /data/local/tmp/bloat_list.txt << 'EOF' ... EOF ... pm disable-user ...
+    # (No 'sh -c' wrapper - Android app adds that)
+    if not command.startswith("cat > /data/local/tmp/bloat_list.txt"):
+        return False, "Not a bloatware batch script"
+    
+    # Extract package names from the script
+    # They appear between << 'EOF' and EOF
+    eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
+    match = re.search(eof_pattern, command, re.DOTALL)
+    
+    if not match:
+        return False, "Invalid bloatware script format: could not find package list"
+    
+    package_list_text = match.group(1)
+    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
+    
+    if not packages:
+        return False, "No packages found in bloatware script"
+    
+    # Verify the script uses the expected pm disable-user command pattern
+    if 'pm disable-user --user 0 "$pkg"' not in command:
+        return False, "Script does not use expected pm disable-user pattern"
+    
+    # Verify all packages are in the enabled bloatware database
+    db = None
+    try:
+        db = SessionLocal()
+        
+        for package_name in packages:
+            # Validate package name format (basic security check)
+            if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
+                return False, f"Invalid package name format: {package_name}"
+            
+            # Check if package is in the enabled bloatware list
+            exists = (
+                db.query(BloatwarePackage)
+                .filter(
+                    BloatwarePackage.package_name == package_name,
+                    BloatwarePackage.enabled == True
+                )
+                .first()
+                is not None
+            )
+            
+            if not exists:
+                return False, f"Package {package_name} is not in the enabled bloatware list"
+        
+        return True, None
+        
+    except Exception as e:
+        print(f"[REMOTE-EXEC] Failed to validate bloatware batch script: {e}")
+        return False, f"Database validation error: {str(e)}"
+    finally:
+        if db:
+            db.close()
+
 def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
     """
     Validate shell command against allow-list, supporting && chaining.
@@ -7852,6 +7958,17 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
     if not command:
         return False, "Command is empty"
     
+    # Check if this is a batch bloatware script (special case that uses heredoc syntax)
+    is_batch_script, batch_error = validate_batch_bloatware_script(command)
+    if is_batch_script:
+        # This is a valid batch bloatware script, allow it
+        return True, None
+    
+    # If it looks like a bloatware script but validation failed, return the error
+    if command.startswith("cat > /data/local/tmp/bloat_list.txt"):
+        return False, batch_error or "Invalid bloatware batch script"
+    
+    # For non-batch commands, apply standard validation
     # Detect dangerous shell metacharacters (but allow &&)
     # Block: |, ;, >, <, `, $, newlines, and single & (but allow &&)
     dangerous_chars = ['|', ';', '>', '<', '`', '$', '\n', '\r']
@@ -8175,6 +8292,8 @@ async def remote_exec_ack(
     
     body = await request.json()
     
+    print(f"[REMOTE-EXEC-ACK] Received ACK payload: {body}")
+    
     exec_id = body.get("exec_id")
     device_id = body.get("device_id")
     correlation_id = body.get("correlation_id")
@@ -8182,8 +8301,18 @@ async def remote_exec_ack(
     exit_code = body.get("exit_code")
     output = body.get("output", "")
     
+    print(f"[REMOTE-EXEC-ACK] Parsed fields: exec_id={exec_id}, device_id={device_id}, correlation_id={correlation_id}, status={status}")
+    
     if not all([exec_id, device_id, correlation_id, status]):
-        raise HTTPException(status_code=400, detail="Missing required fields")
+        missing_fields = []
+        if not exec_id: missing_fields.append("exec_id")
+        if not device_id: missing_fields.append("device_id")
+        if not correlation_id: missing_fields.append("correlation_id")
+        if not status: missing_fields.append("status")
+        
+        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+        print(f"[REMOTE-EXEC-ACK] ERROR: {error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
     
     # Validate device_id matches authenticated device
     if device_id != device.id:
