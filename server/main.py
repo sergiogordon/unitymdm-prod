@@ -7756,7 +7756,8 @@ def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
     # pm disable-user exits with 0 for success and non-0 for failure
     # We use || true to skip gracefully and continue with the next package
     # Note: Android app wraps this in 'sh -c' automatically, so we don't add it here
-    script = f"""cat > /data/local/tmp/bloat_list.txt << 'EOF'
+    script = f"""mkdir -p /data/data/com.nexmdm/files
+cat > /data/data/com.nexmdm/files/bloat_list.txt << 'EOF'
 {chr(10).join(package_names)}
 EOF
 count=0
@@ -7770,8 +7771,8 @@ while IFS= read -r pkg; do
   else
     failed=$((failed + 1))
   fi
-done < /data/local/tmp/bloat_list.txt
-rm -f /data/local/tmp/bloat_list.txt
+done < /data/data/com.nexmdm/files/bloat_list.txt
+rm -f /data/data/com.nexmdm/files/bloat_list.txt
 echo "Disabled $count packages ($failed skipped or failed)" """
     
     return script
@@ -7893,10 +7894,13 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     import re
     
     # Check if this is a bloatware batch script
-    # Pattern: cat > /data/local/tmp/bloat_list.txt << 'EOF' ... EOF ... pm disable-user ...
-    # (No 'sh -c' wrapper - Android app adds that)
-    if not command.startswith("cat > /data/local/tmp/bloat_list.txt"):
+    # Pattern starts with mkdir -p /data/data/com.nexmdm/files followed by heredoc at the same path
+    expected_dir = "/data/data/com.nexmdm/files"
+    if not command.startswith(f"mkdir -p {expected_dir}"):
         return False, "Not a bloatware batch script"
+    
+    if f"cat > {expected_dir}/bloat_list.txt" not in command:
+        return False, "Invalid bloatware script format: missing cat heredoc"
     
     # Extract package names from the script
     # They appear between << 'EOF' and EOF
@@ -7965,7 +7969,7 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
         return True, None
     
     # If it looks like a bloatware script but validation failed, return the error
-    if command.startswith("cat > /data/local/tmp/bloat_list.txt"):
+    if command.startswith(f"mkdir -p /data/data/com.nexmdm/files"):
         return False, batch_error or "Invalid bloatware batch script"
     
     # For non-batch commands, apply standard validation

@@ -1104,6 +1104,12 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         val execId = data["exec_id"] ?: ""
         val correlationId = data["correlation_id"] ?: ""
+        val deviceId = resolveDeviceId(data["device_id"])
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "Cannot process remote exec FCM command - deviceId missing")
+            return
+        }
         val type = data["type"] ?: ""
         
         var status = "OK"
@@ -1142,7 +1148,7 @@ class FcmMessagingService : FirebaseMessagingService() {
             Log.e(TAG, "Error executing FCM command", e)
         }
         
-        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error)
+        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error, deviceId)
     }
     
     private fun handleRemoteExecShell(data: Map<String, String>) {
@@ -1151,15 +1157,21 @@ class FcmMessagingService : FirebaseMessagingService() {
         val execId = data["exec_id"] ?: ""
         val correlationId = data["correlation_id"] ?: ""
         val command = data["command"] ?: ""
+        val deviceId = resolveDeviceId(data["device_id"])
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "Cannot process remote exec shell command - deviceId missing")
+            return
+        }
         
         if (command.isEmpty()) {
-            sendRemoteExecAck(execId, correlationId, "FAILED", -1, "", "Empty command")
+            sendRemoteExecAck(execId, correlationId, "FAILED", -1, "", "Empty command", deviceId)
             return
         }
         
         if (!isCommandAllowed(command)) {
             Log.w(TAG, "Shell command not in allow-list: $command")
-            sendRemoteExecAck(execId, correlationId, "DENIED", -1, "", "Command not in allow-list")
+            sendRemoteExecAck(execId, correlationId, "DENIED", -1, "", "Command not in allow-list", deviceId)
             return
         }
         
@@ -1216,7 +1228,7 @@ class FcmMessagingService : FirebaseMessagingService() {
             Log.e(TAG, "Error executing shell command", e)
         }
         
-        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error)
+        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error, deviceId)
     }
     
     private fun handleSetDndRequest(data: Map<String, String>) {
@@ -1279,7 +1291,7 @@ class FcmMessagingService : FirebaseMessagingService() {
             // Batch bloatware disable script: accepts both with and without sh -c wrapper
             // (Backend sends without wrapper since we add it automatically in exec())
             Regex("^sh\\s+-c\\s+.*(cat|while|read|pm\\s+disable-user|rm|echo).*$"),
-            Regex("^cat\\s+>\\s+/data/local/tmp/bloat_list\\.txt\\s+<<\\s+'EOF'.*pm\\s+disable-user.*$", RegexOption.DOT_MATCHES_ALL)
+            Regex("^mkdir\\s+-p\\s+/data/data/com\\.nexmdm/files.*pm\\s+disable-user.*$", setOf(RegexOption.DOT_MATCHES_ALL))
         )
         
         val parts = command.trim().split("&&").map { it.trim() }
@@ -1290,13 +1302,32 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
     }
     
+    private fun resolveDeviceId(fallback: String?): String {
+        val prefs = SecurePreferences(this)
+        val current = prefs.deviceId
+        if (current.isNotEmpty()) {
+            return current
+        }
+        
+        val candidate = fallback?.trim().orEmpty()
+        if (candidate.isNotEmpty()) {
+            Log.w(TAG, "[ACK] deviceId missing from prefs, recovered from payload: ${candidate.take(8)}...")
+            prefs.deviceId = candidate
+            return candidate
+        }
+        
+        Log.e(TAG, "[ACK] deviceId is empty and no fallback was provided")
+        return ""
+    }
+    
     private fun sendRemoteExecAck(
         execId: String,
         correlationId: String,
         status: String,
         exitCode: Int,
         output: String,
-        error: String?
+        error: String?,
+        deviceIdOverride: String
     ) {
         val prefs = SecurePreferences(this)
         
@@ -1307,9 +1338,23 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                val resolvedDeviceId = when {
+                    deviceIdOverride.isNotEmpty() -> deviceIdOverride
+                    prefs.deviceId.isNotEmpty() -> prefs.deviceId
+                    else -> {
+                        Log.e(TAG, "[ACK-FLOW-ABORT] deviceId is empty, cannot send ACK")
+                        return@launch
+                    }
+                }
+                
+                if (prefs.deviceId.isEmpty() && deviceIdOverride.isNotEmpty()) {
+                    Log.w(TAG, "[ACK] Persisting recovered deviceId ${deviceIdOverride.take(8)}...")
+                    prefs.deviceId = deviceIdOverride
+                }
+                
                 val payload = mutableMapOf(
                     "exec_id" to execId,
-                    "device_id" to prefs.deviceId,
+                    "device_id" to resolvedDeviceId,
                     "correlation_id" to correlationId,
                     "status" to status,
                     "exit_code" to exitCode,
