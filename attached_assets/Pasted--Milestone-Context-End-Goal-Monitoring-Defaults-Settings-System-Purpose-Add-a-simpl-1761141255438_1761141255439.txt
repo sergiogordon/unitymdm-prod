@@ -11,7 +11,7 @@ Add a simple, global way to configure which app to monitor (by package), the UI 
 
 * Fields:
 
-  * **Monitored package** (text) — e.g., `org.zwanoo.android.speedtest`
+  * **Monitored package** (text) — e.g., `com.unitynetwork.unityapp`
   * **Display name (alias)** (text) — e.g., `Speedtest` or `Unity`
   * **Foreground timeout (minutes)** (number) — default **10**, clamp 1–120
   * **Enable monitoring globally** (toggle) — default **ON**
@@ -23,7 +23,7 @@ Add a simple, global way to configure which app to monitor (by package), the UI 
 * Endpoints:
 
   * `GET /admin/settings/monitoring-defaults` →
-    `{ "enabled": true, "package": "org.zwanoo.android.speedtest", "alias": "Speedtest", "threshold_min": 10, "updated_at": "…" }`
+    `{ "enabled": true, "package": "com.unitynetwork.unityapp", "alias": "Speedtest", "threshold_min": 10, "updated_at": "…" }`
   * `PATCH /admin/settings/monitoring-defaults` (scope: `device_manage`) → same shape, partial updates allowed.
 * Persistence: single-row `settings` record (or dedicated `monitoring_defaults` table/kv).
 * Validation: package regex, threshold bounds, alias length ≤ 64.
@@ -78,7 +78,7 @@ Add a simple, global way to configure which app to monitor (by package), the UI 
 
 **API**
 
-1. `GET /admin/settings/monitoring-defaults` (fresh env) → returns built-in defaults `{enabled:true, package:"org.zwanoo.android.speedtest", alias:"Speedtest", threshold_min:10}`.
+1. `GET /admin/settings/monitoring-defaults` (fresh env) → returns built-in defaults `{enabled:true, package:"com.unitynetwork.unityapp", alias:"Speedtest", threshold_min:10}`.
 2. `PATCH` with `{ alias:"Unity", package:"com.unity.app", threshold_min:12, enabled:true }` → `200`; `GET` reflects updates.
 3. Invalid inputs (threshold 0, alias >64, bad package) → `422` with clear error.
 

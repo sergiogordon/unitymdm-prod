@@ -100,14 +100,14 @@ For large-scale deployments:
 ## Current Status (Oct 26, 2025)
 
 ### D4 (ad03b5f4-ed42-43eb-8332-89914ab12566)
-- **Monitored package**: org.zwanoo.android.speedtest
+- **Monitored package**: com.unitynetwork.unityapp
 - **App installed**: ✅ Yes
 - **USAGE_STATS granted**: ❌ No (automatic grant failed)
 - **Service status**: Unknown
 - **Action needed**: Manual permission grant
 
 ### D23 (4d701dec-3cd9-4158-9f2e-2089cb2d0759)
-- **Monitored package**: org.zwanoo.android.speedtest  
+- **Monitored package**: com.unitynetwork.unityapp  
 - **App installed**: ❌ No
 - **Service status**: Unknown (correct - app not installed)
 - **Action needed**: None (working as expected)

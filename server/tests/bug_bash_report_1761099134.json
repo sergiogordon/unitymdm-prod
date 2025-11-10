@@ -14,7 +14,7 @@
         "device_id": "bc892ef9-7f06-414d-a1a5-b42518f7cbe5",
         "status": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -35,7 +35,7 @@
         "device_id": "99fc6dbe-d484-4553-b5e1-8a8076a923f5",
         "final_status": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -55,7 +55,7 @@
         "device_id": "ab951dd6-b312-4c22-a8b7-428cece60750",
         "status": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -77,7 +77,7 @@
         "threshold_after": 5,
         "status_before": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -86,7 +86,7 @@
         },
         "status_after": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 5,
           "service_up": null,
@@ -105,7 +105,7 @@
         "device_id": "9cddcf18-d8f7-426b-9672-fadd65e3c757",
         "status_enabled": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -114,7 +114,7 @@
         },
         "status_disabled": {
           "monitor_enabled": false,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -123,7 +123,7 @@
         },
         "status_reenabled": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -141,7 +141,7 @@
       "evidence": {
         "device_id": "604fc6db-b235-4be4-9480-300ed5c91a99",
         "monitored_app_name": "Unity (Staging)",
-        "monitored_package": "org.zwanoo.android.speedtest",
+        "monitored_package": "com.unitynetwork.unityapp",
         "note": "Check Discord: DOWN alert shows 'Unity (Staging)' in recovery message"
       },
       "notes": "\u270b MANUAL CHECK: Verify Discord recovery message includes new alias 'Unity (Staging)'",
@@ -155,7 +155,7 @@
         "device_id": "72b79f2b-7f7d-401f-a9bf-388bd45f41eb",
         "final_status": {
           "monitor_enabled": true,
-          "monitored_package": "org.zwanoo.android.speedtest",
+          "monitored_package": "com.unitynetwork.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,

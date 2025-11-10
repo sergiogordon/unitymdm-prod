@@ -48,7 +48,7 @@ class SecurePreferences(context: Context) {
         set(value) = prefs.edit().putString("device_alias", value).apply()
     
     var speedtestPackage: String
-        get() = prefs.getString("speedtest_package", "org.zwanoo.android.speedtest") ?: "org.zwanoo.android.speedtest"
+        get() = prefs.getString("speedtest_package", "com.unitynetwork.unityapp") ?: "com.unitynetwork.unityapp"
         set(value) = prefs.edit().putString("speedtest_package", value).apply()
     
     var lastHeartbeatTime: Long

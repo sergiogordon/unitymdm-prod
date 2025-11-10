@@ -74,7 +74,7 @@ class DeviceSummary(BaseModel):
     sdk_int: Optional[int] = None
     build_id: Optional[str] = None
     is_device_owner: Optional[bool] = None
-    monitored_package: str = "org.zwanoo.android.speedtest"
+    monitored_package: str = "com.unitynetwork.unityapp"
     monitored_app_name: str = "Speedtest"
     monitored_threshold_min: int = 10
     monitor_enabled: bool = True

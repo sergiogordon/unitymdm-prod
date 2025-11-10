@@ -1825,7 +1825,7 @@ async def heartbeat(
         
         # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
         has_service_notification = False
-        if monitored_foreground_recent_s is None and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
+        if monitored_foreground_recent_s is None and monitoring_settings["package"] == "com.unitynetwork.unityapp":
             if hasattr(payload, 'speedtest_running_signals') and payload.speedtest_running_signals:
                 fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
                 has_service_notification = payload.speedtest_running_signals.has_service_notification
@@ -1841,7 +1841,7 @@ async def heartbeat(
             # Final fallback for Speedtest: use has_service_notification as indicator
             # When UsageStats permission is granted but API returns no data, the notification
             # signal is a reliable indicator that the app is running
-            if has_service_notification and monitoring_settings["package"] == "org.zwanoo.android.speedtest":
+            if has_service_notification and monitoring_settings["package"] == "com.unitynetwork.unityapp":
                 print(f"[MONITORING-DEBUG] {device.alias}: Using has_service_notification=True as 'service up' signal (UsageStats unavailable)")
                 monitored_foreground_recent_s = 0  # Set to 0 (meaning "currently running")
         
@@ -1978,7 +1978,7 @@ async def heartbeat(
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: app_versions keys in payload: {list(payload.app_versions.keys())}")
     
     if device.auto_relaunch_enabled and device.monitored_package:
-        # Android app now sends full package names as keys (e.g., org.zwanoo.android.speedtest)
+        # Android app now sends full package names as keys (e.g., com.unitynetwork.unityapp)
         # No mapping needed - direct 1:1 lookup
         app_info = payload.app_versions.get(device.monitored_package)
         is_app_running = True  # Default to running to prevent spam loops
@@ -1988,7 +1988,7 @@ async def heartbeat(
         # Check if app is installed
         if app_info and app_info.installed:
             # For Speedtest specifically, check running signals
-            if device.monitored_package == "org.zwanoo.android.speedtest":
+            if device.monitored_package == "com.unitynetwork.unityapp":
                 has_notif = payload.speedtest_running_signals.has_service_notification
                 fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
                 is_app_running = (
@@ -4791,7 +4791,7 @@ async def restart_app_on_devices(
 async def get_windows_enroll_script(
     alias: str = Query(...),
     agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    unity_pkg: str = Query("com.unitynetwork.unityapp"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -5128,7 +5128,7 @@ exit /b !EXITCODE!
 async def get_bash_enroll_script(
     alias: str = Query(...),
     agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    unity_pkg: str = Query("com.unitynetwork.unityapp"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -5442,7 +5442,7 @@ fi
 async def get_windows_one_liner_script(
     alias: str = Query(...),
     agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    unity_pkg: str = Query("com.unitynetwork.unityapp"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -5504,7 +5504,7 @@ async def get_windows_one_liner_script(
 async def get_bash_one_liner_script(
     alias: str = Query(...),
     agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("org.zwanoo.android.speedtest"),
+    unity_pkg: str = Query("com.unitynetwork.unityapp"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):

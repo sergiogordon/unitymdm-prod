@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 REM ====== CONFIG ======
 set PKG=com.nexmdm
 set ALIAS=test
-set SPEEDTEST_PKG=org.zwanoo.android.speedtest
+set SPEEDTEST_PKG=com.unitynetwork.unityapp
 set APK_PATH=%TEMP%\nexmdm-latest.apk
 set BASE_URL=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
 set DL_URL=%BASE_URL%/v1/apk/download/latest

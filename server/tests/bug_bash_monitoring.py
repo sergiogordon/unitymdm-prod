@@ -84,7 +84,7 @@ class BugBashTester:
             "app_version": "1.0.0",
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "app_versions": {
-                "org.zwanoo.android.speedtest": {
+                "com.unitynetwork.unityapp": {
                     "installed": True,
                     "version_code": 100,
                     "version_name": "5.0.0"
@@ -139,7 +139,7 @@ class BugBashTester:
     
     def configure_monitoring(self, device_id: str, 
                            monitor_enabled: bool = True,
-                           monitored_package: str = "org.zwanoo.android.speedtest",
+                           monitored_package: str = "com.unitynetwork.unityapp",
                            monitored_app_name: str = "Speedtest",
                            monitored_threshold_min: int = 10) -> bool:
         """Configure monitoring settings for a device"""
@@ -502,7 +502,7 @@ class BugBashTester:
         # Configure with "Speedtest" name
         self.configure_monitoring(device_id, 
                                 monitored_app_name="Speedtest",
-                                monitored_package="org.zwanoo.android.speedtest",
+                                monitored_package="com.unitynetwork.unityapp",
                                 monitored_threshold_min=10)
         
         self.send_heartbeat(device_id, device_info["token"], 
@@ -539,7 +539,7 @@ class BugBashTester:
         }
         
         passed = (status.get("monitored_app_name") == "Unity (Staging)" and
-                 status.get("monitored_package") == "org.zwanoo.android.speedtest")
+                 status.get("monitored_package") == "com.unitynetwork.unityapp")
         
         notes = "✋ MANUAL CHECK: Verify Discord recovery message includes new alias 'Unity (Staging)'"
         self.record_test_result("A6", "UI alias rename", passed, evidence, notes)

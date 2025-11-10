@@ -56,7 +56,7 @@ Edit the configuration variables at the top of the script:
 ```bat
 set PKG=com.nexmdm
 set ALIAS=test                    REM Change to identify this device (e.g., "warehouse-01")
-set SPEEDTEST_PKG=org.zwanoo.android.speedtest
+set SPEEDTEST_PKG=com.unitynetwork.unityapp
 set BASE_URL=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
 set BEARER=_sDKZuilFJVWi3NkpQdEjmM07v2-HuGa3teb7bGKMro
 ```

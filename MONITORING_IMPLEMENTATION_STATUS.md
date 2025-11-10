@@ -178,7 +178,7 @@ Since new columns were added, you need to restart the server to create them auto
   "ok": true,
   "monitoring": {
     "monitor_enabled": true,
-    "monitored_package": "org.zwanoo.android.speedtest",
+    "monitored_package": "com.unitynetwork.unityapp",
     "monitored_app_name": "Speedtest",
     "monitored_threshold_min": 10,
     "service_up": true,
@@ -193,7 +193,7 @@ Since new columns were added, you need to restart the server to create them auto
 ```json
 {
   "monitor_enabled": true,
-  "monitored_package": "org.zwanoo.android.speedtest",
+  "monitored_package": "com.unitynetwork.unityapp",
   "monitored_app_name": "Speedtest",
   "monitored_threshold_min": 10
 }
@@ -206,7 +206,7 @@ Since new columns were added, you need to restart the server to create them auto
   "message": "Monitoring settings updated successfully",
   "monitoring": {
     "monitor_enabled": true,
-    "monitored_package": "org.zwanoo.android.speedtest",
+    "monitored_package": "com.unitynetwork.unityapp",
     "monitored_app_name": "Speedtest",
     "monitored_threshold_min": 10
   }
@@ -247,7 +247,7 @@ All tasks have been successfully completed:
 2. **Test with Real Device:**
    - Build and deploy updated Android agent (includes UsageStatsManager)
    - Configure monitoring settings via UI (click Settings icon on device row)
-   - Set package to monitor (e.g., "org.zwanoo.android.speedtest")
+   - Set package to monitor (e.g., "com.unitynetwork.unityapp")
    - Set threshold (e.g., 10 minutes)
    - Verify heartbeats include `monitored_foreground_recent_s`
 

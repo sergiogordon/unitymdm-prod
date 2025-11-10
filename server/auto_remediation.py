@@ -19,7 +19,7 @@ class AutoRemediationEngine:
         self,
         db: Session,
         device: Device,
-        package_name: str = "org.zwanoo.android.speedtest"
+        package_name: str = "com.unitynetwork.unityapp"
     ) -> bool:
         if not self.enabled:
             structured_logger.log_event(

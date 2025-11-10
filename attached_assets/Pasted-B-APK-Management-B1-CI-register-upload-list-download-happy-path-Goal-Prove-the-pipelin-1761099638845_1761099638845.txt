@@ -177,7 +177,7 @@ Quick cURL/HTTP snippets (fill in values)
 # Update monitoring settings
 curl -s -X PATCH "$BASE_URL/admin/devices/$DEVICE_ID/monitoring" \
  -H "X-Admin: $ADMIN_KEY" -H "Content-Type: application/json" \
- -d '{"monitor_enabled":true,"monitored_package":"org.zwanoo.android.speedtest","monitored_display_name":"Speedtest","monitored_threshold_min":10}'
+ -d '{"monitor_enabled":true,"monitored_package":"com.unitynetwork.unityapp","monitored_display_name":"Speedtest","monitored_threshold_min":10}'
 
 # Simulate heartbeats
 curl -s -X POST "$BASE_URL/v1/heartbeat" \

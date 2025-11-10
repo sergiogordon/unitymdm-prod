@@ -52,7 +52,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="Monitored App Package (e.g., Speedtest)"
-        android:text="org.zwanoo.android.speedtest"
+        android:text="com.unitynetwork.unityapp"
         android:inputType="text"
         android:layout_marginTop="8dp" />
 

@@ -49,8 +49,8 @@ GET /v1/apk/download-latest
 
 c) Generate prefilled scripts (text responses)
 
-GET /v1/scripts/enroll.cmd?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest
-GET /v1/scripts/enroll.sh?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=org.zwanoo.android.speedtest
+GET /v1/scripts/enroll.cmd?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=com.unitynetwork.unityapp
+GET /v1/scripts/enroll.sh?alias=D01&token_id=tok_01&agent_pkg=com.nexmdm&unity_pkg=com.unitynetwork.unityapp
 	•	Returns templated content with env vars prefilled: BASE_URL, APK_ENDPOINT, ENROLL_TOKEN, ALIAS, AGENT_PKG, UNITY_PKG.
 	•	Only allow if admin is authenticated. Token value is fetched server-side by token_id (never exposed in URL).
 

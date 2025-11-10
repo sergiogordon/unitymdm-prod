@@ -10,7 +10,7 @@ From the **Launch App** page, send one bulk FCM command that launches a specifie
 
 Card: **Launch configuration**
 
-- **App package** (required, text): e.g., org.zwanoo.android.speedtest
+- **App package** (required, text): e.g., com.unitynetwork.unityapp
 - **Activity** (optional, text): e.g.,
 - **Wake screen** (checkbox, default on)
 - **Unlock if possible (Device Owner)** (checkbox, default on)

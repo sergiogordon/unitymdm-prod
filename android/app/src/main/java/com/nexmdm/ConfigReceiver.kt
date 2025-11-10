@@ -20,7 +20,7 @@ class ConfigReceiver : BroadcastReceiver() {
             val serverUrl = intent.getStringExtra("server_url") ?: return
             val adminKey = intent.getStringExtra("admin_key") ?: return
             val alias = intent.getStringExtra("alias") ?: "Device"
-            val speedtestPackage = intent.getStringExtra("speedtest_package") ?: "org.zwanoo.android.speedtest"
+            val speedtestPackage = intent.getStringExtra("speedtest_package") ?: "com.unitynetwork.unityapp"
             val hmacPrimaryKey = intent.getStringExtra("hmac_primary_key") ?: ""
             val hmacRotationKey = intent.getStringExtra("hmac_rotation_key") ?: ""
             

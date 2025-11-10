@@ -36,7 +36,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   
   const [monitoringDefaults, setMonitoringDefaults] = useState<MonitoringDefaults>({
     enabled: true,
-    package: "org.zwanoo.android.speedtest",
+    package: "com.unitynetwork.unityapp",
     alias: "unity",
     threshold_min: 10,
     updated_at: null
