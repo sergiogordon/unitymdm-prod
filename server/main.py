@@ -1818,32 +1818,16 @@ async def heartbeat(
         app_info = payload.app_versions.get(monitoring_settings["package"]) if payload.app_versions else None
         is_app_installed = app_info and app_info.installed if app_info else False
         
-        # Get foreground recency from new unified field (for any package)
+        # Get foreground recency from unified field (monitored_foreground_recent_s)
+        # This field now tracks Unity app activity
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
         
-        print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}, speedtest_running_signals={payload.speedtest_running_signals if hasattr(payload, 'speedtest_running_signals') else 'N/A'}")
-        
-        # Fallback to Speedtest-specific signals if monitored_foreground_recent_s not provided
-        has_service_notification = False
-        if monitored_foreground_recent_s is None and monitoring_settings["package"] == "com.unitynetwork.unityapp":
-            if hasattr(payload, 'speedtest_running_signals') and payload.speedtest_running_signals:
-                fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
-                has_service_notification = payload.speedtest_running_signals.has_service_notification
-                print(f"[MONITORING-DEBUG] {device.alias}: Speedtest signals - foreground_recent_seconds={fg_seconds}, has_service_notification={has_service_notification}")
-                if fg_seconds is not None:
-                    monitored_foreground_recent_s = fg_seconds
+        print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}")
         
         # Treat -1 as sentinel value for "not available" (normalize to None)
         if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
-            print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None")
+            print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None (data unavailable)")
             monitored_foreground_recent_s = None
-            
-            # Final fallback for Speedtest: use has_service_notification as indicator
-            # When UsageStats permission is granted but API returns no data, the notification
-            # signal is a reliable indicator that the app is running
-            if has_service_notification and monitoring_settings["package"] == "com.unitynetwork.unityapp":
-                print(f"[MONITORING-DEBUG] {device.alias}: Using has_service_notification=True as 'service up' signal (UsageStats unavailable)")
-                monitored_foreground_recent_s = 0  # Set to 0 (meaning "currently running")
         
         # Evaluate service status only if app is installed
         if not is_app_installed:
@@ -1987,22 +1971,18 @@ async def heartbeat(
         
         # Check if app is installed
         if app_info and app_info.installed:
-            # For Speedtest specifically, check running signals
-            if device.monitored_package == "com.unitynetwork.unityapp":
-                has_notif = payload.speedtest_running_signals.has_service_notification
-                fg_seconds = payload.speedtest_running_signals.foreground_recent_seconds
-                is_app_running = (
-                    has_notif or
-                    (fg_seconds is not None and fg_seconds < 60)
-                )
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Speedtest signals - has_service_notification={has_notif}, foreground_recent_seconds={fg_seconds}, is_app_running={is_app_running}")
+            # Check if Unity app is running using monitored_foreground_recent_s
+            # Conservative approach: assume running unless we have clear evidence it's not
+            fg_seconds = payload.monitored_foreground_recent_s
+            
+            if fg_seconds is not None and fg_seconds >= 0:
+                # We have valid foreground data - consider running if recently active (< 60 seconds)
+                is_app_running = fg_seconds < 60
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Unity foreground_recent_seconds={fg_seconds}, is_app_running={is_app_running}")
             else:
-                # For other apps (Unity, etc), assume running to prevent endless relaunch loops
-                # The Android app currently only sends foreground detection for Speedtest
-                # To enable auto-relaunch for other apps, the Android app needs to send
-                # foreground_recent_seconds for the monitored package
-                is_app_running = True  # Conservative: assume running unless proven otherwise
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Non-Speedtest app, defaulting is_app_running=True")
+                # No foreground data available - assume running to prevent endless relaunch loops
+                is_app_running = True
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No foreground data available, defaulting is_app_running=True")
         else:
             # App not installed - don't try to relaunch
             is_app_running = True  # Prevent relaunch loop for uninstalled apps
