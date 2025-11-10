@@ -1,0 +1,23 @@
+Just ran it again and getting these same errors: D6	FAILED	255	Command exited with code 255	3:28:11 AM
+D33	FAILED	255	Command exited with code 255	3:28:11 AM
+
+
+Console errors: [AUTH DEBUG] Credentials: scheme='Bearer' credentials='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiZXhwIjoxNzYzMzMyNDQwLCJpYXQiOjE3NjI3Mjc2NDB9.Q9F4cuT74LiDXRjzobH0Vju8qrkTej_gKFL61SADEdQ'
+[AUTH DEBUG] Token from credentials: eyJhbGciOiJIUzI1NiIs...
+[AUTH DEBUG] Token verified successfully, payload: {'user_id': 1, 'username': 'admin', 'exp': 1763332440, 'iat': 1762727640}
+[AUTH DEBUG] Authentication successful for user: admin
+INFO:     10.83.8.6:0 - "GET /v1/remote-exec?limit=10 HTTP/1.1" 200 OK
+[REMOTE-EXEC-ACK] Received ACK payload: {'exec_id': 'ed604f98-584f-41ab-bc09-1496835ed90e', 'device_id': '17254635-d077-41b8-b58f-99f0a47c1103', 'correlation_id': 'ed604f98-584f-41ab-bc09-1496835ed90e-17254635-d077-41b8-b58f-99f0a47c1103', 'status': 'FAILED', 'exit_code': 255, 'output': '', 'ts': 1762747848656, 'error': 'Command exited with code 255'}
+[REMOTE-EXEC-ACK] Parsed fields: exec_id=ed604f98-584f-41ab-bc09-1496835ed90e, device_id=17254635-d077-41b8-b58f-99f0a47c1103, correlation_id=ed604f98-584f-41ab-bc09-1496835ed90e-17254635-d077-41b8-b58f-99f0a47c1103, status=FAILED
+[REMOTE-EXEC-ACK] Device 17254635-d077-41b8-b58f-99f0a47c1103 → FAILED, exit_code=255
+INFO:     127.0.0.1:55814 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+[REMOTE-EXEC-ACK] Received ACK payload: {'exec_id': 'ed604f98-584f-41ab-bc09-1496835ed90e', 'device_id': '7352d771-b382-40ec-a0c2-1722f793d1d9', 'correlation_id': 'ed604f98-584f-41ab-bc09-1496835ed90e-7352d771-b382-40ec-a0c2-1722f793d1d9', 'status': 'FAILED', 'exit_code': 255, 'output': '', 'ts': 1762747849690, 'error': 'Command exited with code 255'}
+[REMOTE-EXEC-ACK] Parsed fields: exec_id=ed604f98-584f-41ab-bc09-1496835ed90e, device_id=7352d771-b382-40ec-a0c2-1722f793d1d9, correlation_id=ed604f98-584f-41ab-bc09-1496835ed90e-7352d771-b382-40ec-a0c2-1722f793d1d9, status=FAILED
+[REMOTE-EXEC-ACK] Device 7352d771-b382-40ec-a0c2-1722f793d1d9 → FAILED, exit_code=255
+INFO:     127.0.0.1:55814 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+[AUTH DEBUG] Authorization header: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2...
+[AUTH DEBUG] Credentials: scheme='Bearer' credentials='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiZXhwIjoxNzYzMzMyNDQwLCJpYXQiOjE3NjI3Mjc2NDB9.Q9F4cuT74LiDXRjzobH0Vju8qrkTej_gKFL61SADEdQ'
+[AUTH DEBUG] Token from credentials: eyJhbGciOiJIUzI1NiIs...
+[AUTH DEBUG] Token verified successfully, payload: {'user_id': 1, 'username': 'admin', 'exp': 1763332440, 'iat': 1762727640}
+[AUTH DEBUG] Authentication successful for user: admin
+INFO:     10.83.8.6:0 - "GET /v1/remote-e

@@ -643,7 +643,6 @@ async def shutdown_event():
     await alert_scheduler.stop()
     await background_tasks.stop()
 backend_start_time = datetime.now(timezone.utc)
-
 def migrate_database():
     """Add missing columns to existing database tables"""
     from sqlalchemy import text
@@ -786,7 +785,6 @@ def log_device_event(db: Session, device_id: str, event_type: str, details: Opti
     )
     db.add(event)
     db.commit()
-
 @app.get("/healthz")
 async def health_check():
     """
@@ -5305,7 +5303,6 @@ for PKG_TO_DISABLE in "${{BLOAT_PACKAGES[@]}}"; do
 done
 echo "✅ Disabled $BLOAT_COUNT bloatware packages"
 echo
-
 echo "[Step 7/9] Apply system tweaks..."
 adb shell settings put global app_standby_enabled 0 2>/dev/null || true
 adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null || true
@@ -5348,11 +5345,9 @@ if ! adb shell pidof "$PKG" 2>/dev/null; then
 fi
 echo "✅ Service running"
 echo
-
 echo "[Step 9/9] Verify registration..."
 echo "   Waiting 10 seconds for first heartbeat..."
 sleep 10
-
 echo "   Checking backend for device \"$ALIAS\"..."
 API_RESPONSE=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$DEVICE_ALIAS" 2>/dev/null)
 
@@ -6106,7 +6101,6 @@ async def download_latest_apk(
             "Content-Length": str(file_size)
         }
     )
-
 async def send_fcm_to_device(device, installation, apk, download_url, current_user, db):
     """Send FCM message to a single device (for parallel execution)"""
     message_data = {
@@ -7642,24 +7636,22 @@ async def download_apk_optimized_endpoint(
 def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
     """
     Build a shell script that disables a list of packages gracefully.
-    Uses a loop over a temp file to avoid command-line length limits.
+    Uses a loop over a temp file to avoid command-line length limits.  
     Skips packages that don't exist or are already disabled.
     
     Returns the complete shell script as a single string.
     
     Note: Does NOT wrap in 'sh -c' because the Android app adds that wrapper automatically.
     """
-    # Escape and join packages with newlines
-    escaped_packages = "\n".join([f'"{pkg}"' for pkg in package_names])
-    
-    # Build the script using a heredoc to pass package list to a loop
-    # pm disable-user exits with 0 for success and non-0 for failure
-    # We use || true to skip gracefully and continue with the next package
-    # Note: Android app wraps this in 'sh -c' automatically, so we don't add it here
-    script = f"""mkdir -p /data/data/com.nexmdm/files
-cat > /data/data/com.nexmdm/files/bloat_list.txt << 'EOF'
+    # Use variable-based approach that matches validation expectations
+    script = """TMP_DIR="/data/data/com.nexmdm/files"
+LIST_FILE="$TMP_DIR/bloat_list.txt"
+
+mkdir -p "$TMP_DIR"
+cat > "$LIST_FILE" << 'EOF'
 {chr(10).join(package_names)}
 EOF
+
 count=0
 failed=0
 while IFS= read -r pkg; do
@@ -7671,12 +7663,13 @@ while IFS= read -r pkg; do
   else
     failed=$((failed + 1))
   fi
-done < /data/data/com.nexmdm/files/bloat_list.txt
-rm -f /data/data/com.nexmdm/files/bloat_list.txt
+done < "$LIST_FILE"
+
+rm -f "$LIST_FILE"
+
 echo "Disabled $count packages ($failed skipped or failed)" """
     
     return script
-
 def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
     """
     Validate a single shell command (without && chaining).
@@ -7780,7 +7773,6 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return True, None
     
     return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
-
 def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     """
     Validate a batch bloatware disable script.
@@ -7795,9 +7787,6 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     
     # 1. Check for key components of the script
     required_substrings = [
-        'TMP_DIR=',
-        'LIST_FILE=',
-        'ERROR_LOG=',
         'mkdir -p',
         'cat >',
         "<< 'EOF'",
@@ -7810,62 +7799,69 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
         if sub not in command:
             return False, f"Invalid batch script: missing required component '{sub}'"
 
-    # 2. Extract and validate variable definitions
-    def get_var(name, cmd):
-        match = re.search(rf'^{name}=(["\']?)(.*?)\1$', cmd, re.MULTILINE)
-        if match:
-            return match.group(2)
-        return None
+    # 2. Extract and validate variable definitions (if present)
+    lines = command.split('\n')
     
-    lines = command.split('\\n')
-    
+    # Check for TMP_DIR variable or hardcoded path
     tmp_dir_match = re.search(r'TMP_DIR=(["\']?)(.*?)\1', command)
-    if not tmp_dir_match:
-        return False, "Could not determine TMP_DIR from script"
-    tmp_dir = tmp_dir_match.group(2)
-
-    # 3. Validate that TMP_DIR is an allowed path
-    allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
-    if tmp_dir not in allowed_dirs:
-        return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
-
-    # 4. Verify consistent use of variables for paths
-    expected_patterns = [
-        rf'LIST_FILE=["\']?\$TMP_DIR/bloat_list.txt["\']?',
-        rf'ERROR_LOG=["\']?\$TMP_DIR/bloat_error.log["\']?',
-        rf'mkdir -p ["\']?\$TMP_DIR["\']?',
-        rf'cat > ["\']?\$LIST_FILE["\']?',
-        rf'done < ["\']?\$LIST_FILE["\']?',
-        rf'rm -f ["\']?\$LIST_FILE["\']?',
-        rf'echo ".*" >> ["\']?\$ERROR_LOG["\']?',
-        rf'if \[ -s ["\']?\$ERROR_LOG["\']? \]; then',
-        rf'cat ["\']?\$ERROR_LOG["\']?',
-        rf'rm -f ["\']?\$ERROR_LOG["\']?'
-    ]
-    for pattern in expected_patterns:
-        if not re.search(pattern, command):
-            return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
+    if tmp_dir_match:
+        tmp_dir = tmp_dir_match.group(2)
+        # Validate that TMP_DIR is an allowed path
+        allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
+        if tmp_dir not in allowed_dirs:
+            return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
+    else:
+        # Check for hardcoded path
+        if '/data/data/com.nexmdm/files' not in command:
+            return False, "Script must use /data/data/com.nexmdm/files directory"
+    
+    # 3. Verify consistent use of paths
+    if tmp_dir_match:
+        # Variable-based script - check for consistent variable usage
+        expected_patterns = [
+            rf'mkdir -p ["\']?\$TMP_DIR["\']?',
+            rf'cat > ["\']?\$LIST_FILE["\']?',
+            rf'done < ["\']?\$LIST_FILE["\']?',
+            rf'rm -f ["\']?\$LIST_FILE["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
+    else:
+        # Hardcoded path script - check for consistent path usage
+        expected_patterns = [
+            r'mkdir -p ["\']?/data/data/com\.nexmdm/files["\']?',
+            r'cat > ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'done < ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'rm -f ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent path usage or missing pattern '{pattern}'"
             
-    # 5. Check for the correct pm disable command with output capturing
-    pm_command_pattern = r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
-    if not re.search(pm_command_pattern, command):
-        return False, "Script does not use the expected 'pm disable-user' command with output capturing"
+    # 4. Check for the pm disable command (accept both with and without output capturing)
+    pm_command_patterns = [
+        r'pm disable-user --user 0 ["\']?\$pkg["\']? 2>/dev/null',
+        r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
+    ]
+    if not any(re.search(pattern, command) for pattern in pm_command_patterns):
+        return False, "Script does not use the expected 'pm disable-user' command"
 
     # --- Package List Validation ---
 
-    # 6. Extract package names from the heredoc
+    # 5. Extract package names from the heredoc
     eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
     match = re.search(eof_pattern, command, re.DOTALL)
     if not match:
         return False, "Invalid script format: could not find package list in heredoc"
     
     package_list_text = match.group(1)
-    packages = [line.strip() for line in package_list_text.split('\\n') if line.strip()]
+    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
     
     if not packages:
         return False, "No packages found in script"
 
-    # 7. Verify all packages are in the enabled bloatware database
+    # 6. Verify all packages are in the enabled bloatware database
     db = None
     try:
         db = SessionLocal()
@@ -7881,13 +7877,13 @@ def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
             if not exists:
                 return False, f"Package '{package_name}' is not in the enabled bloatware list"
         
-        return True, None
+        db.close()
     except Exception as e:
-        print(f"[REMOTE-EXEC] Failed to validate bloatware batch script: {e}")
-        return False, f"Database validation error: {str(e)}"
-    finally:
         if db:
             db.close()
+        return False, f"Database error during package validation: {str(e)}"
+    
+    return True, None
 
 def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
     """
