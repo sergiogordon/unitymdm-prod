@@ -531,7 +531,7 @@ export default function RemoteExecutionPage() {
       }
       
       try {
-        const response = await fetch("/admin/bloatware-list/json", {
+        const response = await fetch("/api/proxy/admin/bloatware-list/json", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -544,7 +544,7 @@ export default function RemoteExecutionPage() {
         }
         
         const data = await response.json()
-        const packages: string[] = data.packages?.map((pkg: { package_name: string }) => pkg.package_name) ?? []
+        const packages: string[] = data.packages?.filter((pkg: any) => pkg.enabled === true).map((pkg: { package_name: string }) => pkg.package_name) ?? []
         
         if (packages.length === 0) {
           toast({

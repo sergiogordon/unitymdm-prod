@@ -642,7 +642,6 @@ async def startup_event():
 async def shutdown_event():
     await alert_scheduler.stop()
     await background_tasks.stop()
-
 backend_start_time = datetime.now(timezone.utc)
 
 def migrate_database():
@@ -3983,85 +3982,6 @@ async def grant_device_permissions(
     x_admin: str = Header(None),
     db: Session = Depends(get_db)
 ):
-    if not verify_admin_key(x_admin or ""):
-        raise HTTPException(status_code=401, detail="Admin key required")
-    
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
-    
-    if not device.fcm_token:
-        raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
-    
-    if not device.is_device_owner:
-        raise HTTPException(
-            status_code=400, 
-            detail="Device is not enrolled as Device Owner. Cannot grant permissions remotely."
-        )
-    
-    import httpx
-    
-    try:
-        access_token = get_access_token()
-        project_id = get_firebase_project_id()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
-    fcm_url = build_fcm_v1_url(project_id)
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    
-    message = {
-        "message": {
-            "token": device.fcm_token,
-            "data": {
-                "action": "grant_permissions"
-            },
-            "android": {
-                "priority": "high"
-            }
-        }
-    }
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
-            if response.status_code != 200:
-                try:
-                    fcm_result = response.json()
-                except:
-                    fcm_result = {"raw_response": response.text}
-                
-                return {
-                    "ok": False,
-                    "error": f"FCM request failed with status {response.status_code}",
-                    "fcm_response": fcm_result
-                }
-            
-            fcm_result = response.json()
-            
-            log_device_event(db, device.id, "permission_grant_sent", {})
-            
-            return {
-                "ok": True,
-                "message": f"Permission grant command sent to {device.alias}",
-                "fcm_response": fcm_result
-            }
-            
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="FCM request timed out")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
-
-@app.post("/v1/devices/{device_id}/list-packages")
-async def list_device_packages(
-    device_id: str,
-    x_admin: str = Header(None),
-    db: Session = Depends(get_db)
-):
     """Trigger device to send list of installed packages for diagnostics"""
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
@@ -5925,11 +5845,6 @@ async def complete_apk_upload(
             shutil.rmtree(dest_dir)
         
         raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
-
-@app.get("/v1/apk/list")
-async def list_apks(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
 ):
     """List all uploaded APK versions with OTA deployment info"""
     from models import ApkDeploymentStats
@@ -7884,99 +7799,104 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
 def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
     """
     Validate a batch bloatware disable script.
-    These scripts use heredoc syntax which contains metacharacters that would normally be blocked.
-    We validate that the script only disables packages from the approved bloatware list.
-    
-    Note: Command should NOT be wrapped in 'sh -c' as the Android app adds that automatically.
+    These scripts use heredoc syntax and variables, which requires more specific validation
+    than the generic shell command checks.
     
     Returns (is_valid, error_message)
     """
     import re
+
+    # --- Structure and Security Checks ---
     
-    # Allowed directories for temporary files
-    allowed_dirs = [
-        "/data/local/tmp",
-        "/data/data/com.nexmdm/files"
+    # 1. Check for key components of the script
+    required_substrings = [
+        'TMP_DIR=',
+        'LIST_FILE=',
+        'ERROR_LOG=',
+        'mkdir -p',
+        'cat >',
+        "<< 'EOF'",
+        'while IFS= read -r pkg',
+        'pm disable-user --user 0',
+        'done <',
+        'rm -f'
     ]
+    for sub in required_substrings:
+        if sub not in command:
+            return False, f"Invalid batch script: missing required component '{sub}'"
+
+    # 2. Extract and validate variable definitions
+    def get_var(name, cmd):
+        match = re.search(rf'^{name}=(["\']?)(.*?)\1$', cmd, re.MULTILINE)
+        if match:
+            return match.group(2)
+        return None
     
-    # Check if this looks like a bloatware batch script by looking for key patterns
-    # Must have: cat > ... heredoc, pm disable-user, and file reading
-    if 'cat >' not in command or "<< 'EOF'" not in command:
-        return False, "Not a bloatware batch script"
+    lines = command.split('\\n')
     
-    if 'pm disable-user --user 0 "$pkg"' not in command:
-        return False, "Not a bloatware batch script"
-    
-    # Dynamically detect the file path from "cat > /path/to/file"
-    cat_pattern = r'cat\s+>\s+([^\s<]+)'
-    cat_match = re.search(cat_pattern, command)
-    if not cat_match:
-        return False, "Invalid bloatware script format: could not find file path in cat command"
-    
-    file_path = cat_match.group(1).strip()
-    
-    # Verify the path is in an allowed directory
-    path_allowed = False
-    for allowed_dir in allowed_dirs:
-        if file_path.startswith(allowed_dir + "/") or file_path == allowed_dir:
-            path_allowed = True
-            break
-    
-    if not path_allowed:
-        return False, f"File path {file_path} is not in an allowed directory"
-    
-    # Verify the script uses the same path when reading (done < ...)
-    # Use regex to allow for flexible spacing
-    done_pattern = rf'done\s+<\s+["\']?{re.escape(file_path)}["\']?'
-    if not re.search(done_pattern, command):
-        return False, f"Script does not read from the same file path: {file_path}"
-    
-    # Verify the script deletes the file (rm -f ...)
-    # Use regex to allow for flexible spacing and optional quotes
-    rm_pattern = rf'rm\s+-f\s+["\']?{re.escape(file_path)}["\']?'
-    if not re.search(rm_pattern, command):
-        return False, f"Script does not clean up the temporary file: {file_path}"
-    
-    # Extract package names from the script
-    # They appear between << 'EOF' and EOF
+    tmp_dir_match = re.search(r'TMP_DIR=(["\']?)(.*?)\1', command)
+    if not tmp_dir_match:
+        return False, "Could not determine TMP_DIR from script"
+    tmp_dir = tmp_dir_match.group(2)
+
+    # 3. Validate that TMP_DIR is an allowed path
+    allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
+    if tmp_dir not in allowed_dirs:
+        return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
+
+    # 4. Verify consistent use of variables for paths
+    expected_patterns = [
+        rf'LIST_FILE=["\']?\$TMP_DIR/bloat_list.txt["\']?',
+        rf'ERROR_LOG=["\']?\$TMP_DIR/bloat_error.log["\']?',
+        rf'mkdir -p ["\']?\$TMP_DIR["\']?',
+        rf'cat > ["\']?\$LIST_FILE["\']?',
+        rf'done < ["\']?\$LIST_FILE["\']?',
+        rf'rm -f ["\']?\$LIST_FILE["\']?',
+        rf'echo ".*" >> ["\']?\$ERROR_LOG["\']?',
+        rf'if \[ -s ["\']?\$ERROR_LOG["\']? \]; then',
+        rf'cat ["\']?\$ERROR_LOG["\']?',
+        rf'rm -f ["\']?\$ERROR_LOG["\']?'
+    ]
+    for pattern in expected_patterns:
+        if not re.search(pattern, command):
+            return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
+            
+    # 5. Check for the correct pm disable command with output capturing
+    pm_command_pattern = r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
+    if not re.search(pm_command_pattern, command):
+        return False, "Script does not use the expected 'pm disable-user' command with output capturing"
+
+    # --- Package List Validation ---
+
+    # 6. Extract package names from the heredoc
     eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
     match = re.search(eof_pattern, command, re.DOTALL)
-    
     if not match:
-        return False, "Invalid bloatware script format: could not find package list"
+        return False, "Invalid script format: could not find package list in heredoc"
     
     package_list_text = match.group(1)
-    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
+    packages = [line.strip() for line in package_list_text.split('\\n') if line.strip()]
     
     if not packages:
-        return False, "No packages found in bloatware script"
-    
-    # Verify all packages are in the enabled bloatware database
+        return False, "No packages found in script"
+
+    # 7. Verify all packages are in the enabled bloatware database
     db = None
     try:
         db = SessionLocal()
-        
         for package_name in packages:
-            # Validate package name format (basic security check)
             if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
                 return False, f"Invalid package name format: {package_name}"
             
-            # Check if package is in the enabled bloatware list
-            exists = (
-                db.query(BloatwarePackage)
-                .filter(
-                    BloatwarePackage.package_name == package_name,
-                    BloatwarePackage.enabled == True
-                )
-                .first()
-                is not None
-            )
+            exists = db.query(BloatwarePackage).filter(
+                BloatwarePackage.package_name == package_name,
+                BloatwarePackage.enabled == True
+            ).first() is not None
             
             if not exists:
-                return False, f"Package {package_name} is not in the enabled bloatware list"
+                return False, f"Package '{package_name}' is not in the enabled bloatware list"
         
         return True, None
-        
     except Exception as e:
         print(f"[REMOTE-EXEC] Failed to validate bloatware batch script: {e}")
         return False, f"Database validation error: {str(e)}"
