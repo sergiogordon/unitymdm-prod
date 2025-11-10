@@ -1183,7 +1183,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         try {
             Log.i(TAG, "Executing shell command: $command")
             
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            val process = Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", command))
             
             val outputReader = process.inputStream.bufferedReader()
             val errorReader = process.errorStream.bufferedReader()
