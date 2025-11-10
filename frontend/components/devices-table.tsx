@@ -408,22 +408,9 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
                         </div>
                       </td>
                       <td className="px-4 py-3 cursor-pointer" onClick={() => onSelectDevice(device)}>
-                        <div className="flex items-center gap-2">
-                          {device.agent?.version && (
-                            <span className="text-sm">{device.agent.version}</span>
-                          )}
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-xs ${
-                              device.unity.status === "running"
-                                ? "bg-status-online/10 text-status-online"
-                                : device.unity.status === "inactive"
-                                ? "bg-muted text-muted-foreground"
-                                : "bg-status-offline/10 text-status-offline"
-                            }`}
-                          >
-                            {device.unity.status}
-                          </span>
-                        </div>
+                        {device.agent?.version && (
+                          <span className="text-sm">{device.agent.version}</span>
+                        )}
                       </td>
                       <td className="hidden px-4 py-3 text-right text-sm md:table-cell cursor-pointer" onClick={() => onSelectDevice(device)}>{device.ram}%</td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground cursor-pointer" onClick={() => onSelectDevice(device)}>{device.uptime}</td>
