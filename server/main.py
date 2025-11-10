@@ -5845,6 +5845,11 @@ async def complete_apk_upload(
             shutil.rmtree(dest_dir)
         
         raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
+
+@app.get("/v1/apk/list")
+async def list_apk_versions(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """List all uploaded APK versions with OTA deployment info"""
     from models import ApkDeploymentStats
