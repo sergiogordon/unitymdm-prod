@@ -207,6 +207,36 @@ jobs:
             echo "⚠️  Frontend might not be reachable, but continuing..."
           fi
 
+      - name: Check backend connectivity
+        env:
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
+        run: |
+          echo "🔍 Checking backend connectivity..."
+          echo "Backend URL: $BACKEND_URL"
+          
+          # Check if frontend is accessible
+          echo "Testing frontend accessibility..."
+          FRONTEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL" || echo "000")
+          if [ "$FRONTEND_CODE" = "000" ]; then
+            echo "❌ ERROR: Cannot reach frontend at $BACKEND_URL"
+            echo "   This usually means the deployment is down or the URL is incorrect"
+            exit 1
+          fi
+          echo "✅ Frontend is accessible (HTTP $FRONTEND_CODE)"
+          
+          # Check if backend health endpoint is accessible via proxy
+          echo "Testing backend health via proxy..."
+          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL/api/proxy/healthz" || echo "000")
+          if [ "$HEALTH_CODE" = "000" ] || [ "$HEALTH_CODE" = "502" ] || [ "$HEALTH_CODE" = "504" ]; then
+            echo "⚠️  WARNING: Backend health check failed (HTTP $HEALTH_CODE)"
+            echo "   The backend may not be running or the proxy cannot connect"
+            echo "   This might be a temporary issue - will attempt registration anyway"
+          elif [ "$HEALTH_CODE" = "200" ]; then
+            echo "✅ Backend is healthy and accessible via proxy"
+          else
+            echo "⚠️  Backend returned HTTP $HEALTH_CODE (may still be functional)"
+          fi
+      
       - name: Register build with NexMDM backend
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
@@ -263,7 +293,8 @@ jobs:
           # Use /api/proxy/ prefix since Replit routes public domain to frontend (port 5000)
           # -L flag follows redirects (HTTP 301/302)
           # --post301 preserves POST data when following 301 redirects
-          HTTP_CODE=$(curl -L --post301 -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
+          # Increase timeout to 120 seconds for slow backends
+          HTTP_CODE=$(curl -L --post301 --max-time 120 -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
@@ -273,6 +304,13 @@ jobs:
           
           # Get response body
           RESPONSE_BODY=$(cat /tmp/response_body.txt 2>/dev/null || echo "No response body")
+          
+          # Show verbose output for debugging
+          if [ -f /tmp/curl_verbose.txt ]; then
+            echo ""
+            echo "📋 Verbose curl output:"
+            cat /tmp/curl_verbose.txt | head -n 50
+          fi
           
           echo ""
           echo "📥 Response received:"
@@ -290,10 +328,12 @@ jobs:
             echo "Response: $RESPONSE_BODY"
             echo ""
             echo "Troubleshooting:"
-            echo "1. Check that both Backend and Frontend workflows are running"
+            echo "1. Check that both Backend and Frontend workflows are running in Replit"
             echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
             echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
-            echo "4. Check backend logs at $BACKEND_URL"
+            echo "4. Check backend logs in Replit console"
+            echo "5. Try accessing $BACKEND_URL/api/proxy/healthz manually"
+            echo "6. Ensure BACKEND_URL environment variable is set in frontend deployment"
             exit 1
           fi
       

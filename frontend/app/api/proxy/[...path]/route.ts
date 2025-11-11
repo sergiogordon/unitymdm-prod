@@ -6,7 +6,14 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+// Get backend URL with fallback - check both BACKEND_URL and NEXT_PUBLIC_BACKEND_URL
+function getBackendUrl(): string {
+  const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+  console.log(`[Proxy] Using backend URL: ${backendUrl}`)
+  return backendUrl
+}
+
+const BACKEND_URL = getBackendUrl()
 
 export async function GET(
   request: NextRequest,
@@ -53,10 +60,15 @@ async function proxyRequest(
   pathSegments: string[],
   method: string
 ) {
+  const startTime = Date.now()
+  let backendUrl: string
+  
   try {
     const path = pathSegments.join('/')
     const url = new URL(request.url)
-    const backendUrl = `${BACKEND_URL}/${path}${url.search}`
+    backendUrl = `${BACKEND_URL}/${path}${url.search}`
+
+    console.log(`[Proxy] ${method} ${path} -> ${backendUrl}`)
 
     // Get request body for POST/PUT/PATCH first to determine if it's FormData
     let body: ArrayBuffer | FormData | undefined = undefined
@@ -99,15 +111,64 @@ async function proxyRequest(
       const adminKey = process.env.ADMIN_KEY
       if (adminKey) {
         headers.set('X-Admin', adminKey)
+        console.log('[Proxy] Injected admin key for admin endpoint')
+      } else {
+        console.warn('[Proxy] WARNING: Admin endpoint requested but ADMIN_KEY not set')
       }
     }
 
-    // Forward request to backend
-    const response = await fetch(backendUrl, {
-      method,
-      headers,
-      body,
-    })
+    // Forward request to backend with timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
+
+    let response: Response
+    try {
+      response = await fetch(backendUrl, {
+        method,
+        headers,
+        body,
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.error(`[Proxy] Request timeout after 60s: ${backendUrl}`)
+        return NextResponse.json(
+          { 
+            error: 'Backend request timeout',
+            message: 'The backend server did not respond within 60 seconds',
+            backend_url: backendUrl,
+            path: path
+          },
+          { status: 504 }
+        )
+      }
+      
+      // Check if it's a connection error
+      if (fetchError instanceof Error) {
+        const errorMessage = fetchError.message.toLowerCase()
+        if (errorMessage.includes('econnrefused') || errorMessage.includes('failed to fetch') || errorMessage.includes('network')) {
+          console.error(`[Proxy] Connection refused to backend: ${backendUrl}`, fetchError)
+          return NextResponse.json(
+            { 
+              error: 'Backend connection failed',
+              message: 'Unable to connect to backend server. Please ensure the backend is running.',
+              backend_url: backendUrl,
+              path: path,
+              details: fetchError.message
+            },
+            { status: 502 }
+          )
+        }
+      }
+      
+      throw fetchError
+    }
+
+    const duration = Date.now() - startTime
+    console.log(`[Proxy] ${method} ${path} -> ${response.status} (${duration}ms)`)
 
     // Stream the response body to preserve binary data (APK files, etc.)
     const responseBody = await response.arrayBuffer()
@@ -131,9 +192,19 @@ async function proxyRequest(
       headers: responseHeaders,
     })
   } catch (error) {
-    console.error('[Proxy] Error:', error)
+    const duration = Date.now() - startTime
+    console.error(`[Proxy] Error after ${duration}ms:`, error)
+    console.error(`[Proxy] Backend URL: ${backendUrl || BACKEND_URL}`)
+    console.error(`[Proxy] Path: ${pathSegments.join('/')}`)
+    
     return NextResponse.json(
-      { error: 'Proxy request failed', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Proxy request failed',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        backend_url: backendUrl || BACKEND_URL,
+        path: pathSegments.join('/'),
+        duration_ms: duration
+      },
       { status: 500 }
     )
   }

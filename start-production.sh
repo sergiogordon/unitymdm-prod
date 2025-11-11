@@ -48,9 +48,26 @@ done
 # Start Next.js frontend on port 5000
 echo "🌐 Starting Next.js frontend on port 5000..."
 cd frontend/.next/standalone/frontend
+
+# Set environment variables for Next.js
 export BACKEND_URL=http://localhost:8000
 export PORT=5000
 export HOSTNAME=0.0.0.0
+
+# Verify environment variables are set
+echo "📋 Environment variables:"
+echo "   BACKEND_URL=$BACKEND_URL"
+echo "   PORT=$PORT"
+echo "   HOSTNAME=$HOSTNAME"
+
+# Check if ADMIN_KEY is set (optional, for admin endpoints)
+if [ -n "$ADMIN_KEY" ]; then
+  export ADMIN_KEY
+  echo "   ADMIN_KEY is set (length: ${#ADMIN_KEY})"
+else
+  echo "   ⚠️  ADMIN_KEY is not set (admin endpoints may not work)"
+fi
+
 node server.js &
 FRONTEND_PID=$!
 cd ../../../..
