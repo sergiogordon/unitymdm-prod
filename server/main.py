@@ -3993,14 +3993,19 @@ async def acknowledge_command(
         print(f"[ACK] Device ID mismatch: device.id={device.id}, device_id={device_id}")
         raise HTTPException(status_code=403, detail="Device can only acknowledge its own commands")
     
+    # Around line 3996-4010 - Make the endpoint more lenient for WIFI_CONNECT_ACK
     # For WiFi ACK, skip DeviceCommand lookup since it uses FcmDispatch
     if payload.type != "WIFI_CONNECT_ACK":
+        if not correlation_id:
+            print(f"[ACK] ERROR: Missing correlation_id for type={payload.type}")
+            raise HTTPException(status_code=400, detail="correlation_id is required for this ACK type")
+        
         command = db.query(DeviceCommand).filter(
             DeviceCommand.correlation_id == correlation_id
         ).first()
         
         if not command:
-            print(f"[ACK] Command not found for correlation_id={correlation_id}")
+            print(f"[ACK] Command not found for correlation_id={correlation_id}, type={payload.type}")
             raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
         
         if command.device_id != device_id:
@@ -4090,15 +4095,20 @@ async def acknowledge_command(
     elif payload.type == "WIFI_CONNECT_ACK":
         # WiFi ACK uses request_id (which may be in correlation_id or request_id field)
         request_id = payload.request_id or correlation_id
-        print(f"[ACK] Processing WIFI_CONNECT_ACK for request_id={request_id}")
+        print(f"[ACK] Processing WIFI_CONNECT_ACK for request_id={request_id}, device_id={device_id}")
         
         if not request_id:
             print(f"[ACK] ERROR: WIFI_CONNECT_ACK missing both correlation_id and request_id")
-            raise HTTPException(status_code=400, detail="WIFI_CONNECT_ACK requires request_id or correlation_id")
+            # Don't raise 404, just log and return success to prevent retries
+            log_device_event(db, device_id, "wifi_connect_ack_error", {
+                "error": "Missing request_id",
+                "payload": str(payload.dict())
+            })
+            return {"ok": True, "warning": "Missing request_id, ACK logged but not processed"}
         
         from models import FcmDispatch
         
-        # Find FcmDispatch by request_id
+        # Find FcmDispatch by request_id and device_id to ensure correct device match
         dispatch = db.query(FcmDispatch).filter(
             FcmDispatch.request_id == request_id,
             FcmDispatch.device_id == device_id,
@@ -4106,7 +4116,7 @@ async def acknowledge_command(
         ).first()
         
         if dispatch:
-            print(f"[ACK] Found FcmDispatch: request_id={dispatch.request_id}, current_status={dispatch.fcm_status}")
+            print(f"[ACK] Found FcmDispatch: request_id={dispatch.request_id}, device_id={dispatch.device_id}, current_status={dispatch.fcm_status}")
             
             # Update dispatch with result
             dispatch.completed_at = datetime.now(timezone.utc)
@@ -4130,15 +4140,17 @@ async def acknowledge_command(
                 "result": dispatch.result
             })
         else:
-            print(f"[ACK] WARN: FcmDispatch not found for request_id={request_id}, action=wifi_connect")
-            # Still log the event even if we can't find the dispatch record
+            print(f"[ACK] WARN: FcmDispatch not found for request_id={request_id}, action=wifi_connect, device_id={device_id}")
+            # Don't raise error - just log it so device doesn't retry
             log_device_event(db, device_id, "wifi_connect_ack", {
                 "request_id": request_id,
                 "status": payload.status,
                 "message": payload.message,
-                "note": "FcmDispatch record not found"
+                "note": "FcmDispatch record not found - may have been created before FcmDispatch tracking was added"
             })
-        
+            # Return success to prevent device from retrying
+            return {"ok": True, "warning": "FcmDispatch not found, but ACK logged"}
+    
     else:
         raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
     

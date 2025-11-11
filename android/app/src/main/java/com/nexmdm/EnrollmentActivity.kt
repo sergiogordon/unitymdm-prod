@@ -157,6 +157,9 @@ class EnrollmentActivity : AppCompatActivity() {
                     
                     saveCredentials(serverUrl, deviceToken, deviceId, alias)
                     
+                    // After saving credentials, connect to WiFi if configured
+                    connectToWiFiOnEnrollment(serverUrl, deviceToken)
+                    
                     withContext(Dispatchers.Main) {
                         Toast.makeText(
                             this@EnrollmentActivity,
@@ -329,5 +332,142 @@ class EnrollmentActivity : AppCompatActivity() {
     private fun startMainActivity() {
         startActivity(Intent(this, MainActivity::class.java))
         finish()
+    }
+    
+    private fun connectToWiFiOnEnrollment(serverUrl: String, deviceToken: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Fetch WiFi settings from server
+                val wifiUrl = URL("$serverUrl/v1/settings/wifi")
+                val connection = wifiUrl.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("Authorization", "Bearer $deviceToken")
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = connection.inputStream.bufferedReader().readText()
+                    val wifiSettings = JSONObject(response)
+                    
+                    if (wifiSettings.getBoolean("enabled") && wifiSettings.getString("ssid").isNotEmpty()) {
+                        val ssid = wifiSettings.getString("ssid")
+                        val password = wifiSettings.optString("password", "")
+                        val securityType = wifiSettings.optString("security_type", "wpa2")
+                        
+                        Log.i(TAG, "WiFi settings found: SSID=$ssid, enabled=true, connecting...")
+                        
+                        // Use the same WiFi connection logic from FcmMessagingService
+                        connectToWiFi(ssid, password, securityType)
+                    } else {
+                        Log.d(TAG, "WiFi settings not enabled or SSID is empty, skipping WiFi connection")
+                    }
+                } else {
+                    Log.d(TAG, "Failed to fetch WiFi settings: HTTP ${connection.responseCode}, skipping WiFi connection")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect to WiFi during enrollment", e)
+                // Don't fail enrollment if WiFi connection fails
+            }
+        }
+    }
+    
+    private fun connectToWiFi(ssid: String, password: String, securityType: String) {
+        try {
+            // Step 1: Enable WiFi first
+            Log.i(TAG, "[ENROLL-WIFI-1] Enabling WiFi...")
+            val enableProcess = Runtime.getRuntime().exec(arrayOf("sh", "-c", "svc wifi enable"))
+            val enableFinished = enableProcess.waitFor(3000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            
+            if (!enableFinished) {
+                enableProcess.destroy()
+                Log.w(TAG, "[ENROLL-WIFI-WARN] WiFi enable command timed out, continuing anyway")
+            } else {
+                val enableExitCode = enableProcess.exitValue()
+                if (enableExitCode != 0) {
+                    Log.w(TAG, "[ENROLL-WIFI-WARN] WiFi enable command exited with code $enableExitCode, continuing anyway")
+                } else {
+                    Log.i(TAG, "[ENROLL-WIFI-1] WiFi enabled successfully")
+                }
+            }
+            
+            // Small delay to allow WiFi to initialize
+            Thread.sleep(500)
+            
+            // Step 2: Build and execute connection command
+            // Properly escape SSID and password to handle special characters
+            val escapedSsid = escapeShellString(ssid)
+            val escapedPassword = if (password.isNotEmpty()) escapeShellString(password) else ""
+            
+            val command = when (securityType) {
+                "open" -> "cmd wifi connect-network $escapedSsid open"
+                "wep" -> "cmd wifi connect-network $escapedSsid wep $escapedPassword"
+                "wpa" -> "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"  // WPA uses wpa2 command
+                "wpa2" -> "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"
+                "wpa3" -> "cmd wifi connect-network $escapedSsid wpa3 $escapedPassword"
+                else -> {
+                    Log.w(TAG, "[ENROLL-WIFI-WARN] Unknown security type '$securityType', defaulting to wpa2")
+                    "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"
+                }
+            }
+            
+            Log.i(TAG, "[ENROLL-WIFI-2] Executing WiFi connection command for SSID: $ssid (security: $securityType)")
+            Log.d(TAG, "[ENROLL-WIFI-2] Command: $command")
+            
+            // Execute the command with timeout
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            
+            val outputReader = process.inputStream.bufferedReader()
+            val errorReader = process.errorStream.bufferedReader()
+            
+            val timeout = 10000L // 10 seconds
+            val finished = process.waitFor(timeout, java.util.concurrent.TimeUnit.MILLISECONDS)
+            
+            if (!finished) {
+                process.destroy()
+                Log.e(TAG, "[ENROLL-WIFI-TIMEOUT] Command exceeded 10 second timeout")
+                outputReader.close()
+                errorReader.close()
+                return
+            }
+            
+            val exitCode = process.exitValue()
+            val stdout = outputReader.readText()
+            val stderr = errorReader.readText()
+            val combinedOutput = (stdout + stderr).trim()
+            
+            outputReader.close()
+            errorReader.close()
+            
+            Log.i(TAG, "[ENROLL-WIFI-3] Command completed: exitCode=$exitCode")
+            if (combinedOutput.isNotEmpty()) {
+                Log.d(TAG, "[ENROLL-WIFI-3] Output: $combinedOutput")
+            }
+            
+            if (exitCode == 0) {
+                Log.i(TAG, "[ENROLL-WIFI-SUCCESS] ✓ Successfully connected to WiFi: $ssid")
+            } else {
+                val errorMsg = if (combinedOutput.isNotEmpty()) {
+                    combinedOutput
+                } else {
+                    "Exit code $exitCode"
+                }
+                Log.e(TAG, "[ENROLL-WIFI-FAILED] ✗ Failed to connect to WiFi (exit=$exitCode): $errorMsg")
+            }
+            
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "[ENROLL-WIFI-ERROR] Interrupted while connecting to WiFi", e)
+            Thread.currentThread().interrupt()
+        } catch (e: Exception) {
+            Log.e(TAG, "[ENROLL-WIFI-ERROR] ✗ Exception connecting to WiFi", e)
+        }
+    }
+    
+    /**
+     * Escapes a string for safe use in shell commands.
+     * Handles special characters like $, `, ", \, and others that could break shell execution.
+     */
+    private fun escapeShellString(input: String): String {
+        // Escape backslashes first, then double quotes, then wrap in quotes
+        return "\"" + input.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
     }
 }
