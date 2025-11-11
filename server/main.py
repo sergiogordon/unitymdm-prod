@@ -3096,39 +3096,95 @@ async def push_wifi_to_devices(
                 }
             }
             
+            # Create FcmDispatch record before sending
+            from db_utils import record_fcm_dispatch
+            import time
+            
+            fcm_start_time = time.time()
+            
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
                 
+                latency_ms = (time.time() - fcm_start_time) * 1000
+                fcm_result = response.json() if response.status_code == 200 else None
+                fcm_message_id = fcm_result.get("name") if fcm_result else None
+                
+                # Record FCM dispatch
+                try:
+                    dispatch_result = record_fcm_dispatch(
+                        db=db,
+                        request_id=request_id,
+                        device_id=device_id,
+                        action="wifi_connect",
+                        fcm_status="success" if response.status_code == 200 else "failed",
+                        latency_ms=int(latency_ms),
+                        fcm_message_id=fcm_message_id,
+                        http_code=response.status_code,
+                        response_json=response.text[:500] if response.text else None
+                    )
+                except Exception as dispatch_error:
+                    print(f"[WIFI-PUSH] WARN: Failed to record FcmDispatch: {dispatch_error}")
+                
                 if response.status_code == 200:
+                    # FCM delivery successful - device execution status will come via ACK
                     results.append({
                         "device_id": device_id,
                         "alias": device.alias,
                         "ok": True,
-                        "message": "WiFi credentials sent successfully"
+                        "fcm_delivered": True,
+                        "device_executed": False,  # Will be updated when ACK arrives
+                        "request_id": request_id,
+                        "message": "WiFi credentials sent to FCM (awaiting device response)"
                     })
                     
                     log_device_event(db, device_id, "wifi_push", {
+                        "request_id": request_id,
                         "ssid": wifi_settings.ssid,
-                        "security_type": wifi_settings.security_type
+                        "security_type": wifi_settings.security_type,
+                        "fcm_status": "delivered"
                     })
                     
-                    print(f"[WIFI-PUSH] ✓ Sent to {device.alias} ({device_id})")
+                    print(f"[WIFI-PUSH] ✓ FCM delivered to {device.alias} ({device_id}), request_id={request_id}")
                 else:
+                    # FCM delivery failed
+                    error_msg = f"FCM error: {response.status_code}"
                     results.append({
                         "device_id": device_id,
                         "alias": device.alias,
                         "ok": False,
-                        "error": f"FCM error: {response.status_code}"
+                        "fcm_delivered": False,
+                        "device_executed": False,
+                        "request_id": request_id,
+                        "error": error_msg
                     })
-                    print(f"[WIFI-PUSH] ✗ Failed for {device.alias}: FCM {response.status_code}")
+                    print(f"[WIFI-PUSH] ✗ FCM failed for {device.alias}: {response.status_code}")
             except Exception as e:
+                # Record failed dispatch
+                latency_ms = (time.time() - fcm_start_time) * 1000
+                try:
+                    record_fcm_dispatch(
+                        db=db,
+                        request_id=request_id,
+                        device_id=device_id,
+                        action="wifi_connect",
+                        fcm_status="failed",
+                        latency_ms=int(latency_ms),
+                        http_code=None,
+                        error_msg=str(e)[:500]
+                    )
+                except Exception as dispatch_error:
+                    print(f"[WIFI-PUSH] WARN: Failed to record failed FcmDispatch: {dispatch_error}")
+                
                 results.append({
                     "device_id": device_id,
                     "alias": device.alias,
                     "ok": False,
+                    "fcm_delivered": False,
+                    "device_executed": False,
+                    "request_id": request_id,
                     "error": str(e)
                 })
-                print(f"[WIFI-PUSH] ✗ Failed for {device.alias}: {str(e)}")
+                print(f"[WIFI-PUSH] ✗ Exception for {device.alias}: {str(e)}")
     
     success_count = sum(1 for r in results if r.get("ok"))
     print(f"[WIFI-PUSH] Complete: {success_count}/{len(device_ids)} successful")
@@ -3908,7 +3964,8 @@ async def stop_ring_device(
             raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
 
 class AckRequest(BaseModel):
-    correlation_id: str
+    correlation_id: Optional[str] = None
+    request_id: Optional[str] = None  # For WiFi ACK and other actions that use request_id
     type: str
     status: Optional[str] = None
     message: Optional[str] = None
@@ -3917,6 +3974,10 @@ class AckRequest(BaseModel):
     rssi: Optional[int] = None
     charging: Optional[bool] = None
     uptime_ms: Optional[int] = None
+    
+    def get_correlation_id(self) -> str:
+        """Get correlation_id, falling back to request_id if correlation_id is not set"""
+        return self.correlation_id or self.request_id or ""
 
 @app.post("/v1/devices/{device_id}/ack")
 async def acknowledge_command(
@@ -3925,23 +3986,28 @@ async def acknowledge_command(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
-    print(f"[ACK] Received ACK from device_id={device_id}, type={payload.type}, correlation_id={payload.correlation_id}, status={payload.status}, message={payload.message}")
+    correlation_id = payload.get_correlation_id()
+    print(f"[ACK] Received ACK from device_id={device_id}, type={payload.type}, correlation_id={correlation_id}, request_id={payload.request_id}, status={payload.status}, message={payload.message}")
     
     if device.id != device_id:
         print(f"[ACK] Device ID mismatch: device.id={device.id}, device_id={device_id}")
         raise HTTPException(status_code=403, detail="Device can only acknowledge its own commands")
     
-    command = db.query(DeviceCommand).filter(
-        DeviceCommand.correlation_id == payload.correlation_id
-    ).first()
-    
-    if not command:
-        print(f"[ACK] Command not found for correlation_id={payload.correlation_id}")
-        raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
-    
-    if command.device_id != device_id:
-        print(f"[ACK] Command device mismatch: command.device_id={command.device_id}, device_id={device_id}")
-        raise HTTPException(status_code=403, detail="Command does not belong to this device")
+    # For WiFi ACK, skip DeviceCommand lookup since it uses FcmDispatch
+    if payload.type != "WIFI_CONNECT_ACK":
+        command = db.query(DeviceCommand).filter(
+            DeviceCommand.correlation_id == correlation_id
+        ).first()
+        
+        if not command:
+            print(f"[ACK] Command not found for correlation_id={correlation_id}")
+            raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
+        
+        if command.device_id != device_id:
+            print(f"[ACK] Command device mismatch: command.device_id={command.device_id}, device_id={device_id}")
+            raise HTTPException(status_code=403, detail="Command does not belong to this device")
+    else:
+        command = None
     
     if payload.type == "PING_ACK":
         command.status = "acknowledged"
@@ -3960,7 +4026,7 @@ async def acknowledge_command(
         db.add(metric)
         
         log_device_event(db, device_id, "ping_acknowledged", {
-            "correlation_id": payload.correlation_id,
+            "correlation_id": correlation_id,
             "battery": payload.battery,
             "network": payload.network,
             "rssi": payload.rssi
@@ -3970,7 +4036,7 @@ async def acknowledge_command(
         command.status = "acknowledged"
         
         log_device_event(db, device_id, "ring_started", {
-            "correlation_id": payload.correlation_id
+            "correlation_id": correlation_id
         })
         
     elif payload.type == "RING_STOPPED":
@@ -4011,21 +4077,73 @@ async def acknowledge_command(
                 print(f"[ACK] BulkCommand not found for command_id={cmd_result.command_id}")
             
             log_device_event(db, device_id, "launch_app_ack", {
-                "correlation_id": payload.correlation_id,
+                "correlation_id": correlation_id,
                 "status": payload.status,
                 "message": payload.message
             })
         else:
-            print(f"[ACK] CommandResult not found for correlation_id={payload.correlation_id}")
+            print(f"[ACK] CommandResult not found for correlation_id={correlation_id}")
             if command:
                 command.status = "acknowledged"
                 print(f"[ACK] Fallback: Marked DeviceCommand as acknowledged")
+    
+    elif payload.type == "WIFI_CONNECT_ACK":
+        # WiFi ACK uses request_id (which may be in correlation_id or request_id field)
+        request_id = payload.request_id or correlation_id
+        print(f"[ACK] Processing WIFI_CONNECT_ACK for request_id={request_id}")
+        
+        if not request_id:
+            print(f"[ACK] ERROR: WIFI_CONNECT_ACK missing both correlation_id and request_id")
+            raise HTTPException(status_code=400, detail="WIFI_CONNECT_ACK requires request_id or correlation_id")
+        
+        from models import FcmDispatch
+        
+        # Find FcmDispatch by request_id
+        dispatch = db.query(FcmDispatch).filter(
+            FcmDispatch.request_id == request_id,
+            FcmDispatch.device_id == device_id,
+            FcmDispatch.action == "wifi_connect"
+        ).first()
+        
+        if dispatch:
+            print(f"[ACK] Found FcmDispatch: request_id={dispatch.request_id}, current_status={dispatch.fcm_status}")
+            
+            # Update dispatch with result
+            dispatch.completed_at = datetime.now(timezone.utc)
+            dispatch.result = payload.status or "UNKNOWN"
+            dispatch.result_message = payload.message
+            
+            # Update fcm_status based on result
+            if payload.status in ["OK", "ok"]:
+                dispatch.fcm_status = "completed"
+            elif payload.status in ["FAILED", "ERROR", "TIMEOUT"]:
+                dispatch.fcm_status = "failed"
+            else:
+                dispatch.fcm_status = "completed"  # Default to completed even if status is unknown
+            
+            print(f"[ACK] Updated FcmDispatch: result={dispatch.result}, message={dispatch.result_message}")
+            
+            log_device_event(db, device_id, "wifi_connect_ack", {
+                "request_id": dispatch.request_id,
+                "status": payload.status,
+                "message": payload.message,
+                "result": dispatch.result
+            })
+        else:
+            print(f"[ACK] WARN: FcmDispatch not found for request_id={request_id}, action=wifi_connect")
+            # Still log the event even if we can't find the dispatch record
+            log_device_event(db, device_id, "wifi_connect_ack", {
+                "request_id": request_id,
+                "status": payload.status,
+                "message": payload.message,
+                "note": "FcmDispatch record not found"
+            })
         
     else:
         raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
     
     db.commit()
-    print(f"[ACK] Successfully processed {payload.type} for device_id={device_id}, correlation_id={payload.correlation_id}")
+    print(f"[ACK] Successfully processed {payload.type} for device_id={device_id}, correlation_id={correlation_id}")
     
     return {"ok": True}
 
