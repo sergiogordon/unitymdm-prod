@@ -71,6 +71,10 @@ class SecurePreferences(context: Context) {
         get() = prefs.getString("hmac_rotation_key", "") ?: ""
         set(value) = prefs.edit().putString("hmac_rotation_key", value).apply()
     
+    var monitoredPackage: String
+        get() = prefs.getString("monitored_package", "com.unitynetwork.unityapp") ?: "com.unitynetwork.unityapp"
+        set(value) = prefs.edit().putString("monitored_package", value).apply()
+    
     fun clearAllCredentials() {
         Log.d(TAG, "clearAllCredentials: clearing all stored data")
         prefs.edit().clear().commit()
