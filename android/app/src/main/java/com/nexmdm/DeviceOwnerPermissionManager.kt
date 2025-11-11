@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
@@ -331,6 +332,131 @@ class DeviceOwnerPermissionManager(private val context: Context) {
                 else -> "Some power management features failed to disable"
             }
         )
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    fun exemptPackageFromBatteryOptimization(packageName: String): Boolean {
+        if (!isDeviceOwner()) {
+            Log.e(TAG, "Not Device Owner - cannot exempt package from battery optimization")
+            return false
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Log.w(TAG, "Battery optimization exemption requires Android M+")
+            return false
+        }
+
+        return try {
+            // Step 1: Add to device idle whitelist
+            val whitelistSuccess = addToDeviceIdleWhitelist(packageName)
+            
+            if (!whitelistSuccess) {
+                Log.e(TAG, "Failed to add $packageName to device idle whitelist")
+                return false
+            }
+            
+            // Step 2: Set RUN_ANY_IN_BACKGROUND permission
+            val appopSuccess = setRunAnyInBackground(packageName)
+            
+            if (!appopSuccess) {
+                Log.e(TAG, "Failed to set RUN_ANY_IN_BACKGROUND for $packageName")
+                return false
+            }
+            
+            // Step 3: Verify it was set
+            Thread.sleep(300) // Give system a moment to apply
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val nowIgnoring = powerManager.isIgnoringBatteryOptimizations(packageName)
+            
+            if (nowIgnoring) {
+                Log.i(TAG, "✓ Successfully exempted $packageName from battery optimization (Unrestricted state)")
+                true
+            } else {
+                Log.e(TAG, "✗ Commands executed but verification failed for $packageName - device may still be throttled")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Failed to exempt $packageName from battery optimization: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
+     * Add package to device idle whitelist using shell command.
+     * Works on all Android versions with Device Owner privileges.
+     * @return true if command executed successfully
+     */
+    private fun addToDeviceIdleWhitelist(packageName: String): Boolean {
+        return try {
+            Log.d(TAG, "Executing: sh -c 'dumpsys deviceidle whitelist +$packageName'")
+            
+            val command = arrayOf("sh", "-c", "dumpsys deviceidle whitelist +$packageName")
+            val process = Runtime.getRuntime().exec(command)
+            
+            // Read output to prevent blocking
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val errorOutput = process.errorStream.bufferedReader().readText().trim()
+            val exitCode = process.waitFor()
+            
+            if (exitCode == 0) {
+                Log.i(TAG, "✓ Added $packageName to device idle whitelist")
+                if (output.isNotEmpty()) {
+                    Log.d(TAG, "Command output: $output")
+                }
+                true
+            } else {
+                Log.e(TAG, "✗ Failed to add to whitelist, exit code: $exitCode")
+                if (output.isNotEmpty()) {
+                    Log.e(TAG, "Output: $output")
+                }
+                if (errorOutput.isNotEmpty()) {
+                    Log.e(TAG, "Error: $errorOutput")
+                }
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Exception executing whitelist command: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
+     * Set RUN_ANY_IN_BACKGROUND app operation for unrestricted background execution.
+     * Works on all Android versions with Device Owner privileges.
+     * @return true if command executed successfully
+     */
+    private fun setRunAnyInBackground(packageName: String): Boolean {
+        return try {
+            Log.d(TAG, "Executing: sh -c 'cmd appops set $packageName RUN_ANY_IN_BACKGROUND allow'")
+            
+            val command = arrayOf("sh", "-c", "cmd appops set $packageName RUN_ANY_IN_BACKGROUND allow")
+            val process = Runtime.getRuntime().exec(command)
+            
+            // Read output to prevent blocking
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val errorOutput = process.errorStream.bufferedReader().readText().trim()
+            val exitCode = process.waitFor()
+            
+            if (exitCode == 0) {
+                Log.i(TAG, "✓ Set RUN_ANY_IN_BACKGROUND allow for $packageName")
+                if (output.isNotEmpty()) {
+                    Log.d(TAG, "Command output: $output")
+                }
+                true
+            } else {
+                Log.e(TAG, "✗ Failed to set RUN_ANY_IN_BACKGROUND, exit code: $exitCode")
+                if (output.isNotEmpty()) {
+                    Log.e(TAG, "Output: $output")
+                }
+                if (errorOutput.isNotEmpty()) {
+                    Log.e(TAG, "Error: $errorOutput")
+                }
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Exception executing appops command: ${e.message}", e)
+            false
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.M)

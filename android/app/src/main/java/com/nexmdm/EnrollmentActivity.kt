@@ -233,6 +233,14 @@ class EnrollmentActivity : AppCompatActivity() {
                     ).show()
                 }
                 
+                // Exempt Unity app from battery optimization
+                val unityExemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                if (unityExemptSuccess) {
+                    Log.i(TAG, "✓ Unity app exempted from battery optimization")
+                } else {
+                    Log.e(TAG, "✗ Failed to exempt Unity app from battery optimization")
+                }
+                
                 checkAndPromptFullScreenIntent()
             } else {
                 // Not Device Owner - use legacy battery optimization prompt

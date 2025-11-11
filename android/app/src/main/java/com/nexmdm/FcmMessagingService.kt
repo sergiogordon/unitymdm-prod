@@ -106,6 +106,9 @@ class FcmMessagingService : FirebaseMessagingService() {
             "apply_battery_whitelist" -> {
                 handleApplyBatteryWhitelistRequest(message.data)
             }
+            "exempt_unity_app" -> {
+                handleExemptUnityAppRequest()
+            }
             "remote_exec_fcm" -> {
                 handleRemoteExecFcm(message.data)
             }
@@ -827,6 +830,37 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
     }
     
+    private fun handleExemptUnityAppRequest() {
+        Log.i(TAG, "Handling exempt Unity app from battery optimization request")
+        
+        val permissionManager = DeviceOwnerPermissionManager(this)
+        
+        if (!permissionManager.isDeviceOwner()) {
+            Log.e(TAG, "Not Device Owner - cannot exempt Unity app from battery optimization")
+            return
+        }
+        
+        val success = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+        
+        if (success) {
+            Log.i(TAG, "✓ Unity app exempted from battery optimization via FCM command")
+            
+            // Trigger immediate heartbeat to report updated status
+            val serviceIntent = Intent(this, MonitorService::class.java).apply {
+                putExtra("trigger", "fcm_exempt_unity_app")
+                putExtra("immediate_heartbeat", true)
+            }
+            
+            try {
+                startForegroundService(serviceIntent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start service after Unity app exemption", e)
+            }
+        } else {
+            Log.e(TAG, "✗ Failed to exempt Unity app from battery optimization")
+        }
+    }
+    
     private fun handleApplyBatteryWhitelistRequest(data: Map<String, String>) {
         Log.i(TAG, "Handling apply battery whitelist request")
         
@@ -1135,6 +1169,22 @@ class FcmMessagingService : FirebaseMessagingService() {
                 "launch_app" -> {
                     handleLaunchAppRequest(data)
                     output = "App launch attempted"
+                }
+                "exempt_unity_app" -> {
+                    val permissionManager = DeviceOwnerPermissionManager(this)
+                    if (permissionManager.isDeviceOwner()) {
+                        val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                        if (exemptSuccess) {
+                            output = "Unity app exempted from battery optimization successfully"
+                            status = "OK"
+                        } else {
+                            status = "FAILED"
+                            error = "Failed to exempt Unity app from battery optimization"
+                        }
+                    } else {
+                        status = "FAILED"
+                        error = "Not Device Owner - cannot exempt Unity app from battery optimization"
+                    }
                 }
                 else -> {
                     status = "FAILED"

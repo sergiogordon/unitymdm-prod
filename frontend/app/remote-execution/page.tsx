@@ -57,7 +57,8 @@ const FCM_PRESETS = {
   launch_app: { type: "launch_app", package_name: "com.example.app" },
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
   enable_dnd: { type: "set_dnd", enable: "true" },
-  disable_dnd: { type: "set_dnd", enable: "false" }
+  disable_dnd: { type: "set_dnd", enable: "false" },
+  exempt_unity_app: { type: "exempt_unity_app" }
 }
 
 const SHELL_PRESETS = {
@@ -789,6 +790,7 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="clear_app_data">Clear App Data</SelectItem>
                           <SelectItem value="enable_dnd">Enable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
+                          <SelectItem value="exempt_unity_app">🔋 Exempt Unity App from Battery Optimization</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

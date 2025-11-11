@@ -3,6 +3,7 @@ package com.nexmdm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,6 @@ class ConfigReceiver : BroadcastReceiver() {
             val serverUrl = intent.getStringExtra("server_url") ?: return
             val adminKey = intent.getStringExtra("admin_key") ?: return
             val alias = intent.getStringExtra("alias") ?: "Device"
-            val speedtestPackage = intent.getStringExtra("speedtest_package") ?: "com.unitynetwork.unityapp"
             val hmacPrimaryKey = intent.getStringExtra("hmac_primary_key") ?: ""
             val hmacRotationKey = intent.getStringExtra("hmac_rotation_key") ?: ""
             
@@ -35,7 +35,7 @@ class ConfigReceiver : BroadcastReceiver() {
                         prefs.serverUrl = serverUrl
                         prefs.deviceToken = deviceToken
                         prefs.deviceAlias = alias
-                        prefs.speedtestPackage = speedtestPackage
+                        prefs.speedtestPackage = "com.unitynetwork.unityapp"
                         
                         if (hmacPrimaryKey.isNotEmpty()) {
                             prefs.hmacPrimaryKey = hmacPrimaryKey
@@ -44,6 +44,21 @@ class ConfigReceiver : BroadcastReceiver() {
                         if (hmacRotationKey.isNotEmpty()) {
                             prefs.hmacRotationKey = hmacRotationKey
                             Log.d("ConfigReceiver", "HMAC rotation key configured")
+                        }
+                        
+                        // Apply battery optimization exemption for Unity app if Device Owner
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val permissionManager = DeviceOwnerPermissionManager(context)
+                            if (permissionManager.isDeviceOwner()) {
+                                val success = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                                if (success) {
+                                    Log.i("ConfigReceiver", "✓ Unity app exempted from battery optimization")
+                                } else {
+                                    Log.e("ConfigReceiver", "✗ Failed to exempt Unity app from battery optimization")
+                                }
+                            } else {
+                                Log.d("ConfigReceiver", "Not Device Owner - skipping battery optimization exemption")
+                            }
                         }
                         
                         val serviceIntent = Intent(context, MonitorService::class.java)
