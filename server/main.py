@@ -322,6 +322,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# In-memory cache for relaunch rate limiting (device_id -> last_relaunch_timestamp)
+_relaunch_cache: dict[str, datetime] = {}
+
 async def send_fcm_launch_app(fcm_token: str, package_name: str, device_id: str = "unknown") -> bool:
     """
     Helper function to send FCM command to launch an app on a device
@@ -1993,10 +1996,14 @@ async def heartbeat(
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed, defaulting is_app_running=True")
         
         # Rate limiting: Don't relaunch more than once per 5 minutes (300 seconds)
+        # Using in-memory cache instead of database field to avoid migration
         relaunch_cooldown_seconds = 300
         can_relaunch = True
-        if device.last_relaunch_at:
-            time_since_last_relaunch = (datetime.now(timezone.utc) - ensure_utc(device.last_relaunch_at)).total_seconds()
+        
+        # Check in-memory cache for last relaunch time
+        last_relaunch_timestamp = _relaunch_cache.get(device.id)
+        if last_relaunch_timestamp:
+            time_since_last_relaunch = (datetime.now(timezone.utc) - last_relaunch_timestamp).total_seconds()
             if time_since_last_relaunch < relaunch_cooldown_seconds:
                 can_relaunch = False
                 print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Rate limited - last relaunch was {int(time_since_last_relaunch)}s ago, cooldown={relaunch_cooldown_seconds}s")
@@ -2007,8 +2014,8 @@ async def heartbeat(
         if not is_app_running and can_relaunch and device.fcm_token:
             try:
                 print(f"[AUTO-RELAUNCH] {device.alias}: {device.monitored_package} is down, sending relaunch command")
-                # Update last_relaunch_at before sending to prevent race conditions
-                device.last_relaunch_at = datetime.now(timezone.utc)
+                # Store relaunch timestamp in memory cache
+                _relaunch_cache[device.id] = datetime.now(timezone.utc)
                 
                 # Send relaunch command and await result for proper error handling
                 success = await send_fcm_launch_app(device.fcm_token, device.monitored_package, device.id)
@@ -2025,8 +2032,8 @@ async def heartbeat(
                         package=device.monitored_package
                     )
                 else:
-                    # Reset last_relaunch_at on failure so we can retry sooner
-                    device.last_relaunch_at = None
+                    # Clear cache on failure so we can retry sooner
+                    _relaunch_cache.pop(device.id, None)
                     log_device_event(db, device.id, "auto_relaunch_failed", {
                         "package": device.monitored_package,
                         "reason": "fcm_send_failed"
@@ -2040,8 +2047,8 @@ async def heartbeat(
                         level="WARN"
                     )
             except Exception as e:
-                # Reset last_relaunch_at on exception so we can retry
-                device.last_relaunch_at = None
+                # Clear cache on exception so we can retry
+                _relaunch_cache.pop(device.id, None)
                 print(f"[AUTO-RELAUNCH] Failed to send relaunch for {device.alias}: {e}")
                 log_device_event(db, device.id, "auto_relaunch_error", {
                     "package": device.monitored_package,

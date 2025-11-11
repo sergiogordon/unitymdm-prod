@@ -57,7 +57,6 @@ class Device(Base):
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     monitoring_use_defaults: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_relaunch_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    last_relaunch_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_ping_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_ring_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     ringing_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
