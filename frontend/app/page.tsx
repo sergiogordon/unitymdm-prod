@@ -8,6 +8,7 @@ import { KpiTiles } from "@/components/kpi-tiles"
 import { FilterBar } from "@/components/filter-bar"
 import { DevicesTable } from "@/components/devices-table"
 import { DeviceDrawer } from "@/components/device-drawer"
+import { BackendStatusIndicator } from "@/components/backend-status-indicator"
 import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
@@ -156,6 +157,8 @@ export default function Page() {
         onClose={() => setSelectedDevice(null)}
         onDeviceUpdated={handleRefresh}
       />
+
+      <BackendStatusIndicator />
     </div>
   )
 }
