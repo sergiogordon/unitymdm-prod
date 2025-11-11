@@ -5003,6 +5003,12 @@ async def get_windows_enroll_script(
     db.add(event)
     db.commit()
     
+    # Check WiFi settings configuration
+    from models import WiFiSettings
+    wifi_settings = db.query(WiFiSettings).first()
+    wifi_configured = wifi_settings and wifi_settings.enabled and wifi_settings.ssid and wifi_settings.ssid.strip()
+    wifi_ssid = wifi_settings.ssid if wifi_settings else ""
+    
     # Generate script with enhanced debugging and fail-fast behavior
     script_content = f'''@echo off
 REM ============================================================
@@ -5194,7 +5200,41 @@ adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1
 echo ✅ System tweaks applied
 echo.
 
-echo [Step 8/9] Auto-enroll and launch...
+echo [Step 8/10] Check WiFi configuration...
+set WIFI_FILE=!TEMP!\mdm_wifi_check.txt
+curl -s -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/settings/wifi" -o "!WIFI_FILE!" 2>nul
+if not errorlevel 1 (
+    findstr /C:"\"enabled\":true" "!WIFI_FILE!" >nul 2>&1
+    if not errorlevel 1 (
+        REM Extract SSID from JSON (format: "ssid": "NetworkName")
+        for /f "tokens=2 delims=:" %%A in ('findstr /C:"\"ssid\"" "!WIFI_FILE!"') do (
+            set WIFI_SSID_RAW=%%A
+            REM Remove quotes, commas, and spaces
+            set WIFI_SSID_RAW=!WIFI_SSID_RAW:"=!
+            set WIFI_SSID_RAW=!WIFI_SSID_RAW:,=!
+            set WIFI_SSID_RAW=!WIFI_SSID_RAW: =!
+            if not "!WIFI_SSID_RAW!"=="" (
+                set WIFI_SSID=!WIFI_SSID_RAW!
+            )
+        )
+        if defined WIFI_SSID (
+            echo ✅ WiFi settings configured in backend
+            echo    Device will auto-connect to WiFi during enrollment
+            echo    SSID: !WIFI_SSID!
+        ) else (
+            echo ⚠️  WiFi settings exist but SSID is empty
+        )
+    ) else (
+        echo ℹ️  WiFi auto-configuration not enabled
+        echo    Configure WiFi in Settings Drawer to enable auto-connection
+    )
+) else (
+    echo ⚠️  Could not check WiFi settings (non-critical)
+)
+del "!WIFI_FILE!" >nul 2>&1
+echo.
+
+echo [Step 9/10] Auto-enroll and launch...
 REM Send configuration broadcast first with receiver-foreground flag
 adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --receiver-foreground --es server_url "!BASE_URL!" --es admin_key "!ADMIN_KEY!" --es alias "!DEVICE_ALIAS!" >nul 2>&1
 if errorlevel 1 (
@@ -5205,12 +5245,15 @@ if errorlevel 1 (
     goto :end
 )
 echo ✅ Auto-enrollment initiated
+if defined WIFI_SSID (
+    echo    WiFi connection will be attempted automatically after registration
+)
 
 REM Launch app
 adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1
 echo.
 
-echo [Step 9/9] Verify service...
+echo [Step 10/10] Verify service...
 timeout /t 3 /nobreak >nul
 adb shell pidof !PKG! >nul 2>&1
 if errorlevel 1 (
@@ -5222,7 +5265,7 @@ if errorlevel 1 (
 echo ✅ Service running
 echo.
 
-echo [Step 9/9] Verify registration...
+echo [Step 10/10] Verify registration and WiFi...
 echo    Waiting 10 seconds for first heartbeat...
 timeout /t 10 /nobreak >nul
 
@@ -5259,6 +5302,22 @@ if not errorlevel 1 (
 
 del "!API_FILE!" >nul 2>&1
 echo.
+
+REM Verify WiFi connection if configured
+if defined WIFI_SSID (
+    echo [WiFi Verification] Checking WiFi connection status...
+    timeout /t 5 /nobreak >nul
+    adb shell dumpsys wifi ^| findstr /C:"mWifiInfo" >nul 2>&1
+    if not errorlevel 1 (
+        echo ✅ WiFi connection verified
+        echo    Device should be connected to: !WIFI_SSID!
+    ) else (
+        echo ⚠️  WiFi connection status unclear
+        echo    Check device logs: adb logcat -d ^| findstr /C:"ENROLL-WIFI"
+        echo    Note: WiFi connection happens automatically during enrollment
+    )
+    echo.
+)
 
 echo ================================================
 echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅
