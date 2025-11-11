@@ -213,10 +213,28 @@ export default function WiFiPushPage() {
   }
 
   const handlePushWiFi = async () => {
-    if (!wifiSettings || !wifiSettings.ssid) {
+    if (!wifiSettings) {
       toast({
         title: "Error",
-        description: "WiFi settings not configured",
+        description: "WiFi settings not configured. Please configure WiFi settings first.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (!wifiSettings.ssid || wifiSettings.ssid.trim() === "") {
+      toast({
+        title: "Error",
+        description: "WiFi SSID is required. Please configure WiFi settings first.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (!wifiSettings.enabled) {
+      toast({
+        title: "Error",
+        description: "WiFi push is disabled. Please enable WiFi push in settings first.",
         variant: "destructive"
       })
       return
@@ -262,35 +280,80 @@ export default function WiFiPushPage() {
       })
       
       if (response.status === 401) {
+        toast({
+          title: "Authentication Error",
+          description: "Your session has expired. Please log in again.",
+          variant: "destructive"
+        })
         router.push('/login')
         return
       }
       
       if (response.ok) {
-        const data = await response.json()
+        let data
+        try {
+          data = await response.json()
+        } catch (parseError) {
+          console.error("Failed to parse response:", parseError)
+          toast({
+            title: "Error",
+            description: "Received invalid response from server",
+            variant: "destructive"
+          })
+          return
+        }
+        
         setResults(data.results || [])
+        const total = data.total || deviceIds.length
+        const successCount = data.success_count || 0
+        const failedCount = data.failed_count || (total - successCount)
+        
         setPushStats({
-          total: data.total || 0,
-          success: data.success_count || 0,
-          failed: data.failed_count || 0
+          total,
+          success: successCount,
+          failed: failedCount
         })
         
-        toast({
-          title: "WiFi Push Complete",
-          description: `${data.success_count}/${data.total} devices reached successfully`
-        })
+        if (successCount === total) {
+          toast({
+            title: "WiFi Push Complete",
+            description: `Successfully pushed WiFi credentials to all ${total} device${total !== 1 ? 's' : ''}`
+          })
+        } else if (successCount > 0) {
+          toast({
+            title: "WiFi Push Partially Complete",
+            description: `Pushed to ${successCount}/${total} devices. ${failedCount} device${failedCount !== 1 ? 's' : ''} failed.`,
+            variant: "default"
+          })
+        } else {
+          toast({
+            title: "WiFi Push Failed",
+            description: `Failed to push WiFi credentials to all ${total} device${total !== 1 ? 's' : ''}. Check results for details.`,
+            variant: "destructive"
+          })
+        }
       } else {
-        const error = await response.json()
+        let errorMessage = "Failed to push WiFi credentials"
+        try {
+          const error = await response.json()
+          errorMessage = error.detail || error.message || errorMessage
+        } catch (parseError) {
+          // If we can't parse the error, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        
         toast({
           title: "Error",
-          description: error.detail || "Failed to push WiFi credentials",
+          description: errorMessage,
           variant: "destructive"
         })
       }
     } catch (error) {
+      console.error("WiFi push error:", error)
+      const errorMessage = error instanceof Error ? error.message : "Network error occurred"
       toast({
         title: "Error",
-        description: "Failed to push WiFi credentials",
+        description: `Failed to push WiFi credentials: ${errorMessage}`,
         variant: "destructive"
       })
     } finally {
@@ -323,13 +386,25 @@ export default function WiFiPushPage() {
               <div className="text-center text-muted-foreground">Loading WiFi settings...</div>
             </CardContent>
           </Card>
-        ) : !wifiSettings || !wifiSettings.ssid ? (
+        ) : !wifiSettings || !wifiSettings.ssid || wifiSettings.ssid.trim() === "" ? (
           <Card>
             <CardContent className="py-8">
               <div className="text-center space-y-4">
                 <p className="text-muted-foreground">WiFi settings not configured</p>
                 <Button onClick={openSettings}>
                   Configure WiFi Settings
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : !wifiSettings.enabled ? (
+          <Card>
+            <CardContent className="py-8">
+              <div className="text-center space-y-4">
+                <p className="text-muted-foreground">WiFi push is disabled</p>
+                <p className="text-sm text-muted-foreground">Please enable WiFi push in settings to use this feature.</p>
+                <Button onClick={openSettings}>
+                  Open Settings
                 </Button>
               </div>
             </CardContent>
@@ -353,7 +428,9 @@ export default function WiFiPushPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">Status:</span>
-                    <Badge variant="default">Enabled</Badge>
+                    <Badge variant={wifiSettings.enabled ? "default" : "secondary"}>
+                      {wifiSettings.enabled ? "Enabled" : "Disabled"}
+                    </Badge>
                   </div>
                 </div>
               </CardContent>

@@ -33,8 +33,10 @@ adb shell pm grant com.nexmdm android.permission.CAMERA >nul 2>&1
 adb shell appops set com.nexmdm RUN_ANY_IN_BACKGROUND allow >nul 2>&1
 adb shell appops set com.nexmdm GET_USAGE_STATS allow >nul 2>&1
 adb shell dumpsys deviceidle whitelist +com.nexmdm >nul 2>&1
-adb shell dumpsys deviceidle whitelist +com.unitynetwork.unityapp >nul 2>&1
+adb shell cmd deviceidle whitelist -com.unitynetwork.unityapp >nul 2>&1
+adb shell cmd deviceidle whitelist +com.unitynetwork.unityapp >nul 2>&1
 adb shell appops set com.unitynetwork.unityapp RUN_ANY_IN_BACKGROUND allow >nul 2>&1
+adb shell appops set com.unitynetwork.unityapp AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore >nul 2>&1
 echo ✅ Permissions granted
 echo.
 echo [Step 6/9] Disable bloatware...

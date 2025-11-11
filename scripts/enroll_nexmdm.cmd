@@ -75,8 +75,10 @@ echo.
 
 echo [Step 5/7] Applying full optimizations and bloat off...
 adb shell "settings put global window_animation_scale 0.5; settings put global transition_animation_scale 0.5; settings put global animator_duration_scale 0.5; settings put global ambient_tilt_to_wake 1; settings put global ambient_touch_to_wake 1; settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put global app_restriction_enabled false; settings put global dynamic_power_savings_enabled 0; settings put global battery_tip_constants advertise_disable_apps_enabled=false; settings put secure location_mode 0; settings put global assisted_gps_enabled 0; settings put global wifi_scan_always_enabled 0; settings put global ble_scan_always_enabled 0; settings put global network_recommendations_enabled 0; settings put global wifi_networks_available_notification_on 0; settings put secure install_non_market_apps 1; settings put global stay_on_while_plugged_in 7; settings put global device_provisioned 1; settings put secure user_setup_complete 1; settings put system screen_off_timeout 2147483647; settings put global heads_up_notifications_enabled 0; settings put global development_settings_enabled 1; settings put global adb_enabled 1; settings put global package_verifier_enable 0; settings put global verifier_verify_adb_installs 0; settings put global wifi_sleep_policy 2; settings put global bluetooth_on 0"
-adb shell dumpsys deviceidle whitelist +com.unitynetwork.unityapp 1>nul
+adb shell cmd deviceidle whitelist -com.unitynetwork.unityapp 1>nul 2>&1
+adb shell cmd deviceidle whitelist +com.unitynetwork.unityapp 1>nul 2>&1
 adb shell appops set com.unitynetwork.unityapp RUN_ANY_IN_BACKGROUND allow 2>nul
+adb shell appops set com.unitynetwork.unityapp AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore 2>nul
 echo ✅ Optimizations applied!
 echo.
 

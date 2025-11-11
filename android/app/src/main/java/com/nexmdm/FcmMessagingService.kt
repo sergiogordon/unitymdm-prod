@@ -635,6 +635,15 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
     }
     
+    /**
+     * Escapes a string for safe use in shell commands.
+     * Handles special characters like $, `, ", \, and others that could break shell execution.
+     */
+    private fun escapeShellString(input: String): String {
+        // Escape backslashes first, then double quotes, then wrap in quotes
+        return "\"" + input.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    }
+    
     private fun handleWiFiConnect(data: Map<String, String>) {
         Log.d(TAG, "Handling WiFi connection request")
         
@@ -644,7 +653,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         Log.i(TAG, "[WIFI-FLOW-1] Retrieved deviceId: ${if (deviceId.isEmpty()) "**EMPTY**" else deviceId}")
         
         val ssid = data["ssid"] ?: run {
-            Log.e(TAG, "Missing SSID in WiFi connection request")
+            Log.e(TAG, "[WIFI-FLOW-ERROR] Missing SSID in WiFi connection request")
             sendWiFiConnectionAck(data["request_id"] ?: "", deviceId, "ERROR", "Missing SSID")
             return
         }
@@ -653,25 +662,55 @@ class FcmMessagingService : FirebaseMessagingService() {
         val requestId = data["request_id"] ?: ""
         
         if (requestId.isEmpty()) {
-            Log.w(TAG, "[WIFI-FLOW-ABORT] request_id is empty, cannot send ACK")
+            Log.w(TAG, "[WIFI-FLOW-WARN] request_id is empty, cannot send ACK")
         }
         
         if (deviceId.isEmpty()) {
-            Log.e(TAG, "[WIFI-FLOW-ABORT] deviceId is EMPTY, ACK will fail!")
+            Log.e(TAG, "[WIFI-FLOW-ERROR] deviceId is EMPTY, ACK will fail!")
         }
         
+        Log.i(TAG, "[WIFI-FLOW-1] SSID: $ssid, Security: $securityType, Password length: ${password.length}")
+        
         try {
-            // Build the cmd wifi command based on security type
-            val command = when (securityType) {
-                "open" -> "cmd wifi connect-network \"$ssid\" open"
-                "wep" -> "cmd wifi connect-network \"$ssid\" wep \"$password\""
-                "wpa" -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""  // WPA uses wpa2 command
-                "wpa2" -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""
-                "wpa3" -> "cmd wifi connect-network \"$ssid\" wpa3 \"$password\""
-                else -> "cmd wifi connect-network \"$ssid\" wpa2 \"$password\""
+            // Step 1: Enable WiFi first
+            Log.i(TAG, "[WIFI-FLOW-2] Enabling WiFi...")
+            val enableProcess = Runtime.getRuntime().exec(arrayOf("sh", "-c", "svc wifi enable"))
+            val enableFinished = enableProcess.waitFor(3000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            
+            if (!enableFinished) {
+                enableProcess.destroy()
+                Log.w(TAG, "[WIFI-FLOW-WARN] WiFi enable command timed out, continuing anyway")
+            } else {
+                val enableExitCode = enableProcess.exitValue()
+                if (enableExitCode != 0) {
+                    Log.w(TAG, "[WIFI-FLOW-WARN] WiFi enable command exited with code $enableExitCode, continuing anyway")
+                } else {
+                    Log.i(TAG, "[WIFI-FLOW-2] WiFi enabled successfully")
+                }
             }
             
-            Log.i(TAG, "[WIFI-FLOW-2] Executing WiFi connection command for SSID: $ssid (security: $securityType)")
+            // Small delay to allow WiFi to initialize
+            Thread.sleep(500)
+            
+            // Step 2: Build and execute connection command
+            // Properly escape SSID and password to handle special characters
+            val escapedSsid = escapeShellString(ssid)
+            val escapedPassword = if (password.isNotEmpty()) escapeShellString(password) else ""
+            
+            val command = when (securityType) {
+                "open" -> "cmd wifi connect-network $escapedSsid open"
+                "wep" -> "cmd wifi connect-network $escapedSsid wep $escapedPassword"
+                "wpa" -> "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"  // WPA uses wpa2 command
+                "wpa2" -> "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"
+                "wpa3" -> "cmd wifi connect-network $escapedSsid wpa3 $escapedPassword"
+                else -> {
+                    Log.w(TAG, "[WIFI-FLOW-WARN] Unknown security type '$securityType', defaulting to wpa2")
+                    "cmd wifi connect-network $escapedSsid wpa2 $escapedPassword"
+                }
+            }
+            
+            Log.i(TAG, "[WIFI-FLOW-3] Executing WiFi connection command for SSID: $ssid (security: $securityType)")
+            Log.d(TAG, "[WIFI-FLOW-3] Command: $command")
             
             // Execute the command with timeout
             val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
@@ -686,6 +725,8 @@ class FcmMessagingService : FirebaseMessagingService() {
                 process.destroy()
                 Log.e(TAG, "[WIFI-FLOW-TIMEOUT] Command exceeded 10 second timeout")
                 sendWiFiConnectionAck(requestId, deviceId, "TIMEOUT", "Command exceeded 10 second timeout")
+                outputReader.close()
+                errorReader.close()
                 return
             }
             
@@ -697,20 +738,31 @@ class FcmMessagingService : FirebaseMessagingService() {
             outputReader.close()
             errorReader.close()
             
-            Log.i(TAG, "[WIFI-FLOW-3] Command completed: exitCode=$exitCode, output='$combinedOutput'")
+            Log.i(TAG, "[WIFI-FLOW-4] Command completed: exitCode=$exitCode")
+            if (combinedOutput.isNotEmpty()) {
+                Log.d(TAG, "[WIFI-FLOW-4] Output: $combinedOutput")
+            }
             
             if (exitCode == 0) {
-                Log.i(TAG, "✓ Successfully connected to WiFi: $ssid")
+                Log.i(TAG, "[WIFI-FLOW-SUCCESS] ✓ Successfully connected to WiFi: $ssid")
                 sendWiFiConnectionAck(requestId, deviceId, "OK", "Connected to $ssid")
             } else {
-                val errorMsg = if (combinedOutput.isNotEmpty()) combinedOutput else "Exit code $exitCode"
-                Log.e(TAG, "✗ Failed to connect to WiFi (exit=$exitCode): $errorMsg")
+                val errorMsg = if (combinedOutput.isNotEmpty()) {
+                    combinedOutput
+                } else {
+                    "Exit code $exitCode"
+                }
+                Log.e(TAG, "[WIFI-FLOW-FAILED] ✗ Failed to connect to WiFi (exit=$exitCode): $errorMsg")
                 sendWiFiConnectionAck(requestId, deviceId, "FAILED", "Connection failed: $errorMsg")
             }
             
+        } catch (e: InterruptedException) {
+            Log.e(TAG, "[WIFI-FLOW-ERROR] Interrupted while connecting to WiFi", e)
+            Thread.currentThread().interrupt()
+            sendWiFiConnectionAck(requestId, deviceId, "ERROR", "Operation interrupted: ${e.message}")
         } catch (e: Exception) {
-            Log.e(TAG, "✗ Exception connecting to WiFi", e)
-            sendWiFiConnectionAck(requestId, deviceId, "ERROR", "Exception: ${e.message}")
+            Log.e(TAG, "[WIFI-FLOW-ERROR] ✗ Exception connecting to WiFi", e)
+            sendWiFiConnectionAck(requestId, deviceId, "ERROR", "Exception: ${e.message ?: "Unknown error"}")
         }
     }
     
@@ -977,14 +1029,36 @@ class FcmMessagingService : FirebaseMessagingService() {
     
     /**
      * Add package to device idle whitelist using shell command.
+     * On Android 13+, uses 'cmd deviceidle whitelist' (write command).
+     * Falls back to 'dumpsys deviceidle whitelist' for older versions.
      * Works on all Android versions with Device Owner privileges.
      * @return true if command executed successfully
      */
     private fun addToDeviceIdleWhitelist(packageName: String): Boolean {
         return try {
-            Log.d(TAG, "Executing: sh -c 'dumpsys deviceidle whitelist +$packageName'")
+            // On Android 13+, use 'cmd' (write command). On older versions, 'dumpsys' works for writing.
+            val useCmd = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU // Android 13+
             
-            val command = arrayOf("sh", "-c", "dumpsys deviceidle whitelist +$packageName")
+            if (useCmd) {
+                // Force refresh: remove first, then add (ensures system recognizes the change)
+                Log.d(TAG, "Executing: sh -c 'cmd deviceidle whitelist -$packageName' (remove)")
+                val removeCommand = arrayOf("sh", "-c", "cmd deviceidle whitelist -$packageName")
+                val removeProcess = Runtime.getRuntime().exec(removeCommand)
+                removeProcess.inputStream.bufferedReader().readText() // Consume output
+                removeProcess.errorStream.bufferedReader().readText() // Consume error
+                removeProcess.waitFor()
+                Thread.sleep(100) // Brief pause between remove and add
+            }
+            
+            // Add to whitelist
+            val commandStr = if (useCmd) {
+                "cmd deviceidle whitelist +$packageName"
+            } else {
+                "dumpsys deviceidle whitelist +$packageName"
+            }
+            
+            Log.d(TAG, "Executing: sh -c '$commandStr'")
+            val command = arrayOf("sh", "-c", commandStr)
             val process = Runtime.getRuntime().exec(command)
             
             // Read output to prevent blocking

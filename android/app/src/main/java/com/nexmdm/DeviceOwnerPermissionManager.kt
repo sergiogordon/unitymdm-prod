@@ -363,8 +363,20 @@ class DeviceOwnerPermissionManager(private val context: Context) {
                 return false
             }
             
-            // Step 3: Verify it was set
-            Thread.sleep(300) // Give system a moment to apply
+            // Step 3: Set AUTO_REVOKE_PERMISSIONS_IF_UNUSED to ignore (like nexmdm)
+            val autoRevokeSuccess = setAutoRevokePermissionsIgnored(packageName)
+            if (!autoRevokeSuccess) {
+                Log.w(TAG, "Failed to set AUTO_REVOKE_PERMISSIONS_IF_UNUSED for $packageName (non-critical)")
+                // Don't fail the whole operation if this step fails
+            }
+            
+            // Step 4: Verify it was set (increased delay for Android 13+)
+            val delayMs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                1000L // Android 13+ needs more time
+            } else {
+                300L // Older versions
+            }
+            Thread.sleep(delayMs)
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             val nowIgnoring = powerManager.isIgnoringBatteryOptimizations(packageName)
             
@@ -383,14 +395,36 @@ class DeviceOwnerPermissionManager(private val context: Context) {
     
     /**
      * Add package to device idle whitelist using shell command.
+     * On Android 13+, uses 'cmd deviceidle whitelist' (write command).
+     * Falls back to 'dumpsys deviceidle whitelist' for older versions.
      * Works on all Android versions with Device Owner privileges.
      * @return true if command executed successfully
      */
     private fun addToDeviceIdleWhitelist(packageName: String): Boolean {
         return try {
-            Log.d(TAG, "Executing: sh -c 'dumpsys deviceidle whitelist +$packageName'")
+            // On Android 13+, use 'cmd' (write command). On older versions, 'dumpsys' works for writing.
+            val useCmd = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU // Android 13+
             
-            val command = arrayOf("sh", "-c", "dumpsys deviceidle whitelist +$packageName")
+            if (useCmd) {
+                // Force refresh: remove first, then add (ensures system recognizes the change)
+                Log.d(TAG, "Executing: sh -c 'cmd deviceidle whitelist -$packageName' (remove)")
+                val removeCommand = arrayOf("sh", "-c", "cmd deviceidle whitelist -$packageName")
+                val removeProcess = Runtime.getRuntime().exec(removeCommand)
+                removeProcess.inputStream.bufferedReader().readText() // Consume output
+                removeProcess.errorStream.bufferedReader().readText() // Consume error
+                removeProcess.waitFor()
+                Thread.sleep(100) // Brief pause between remove and add
+            }
+            
+            // Add to whitelist
+            val commandStr = if (useCmd) {
+                "cmd deviceidle whitelist +$packageName"
+            } else {
+                "dumpsys deviceidle whitelist +$packageName"
+            }
+            
+            Log.d(TAG, "Executing: sh -c '$commandStr'")
+            val command = arrayOf("sh", "-c", commandStr)
             val process = Runtime.getRuntime().exec(command)
             
             // Read output to prevent blocking
@@ -416,6 +450,46 @@ class DeviceOwnerPermissionManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "✗ Exception executing whitelist command: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
+     * Set AUTO_REVOKE_PERMISSIONS_IF_UNUSED app operation to ignore.
+     * Prevents Android from automatically revoking permissions for unused apps.
+     * Works on all Android versions with Device Owner privileges.
+     * @return true if command executed successfully
+     */
+    private fun setAutoRevokePermissionsIgnored(packageName: String): Boolean {
+        return try {
+            Log.d(TAG, "Executing: sh -c 'cmd appops set $packageName AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore'")
+            
+            val command = arrayOf("sh", "-c", "cmd appops set $packageName AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore")
+            val process = Runtime.getRuntime().exec(command)
+            
+            // Read output to prevent blocking
+            val output = process.inputStream.bufferedReader().readText().trim()
+            val errorOutput = process.errorStream.bufferedReader().readText().trim()
+            val exitCode = process.waitFor()
+            
+            if (exitCode == 0) {
+                Log.i(TAG, "✓ Set AUTO_REVOKE_PERMISSIONS_IF_UNUSED ignore for $packageName")
+                if (output.isNotEmpty()) {
+                    Log.d(TAG, "Command output: $output")
+                }
+                true
+            } else {
+                Log.e(TAG, "✗ Failed to set AUTO_REVOKE_PERMISSIONS_IF_UNUSED, exit code: $exitCode")
+                if (output.isNotEmpty()) {
+                    Log.e(TAG, "Output: $output")
+                }
+                if (errorOutput.isNotEmpty()) {
+                    Log.e(TAG, "Error: $errorOutput")
+                }
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "✗ Exception executing appops command: ${e.message}", e)
             false
         }
     }
