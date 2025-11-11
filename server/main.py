@@ -1975,13 +1975,14 @@ async def heartbeat(
         # Check if app is installed
         if app_info and app_info.installed:
             # Check if Unity app is running using monitored_foreground_recent_s
-            # Conservative approach: assume running unless we have clear evidence it's not
+            # Use device's monitored_threshold_min (in minutes) converted to seconds
+            threshold_seconds = device.monitored_threshold_min * 60
             fg_seconds = payload.monitored_foreground_recent_s
             
             if fg_seconds is not None and fg_seconds >= 0:
-                # We have valid foreground data - consider running if recently active (< 60 seconds)
-                is_app_running = fg_seconds < 60
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Unity foreground_recent_seconds={fg_seconds}, is_app_running={is_app_running}")
+                # We have valid foreground data - consider running if recently active within threshold
+                is_app_running = fg_seconds < threshold_seconds
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: foreground_recent_seconds={fg_seconds}, threshold={threshold_seconds}s ({device.monitored_threshold_min}min), is_app_running={is_app_running}")
             else:
                 # No foreground data available - assume running to prevent endless relaunch loops
                 is_app_running = True
@@ -1991,18 +1992,71 @@ async def heartbeat(
             is_app_running = True  # Prevent relaunch loop for uninstalled apps
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed, defaulting is_app_running=True")
         
-        # If app is not running, trigger FCM relaunch
-        print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Final check - is_app_running={is_app_running}, fcm_token={'present' if device.fcm_token else 'missing'}")
+        # Rate limiting: Don't relaunch more than once per 5 minutes (300 seconds)
+        relaunch_cooldown_seconds = 300
+        can_relaunch = True
+        if device.last_relaunch_at:
+            time_since_last_relaunch = (datetime.now(timezone.utc) - ensure_utc(device.last_relaunch_at)).total_seconds()
+            if time_since_last_relaunch < relaunch_cooldown_seconds:
+                can_relaunch = False
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Rate limited - last relaunch was {int(time_since_last_relaunch)}s ago, cooldown={relaunch_cooldown_seconds}s")
         
-        if not is_app_running and device.fcm_token:
+        # If app is not running, trigger FCM relaunch (with rate limiting)
+        print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Final check - is_app_running={is_app_running}, can_relaunch={can_relaunch}, fcm_token={'present' if device.fcm_token else 'missing'}")
+        
+        if not is_app_running and can_relaunch and device.fcm_token:
             try:
                 print(f"[AUTO-RELAUNCH] {device.alias}: {device.monitored_package} is down, sending relaunch command")
-                asyncio.create_task(send_fcm_launch_app(device.fcm_token, device.monitored_package, device.id))
-                log_device_event(db, device.id, "auto_relaunch_triggered", {
-                    "package": device.monitored_package
-                })
+                # Update last_relaunch_at before sending to prevent race conditions
+                device.last_relaunch_at = datetime.now(timezone.utc)
+                
+                # Send relaunch command and await result for proper error handling
+                success = await send_fcm_launch_app(device.fcm_token, device.monitored_package, device.id)
+                if success:
+                    log_device_event(db, device.id, "auto_relaunch_triggered", {
+                        "package": device.monitored_package,
+                        "threshold_min": device.monitored_threshold_min,
+                        "foreground_recent_s": payload.monitored_foreground_recent_s
+                    })
+                    structured_logger.log_event(
+                        "auto_relaunch.success",
+                        device_id=device.id,
+                        alias=device.alias,
+                        package=device.monitored_package
+                    )
+                else:
+                    # Reset last_relaunch_at on failure so we can retry sooner
+                    device.last_relaunch_at = None
+                    log_device_event(db, device.id, "auto_relaunch_failed", {
+                        "package": device.monitored_package,
+                        "reason": "fcm_send_failed"
+                    })
+                    structured_logger.log_event(
+                        "auto_relaunch.failed",
+                        device_id=device.id,
+                        alias=device.alias,
+                        package=device.monitored_package,
+                        reason="fcm_send_failed",
+                        level="WARN"
+                    )
             except Exception as e:
+                # Reset last_relaunch_at on exception so we can retry
+                device.last_relaunch_at = None
                 print(f"[AUTO-RELAUNCH] Failed to send relaunch for {device.alias}: {e}")
+                log_device_event(db, device.id, "auto_relaunch_error", {
+                    "package": device.monitored_package,
+                    "error": str(e)
+                })
+                structured_logger.log_event(
+                    "auto_relaunch.error",
+                    device_id=device.id,
+                    alias=device.alias,
+                    package=device.monitored_package,
+                    error=str(e),
+                    level="ERROR"
+                )
+        elif not is_app_running and not can_relaunch:
+            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App is down but rate limited, skipping relaunch")
     else:
         if not device.auto_relaunch_enabled:
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Auto-relaunch is DISABLED")
@@ -2739,6 +2793,7 @@ async def get_device_monitoring_settings(
             "monitored_package": device.monitored_package,
             "monitored_app_name": device.monitored_app_name,
             "monitored_threshold_min": device.monitored_threshold_min,
+            "auto_relaunch_enabled": device.auto_relaunch_enabled,
             "service_up": last_status.service_up if last_status else None,
             "monitored_foreground_recent_s": last_status.monitored_foreground_recent_s if last_status else None,
             "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -2789,6 +2844,11 @@ async def update_device_monitoring_settings(
         updates["monitor_enabled"] = device.monitor_enabled
         has_monitoring_update = True
     
+    if request.auto_relaunch_enabled is not None:
+        device.auto_relaunch_enabled = request.auto_relaunch_enabled
+        updates["auto_relaunch_enabled"] = device.auto_relaunch_enabled
+        has_monitoring_update = True
+    
     if has_monitoring_update:
         device.monitoring_use_defaults = False
         updates["monitoring_use_defaults"] = False
@@ -2806,7 +2866,8 @@ async def update_device_monitoring_settings(
             "monitor_enabled": device.monitor_enabled,
             "monitored_package": device.monitored_package,
             "monitored_app_name": device.monitored_app_name,
-            "monitored_threshold_min": device.monitored_threshold_min
+            "monitored_threshold_min": device.monitored_threshold_min,
+            "auto_relaunch_enabled": device.auto_relaunch_enabled
         }
     }
 
