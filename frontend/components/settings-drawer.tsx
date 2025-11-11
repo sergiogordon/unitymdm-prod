@@ -57,6 +57,9 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [isSavingWifi, setIsSavingWifi] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
+  const [autoLaunchEnabled, setAutoLaunchEnabled] = useState(false)
+  const [isSavingAutoLaunch, setIsSavingAutoLaunch] = useState(false)
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
@@ -66,6 +69,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
       document.body.style.overflow = "hidden"
       fetchMonitoringDefaults()
       fetchWiFiSettings()
+      fetchAutoLaunchStatus()
     }
     return () => {
       document.removeEventListener("keydown", handleEscape)
@@ -275,6 +279,81 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     setLastTestAlert(new Date().toLocaleString())
   }
 
+  const fetchAutoLaunchStatus = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.warn('No auth token available for auto-launch status')
+        return
+      }
+      
+      // Fetch a sample device to check current auto-launch status
+      const response = await fetch('/v1/devices?limit=1', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.devices && data.devices.length > 0) {
+          setAutoLaunchEnabled(data.devices[0].auto_relaunch_enabled || false)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch auto-launch status:', error)
+    }
+  }
+
+  const handleSaveAutoLaunch = async () => {
+    setIsSavingAutoLaunch(true)
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        setIsSavingAutoLaunch(false)
+        return
+      }
+      
+      const response = await fetch('/v1/devices/settings/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          auto_relaunch_enabled: autoLaunchEnabled
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        toast({
+          title: "Success",
+          description: data.message || `Auto-launch ${autoLaunchEnabled ? 'enabled' : 'disabled'} for all devices`
+        })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to update auto-launch settings",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update auto-launch settings",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSavingAutoLaunch(false)
+    }
+  }
+
   const handleCopy = (text: string, item: string) => {
     navigator.clipboard.writeText(text)
     setCopiedItem(item)
@@ -390,6 +469,46 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                   </Button>
                 </div>
               )}
+            </section>
+
+            {/* Auto-Launch Settings */}
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Auto-Launch</h3>
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Automatically relaunch the Unity app when it goes down. This applies to all devices.
+              </p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium">Enable Auto-Launch</label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      When enabled, the system will automatically relaunch the monitored app if it hasn't been in the foreground within the configured threshold.
+                    </p>
+                  </div>
+                  <button
+                    className={`relative h-6 w-11 rounded-full transition-colors ml-4 flex-shrink-0 ${
+                      autoLaunchEnabled ? 'bg-primary' : 'bg-muted'
+                    }`}
+                    onClick={() => setAutoLaunchEnabled(!autoLaunchEnabled)}
+                    disabled={isSavingAutoLaunch}
+                  >
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-background transition-transform ${
+                        autoLaunchEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <Button
+                  onClick={handleSaveAutoLaunch}
+                  disabled={isSavingAutoLaunch}
+                  className="w-full"
+                >
+                  {isSavingAutoLaunch ? "Saving..." : "Save Auto-Launch Settings"}
+                </Button>
+              </div>
             </section>
 
             {/* WiFi Configuration */}
