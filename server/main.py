@@ -532,6 +532,7 @@ def validate_configuration():
             )
     
     # Check SERVER_URL (helpful for enrollment)
+    server_url = None
     try:
         server_url = config.server_url
         if not server_url or server_url == "http://localhost:5000":
@@ -1849,9 +1850,6 @@ async def heartbeat(
             # App installed and we have foreground data - evaluate status
             threshold_seconds = monitoring_settings["threshold_min"] * 60
             service_up = monitored_foreground_recent_s <= threshold_seconds
-        else:
-            # App installed but no foreground data available - assume down
-            service_up = False
             
             structured_logger.log_event(
                 "monitoring.evaluate",
@@ -4115,7 +4113,8 @@ async def acknowledge_command(
         command = None
     
     if payload.type == "PING_ACK":
-        command.status = "acknowledged"
+        if command:
+            command.status = "acknowledged"
         
         metric = DeviceMetric(
             device_id=device_id,
@@ -4138,14 +4137,16 @@ async def acknowledge_command(
         })
         
     elif payload.type == "RING_STARTED":
-        command.status = "acknowledged"
+        if command:
+            command.status = "acknowledged"
         
         log_device_event(db, device_id, "ring_started", {
             "correlation_id": correlation_id
         })
         
     elif payload.type == "RING_STOPPED":
-        command.status = "completed"
+        if command:
+            command.status = "completed"
         
         if device.ringing_until:
             device.ringing_until = None
