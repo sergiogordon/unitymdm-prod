@@ -16,11 +16,11 @@ import os
 import time
 import hashlib
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
-    UpdateDeviceSettingsRequest, ActionResultRequest
+    UpdateDeviceSettingsRequest, ActionResultRequest, UpdateAutoRelaunchDefaultsRequest
 )
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
@@ -1849,6 +1849,9 @@ async def heartbeat(
             # App installed and we have foreground data - evaluate status
             threshold_seconds = monitoring_settings["threshold_min"] * 60
             service_up = monitored_foreground_recent_s <= threshold_seconds
+        else:
+            # App installed but no foreground data available - assume down
+            service_up = False
             
             structured_logger.log_event(
                 "monitoring.evaluate",
@@ -1936,10 +1939,10 @@ async def heartbeat(
             if unity_fg_seconds < 600:
                 unity_status = "running"
             else:
-                unity_status = "inactive"
+                unity_status = "down"
         else:
-            # No foreground data available - status unknown
-            unity_status = "unknown"
+            # No foreground data available - app is installed but not running
+            unity_status = "down"
         
         last_status_dict["unity"] = {
             "package": "com.unitynetwork.unityapp",
@@ -1968,28 +1971,34 @@ async def heartbeat(
         # Android app now sends full package names as keys (e.g., com.unitynetwork.unityapp)
         # No mapping needed - direct 1:1 lookup
         app_info = payload.app_versions.get(device.monitored_package)
-        is_app_running = True  # Default to running to prevent spam loops
         
         print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: app_info={app_info}, installed={app_info.installed if app_info else 'N/A'}")
         
         # Check if app is installed
         if app_info and app_info.installed:
-            # Check if Unity app is running using monitored_foreground_recent_s
-            # Conservative approach: assume running unless we have clear evidence it's not
+            # Check if app is running using monitored_foreground_recent_s
+            # Use the same monitoring threshold as service monitoring evaluation
             fg_seconds = payload.monitored_foreground_recent_s
             
-            if fg_seconds is not None and fg_seconds >= 0:
-                # We have valid foreground data - consider running if recently active (< 60 seconds)
-                is_app_running = fg_seconds < 60
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Unity foreground_recent_seconds={fg_seconds}, is_app_running={is_app_running}")
+            # Treat -1 as sentinel value for "not available" (normalize to None)
+            if fg_seconds is not None and fg_seconds < 0:
+                fg_seconds = None
+            
+            if fg_seconds is not None:
+                # We have valid foreground data - use monitoring threshold to determine if running
+                # Fallback to device threshold or default 10 minutes if monitoring settings unavailable
+                threshold_min = monitoring_settings.get("threshold_min") or device.monitored_threshold_min or 10
+                threshold_seconds = threshold_min * 60
+                is_app_running = fg_seconds <= threshold_seconds
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: foreground_recent_seconds={fg_seconds}, threshold={threshold_seconds}s ({threshold_min}min), is_app_running={is_app_running}")
             else:
-                # No foreground data available - assume running to prevent endless relaunch loops
-                is_app_running = True
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No foreground data available, defaulting is_app_running=True")
+                # No foreground data available but app is installed - assume down to trigger relaunch
+                is_app_running = False
+                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No foreground data available, app is installed - assuming down (is_app_running=False)")
         else:
             # App not installed - don't try to relaunch
             is_app_running = True  # Prevent relaunch loop for uninstalled apps
-            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed, defaulting is_app_running=True")
+            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed, skipping relaunch")
         
         # If app is not running, trigger FCM relaunch
         print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Final check - is_app_running={is_app_running}, fcm_token={'present' if device.fcm_token else 'missing'}")
@@ -2911,6 +2920,97 @@ async def update_monitoring_defaults(
         "package": defaults_record.package,
         "alias": defaults_record.alias,
         "threshold_min": defaults_record.threshold_min,
+        "updated_at": defaults_record.updated_at.isoformat() + "Z"
+    }
+
+@app.get("/admin/settings/auto-relaunch-defaults")
+async def get_auto_relaunch_defaults(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get global auto-relaunch defaults.
+    Returns built-in defaults if no custom settings exist.
+    """
+    start_time = time.time()
+    
+    defaults_record = db.query(AutoRelaunchDefaults).first()
+    
+    if defaults_record:
+        defaults = {
+            "enabled": defaults_record.enabled,
+            "package": defaults_record.package,
+            "updated_at": defaults_record.updated_at.isoformat() + "Z"
+        }
+    else:
+        defaults = {
+            "enabled": False,
+            "package": "com.unitynetwork.unityapp",
+            "updated_at": None
+        }
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("auto_relaunch_defaults_get_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.auto_relaunch_defaults.read",
+        user=current_user.username,
+        latency_ms=latency_ms
+    )
+    
+    return defaults
+
+@app.patch("/admin/settings/auto-relaunch-defaults")
+async def update_auto_relaunch_defaults(
+    request: UpdateAutoRelaunchDefaultsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update global auto-relaunch defaults.
+    Requires device_manage scope (admin user).
+    """
+    start_time = time.time()
+    
+    defaults_record = db.query(AutoRelaunchDefaults).first()
+    
+    if not defaults_record:
+        defaults_record = AutoRelaunchDefaults()
+        db.add(defaults_record)
+    
+    updates = {}
+    
+    if request.package is not None:
+        if not request.package.strip():
+            raise HTTPException(status_code=422, detail="Package cannot be empty")
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', request.package.strip()):
+            raise HTTPException(status_code=422, detail="Invalid package name format")
+        defaults_record.package = request.package.strip()
+        updates["package"] = defaults_record.package
+    
+    if request.enabled is not None:
+        defaults_record.enabled = request.enabled
+        updates["enabled"] = defaults_record.enabled
+    
+    defaults_record.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(defaults_record)
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("auto_relaunch_defaults_update_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.auto_relaunch_defaults.update",
+        user=current_user.username,
+        updates=updates,
+        latency_ms=latency_ms
+    )
+    
+    return {
+        "enabled": defaults_record.enabled,
+        "package": defaults_record.package,
         "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 

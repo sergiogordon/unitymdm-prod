@@ -20,6 +20,12 @@ interface MonitoringDefaults {
   updated_at: string | null
 }
 
+interface AutoRelaunchDefaults {
+  enabled: boolean
+  package: string
+  updated_at: string | null
+}
+
 interface WiFiSettings {
   ssid: string
   password: string
@@ -46,6 +52,16 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
+  const [autoRelaunchDefaults, setAutoRelaunchDefaults] = useState<AutoRelaunchDefaults>({
+    enabled: false,
+    package: "com.unitynetwork.unityapp",
+    updated_at: null
+  })
+  const [autoRelaunchDefaultsOriginal, setAutoRelaunchDefaultsOriginal] = useState<AutoRelaunchDefaults | null>(null)
+  const [isSavingAutoRelaunch, setIsSavingAutoRelaunch] = useState(false)
+  const [autoRelaunchSaveStatus, setAutoRelaunchSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const autoRelaunchTimerRef = useRef<NodeJS.Timeout | null>(null)
+
   const [wifiSettings, setWifiSettings] = useState<WiFiSettings>({
     ssid: "",
     password: "",
@@ -65,6 +81,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
       document.addEventListener("keydown", handleEscape)
       document.body.style.overflow = "hidden"
       fetchMonitoringDefaults()
+      fetchAutoRelaunchDefaults()
       fetchWiFiSettings()
     }
     return () => {
@@ -166,6 +183,116 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     monitoringDefaults.alias !== monitoringDefaultsOriginal.alias ||
     monitoringDefaults.threshold_min !== monitoringDefaultsOriginal.threshold_min
   )
+
+  const fetchAutoRelaunchDefaults = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.warn('No auth token available for auto relaunch defaults')
+        return
+      }
+      
+      const response = await fetch('/v1/settings/auto-relaunch-defaults', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAutoRelaunchDefaults(data)
+        setAutoRelaunchDefaultsOriginal(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch auto relaunch defaults:', error)
+    }
+  }
+
+  const handleSaveAutoRelaunchDefaults = async (showToast = true) => {
+    setIsSavingAutoRelaunch(true)
+    setAutoRelaunchSaveStatus('saving')
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        setAutoRelaunchSaveStatus('idle')
+        setIsSavingAutoRelaunch(false)
+        return
+      }
+      
+      const response = await fetch('/v1/settings/auto-relaunch-defaults', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(autoRelaunchDefaults)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setAutoRelaunchDefaults(data)
+        setAutoRelaunchDefaultsOriginal(data)
+        setAutoRelaunchSaveStatus('saved')
+        setTimeout(() => setAutoRelaunchSaveStatus('idle'), 2000)
+        if (showToast) {
+          toast({
+            title: "Success",
+            description: "Auto relaunch defaults saved successfully"
+          })
+        }
+      } else {
+        const error = await response.json()
+        setAutoRelaunchSaveStatus('idle')
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to save auto relaunch defaults",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      setAutoRelaunchSaveStatus('idle')
+      toast({
+        title: "Error",
+        description: "Failed to save auto relaunch defaults",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSavingAutoRelaunch(false)
+    }
+  }
+
+  const handleCancelAutoRelaunchDefaults = () => {
+    if (autoRelaunchDefaultsOriginal) {
+      setAutoRelaunchDefaults(autoRelaunchDefaultsOriginal)
+    }
+  }
+
+  const hasAutoRelaunchChanges = autoRelaunchDefaultsOriginal && (
+    autoRelaunchDefaults.enabled !== autoRelaunchDefaultsOriginal.enabled ||
+    autoRelaunchDefaults.package !== autoRelaunchDefaultsOriginal.package
+  )
+
+  useEffect(() => {
+    if (autoRelaunchTimerRef.current) {
+      clearTimeout(autoRelaunchTimerRef.current)
+    }
+
+    if (hasAutoRelaunchChanges) {
+      autoRelaunchTimerRef.current = setTimeout(() => {
+        handleSaveAutoRelaunchDefaults(false)
+      }, 1500)
+    }
+
+    return () => {
+      if (autoRelaunchTimerRef.current) {
+        clearTimeout(autoRelaunchTimerRef.current)
+      }
+    }
+  }, [autoRelaunchDefaults, hasAutoRelaunchChanges])
 
   useEffect(() => {
     if (autoSaveTimerRef.current) {
@@ -384,6 +511,71 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                     variant="outline"
                     onClick={handleCancelMonitoringDefaults}
                     disabled={isSavingMonitoring}
+                    className="flex-1"
+                  >
+                    Discard
+                  </Button>
+                </div>
+              )}
+            </section>
+
+            {/* Auto Relaunch Configuration */}
+            <section className="mb-8">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Auto Relaunch Configuration</h3>
+                {autoRelaunchSaveStatus === 'saving' && (
+                  <span className="text-xs text-muted-foreground">Saving...</span>
+                )}
+                {autoRelaunchSaveStatus === 'saved' && (
+                  <span className="flex items-center gap-1 text-xs text-green-600">
+                    <Check className="h-3 w-3" />
+                    Saved
+                  </span>
+                )}
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Configure default auto-relaunch settings for new devices. Changes save automatically.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm text-muted-foreground">Package Name (Unity Package)</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    placeholder="com.unitynetwork.unityapp"
+                    value={autoRelaunchDefaults.package}
+                    onChange={(e) => setAutoRelaunchDefaults({ ...autoRelaunchDefaults, package: e.target.value })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-muted-foreground">Enable Auto Relaunch Globally</label>
+                  <button
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      autoRelaunchDefaults.enabled ? 'bg-primary' : 'bg-muted'
+                    }`}
+                    onClick={() => setAutoRelaunchDefaults({ ...autoRelaunchDefaults, enabled: !autoRelaunchDefaults.enabled })}
+                  >
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-background transition-transform ${
+                        autoRelaunchDefaults.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+              {hasAutoRelaunchChanges && (
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    onClick={() => handleSaveAutoRelaunchDefaults(true)}
+                    disabled={isSavingAutoRelaunch}
+                    className="flex-1"
+                  >
+                    {isSavingAutoRelaunch ? "Saving..." : "Save Now"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelAutoRelaunchDefaults}
+                    disabled={isSavingAutoRelaunch}
                     className="flex-1"
                   >
                     Discard

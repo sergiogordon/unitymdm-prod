@@ -409,6 +409,18 @@ class MonitoringDefaults(Base):
         Index('idx_monitoring_defaults_updated', 'updated_at'),
     )
 
+class AutoRelaunchDefaults(Base):
+    __tablename__ = "auto_relaunch_defaults"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    package: Mapped[str] = mapped_column(String, nullable=False, default="com.unitynetwork.unityapp")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    
+    __table_args__ = (
+        Index('idx_auto_relaunch_defaults_updated', 'updated_at'),
+    )
+
 class BloatwarePackage(Base):
     __tablename__ = "bloatware_packages"
     

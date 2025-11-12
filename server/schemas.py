@@ -114,3 +114,7 @@ class ActionResultRequest(BaseModel):
     outcome: str
     message: Optional[str] = None
     finished_at: datetime
+
+class UpdateAutoRelaunchDefaultsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    package: Optional[str] = None
