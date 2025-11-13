@@ -78,15 +78,14 @@ class BackgroundTaskManager:
         self._running = True
         structured_logger.log_event("background_tasks.started")
         
-        # TEMPORARILY DISABLED ALL WORKERS FOR DEBUGGING
         # Start purge jobs processor
-        # self._purge_task = asyncio.create_task(self._run_purge_worker())
+        self._purge_task = asyncio.create_task(self._run_purge_worker())
         
         # Start selection cleanup task
-        # self._cleanup_task = asyncio.create_task(self._run_cleanup_worker())
+        self._cleanup_task = asyncio.create_task(self._run_cleanup_worker())
         
         # Start event logging worker
-        # self._event_logger_task = asyncio.create_task(self._run_event_logger_worker())
+        self._event_logger_task = asyncio.create_task(self._run_event_logger_worker())
     
     async def stop(self):
         """Stop all background tasks."""

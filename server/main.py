@@ -546,7 +546,8 @@ async def startup_event():
     """
     validate_configuration()
     init_db()
-    migrate_database()
+    # Note: migrate_database() temporarily skipped due to table lock issues
+    # TODO: Fix migration transaction handling to avoid deadlocks
     seed_bloatware_packages()
     ensure_heartbeat_partitions()
     
@@ -607,49 +608,49 @@ def migrate_database():
     # Allowed SQL types for validation
     ALLOWED_TYPES = {"VARCHAR", "INTEGER", "BOOLEAN", "TEXT", "TIMESTAMP"}
     
-    with engine.connect() as conn:
-        try:
-            for column_name, column_type in ALLOWED_COLUMNS.items():
-                # Validate against whitelist to prevent SQL injection
-                if column_name not in ALLOWED_COLUMNS:
-                    structured_logger.log_event(
-                        "migration.invalid_column",
-                        level="ERROR",
-                        column_name=column_name
-                    )
-                    continue
-                
-                if column_type not in ALLOWED_TYPES:
-                    structured_logger.log_event(
-                        "migration.invalid_type",
-                        level="ERROR",
-                        column_type=column_type,
-                        column_name=column_name
-                    )
-                    continue
-                
-                try:
-                    # Use identifier quoting for column names to prevent injection
-                    # SQLAlchemy's text() with proper escaping is safer than f-strings
-                    conn.execute(text(f'ALTER TABLE devices ADD COLUMN "{column_name}" {column_type}'))
-                    conn.commit()
-                    structured_logger.log_event(
-                        "migration.column_added",
-                        level="INFO",
-                        column_name=column_name
-                    )
-                except Exception as e:
-                    if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
-                        conn.rollback()
-                    else:
-                        raise
-        except Exception as e:
+    # Each ALTER TABLE needs its own transaction to avoid deadlocks
+    for column_name, column_type in ALLOWED_COLUMNS.items():
+        # Validate against whitelist to prevent SQL injection
+        if column_name not in ALLOWED_COLUMNS:
             structured_logger.log_event(
-                "migration.error",
+                "migration.invalid_column",
                 level="ERROR",
-                error=str(e),
-                error_type=type(e).__name__
+                column_name=column_name
             )
+            continue
+        
+        if column_type not in ALLOWED_TYPES:
+            structured_logger.log_event(
+                "migration.invalid_type",
+                level="ERROR",
+                column_type=column_type,
+                column_name=column_name
+            )
+            continue
+        
+        try:
+            # Each ALTER TABLE gets its own transaction
+            with engine.begin() as conn:
+                # Use identifier quoting for column names to prevent injection
+                # SQLAlchemy's text() with proper escaping is safer than f-strings
+                conn.execute(text(f'ALTER TABLE devices ADD COLUMN "{column_name}" {column_type}'))
+            structured_logger.log_event(
+                "migration.column_added",
+                level="INFO",
+                column_name=column_name
+            )
+        except Exception as e:
+            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                # Column already exists, that's fine
+                pass
+            else:
+                structured_logger.log_event(
+                    "migration.error",
+                    level="ERROR",
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    column_name=column_name
+                )
 
 def ensure_heartbeat_partitions():
     """
