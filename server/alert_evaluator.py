@@ -82,53 +82,24 @@ class AlertEvaluator:
             minutes_offline = int(time_since_last_seen.total_seconds() / 60)
             value = f"{minutes_offline}m"
             
-            if self.config.ALERT_OFFLINE_REQUIRE_CONSECUTIVE:
-                if not alert_state:
-                    alert_state = self._create_or_update_alert_state(
-                        db, device.id, AlertCondition.OFFLINE, "pending", value
-                    )
-                    alert_state.consecutive_violations = 1
-                    db.commit()
-                    return False, None, None
-                elif alert_state.state == "pending":
-                    alert_state.consecutive_violations = (alert_state.consecutive_violations or 0) + 1
-                    db.commit()
-                    
-                    if alert_state.consecutive_violations >= 2:
-                        context = {
-                            "device_id": device.id,
-                            "alias": device.alias,
-                            "last_seen": last_seen,
-                            "minutes_offline": minutes_offline,
-                            "severity": "CRIT"
-                        }
-                        return True, value, context
-                    return False, None, None
-                elif alert_state.state == "raised":
-                    return False, None, None
-            else:
-                if not alert_state or alert_state.state != "raised":
-                    context = {
-                        "device_id": device.id,
-                        "alias": device.alias,
-                        "last_seen": last_seen,
-                        "minutes_offline": minutes_offline,
-                        "severity": "CRIT"
-                    }
-                    return True, value, context
+            if not alert_state or alert_state.state != "raised":
+                context = {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "last_seen": last_seen,
+                    "minutes_offline": minutes_offline,
+                    "severity": "CRIT"
+                }
+                return True, value, context
         
         else:
-            if alert_state:
-                if alert_state.state == "raised":
-                    context = {
-                        "device_id": device.id,
-                        "alias": device.alias,
-                        "recovered": True
-                    }
-                    return False, None, context
-                elif alert_state.state == "pending":
-                    alert_state.consecutive_violations = 0
-                    db.commit()
+            if alert_state and alert_state.state == "raised":
+                context = {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "recovered": True
+                }
+                return False, None, context
         
         return False, None, None
     

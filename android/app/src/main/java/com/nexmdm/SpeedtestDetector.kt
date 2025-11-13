@@ -7,13 +7,13 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 
-class UnityDetector(private val context: Context) {
+class SpeedtestDetector(private val context: Context) {
     
     companion object {
-        private const val TAG = "UnityDetector"
+        private const val TAG = "SpeedtestDetector"
     }
     
-    data class AppInfo(
+    data class SpeedtestInfo(
         val installed: Boolean,
         val versionName: String?,
         val versionCode: Int?,
@@ -21,12 +21,12 @@ class UnityDetector(private val context: Context) {
         val lastForegroundSeconds: Int?
     )
     
-    fun detectApp(packageName: String): AppInfo {
+    fun detectSpeedtest(packageName: String): SpeedtestInfo {
         val installed = isPackageInstalled(packageName)
         
         if (!installed) {
             Log.w(TAG, "Package $packageName NOT found by isPackageInstalled()")
-            return AppInfo(false, null, null, false, null)
+            return SpeedtestInfo(false, null, null, false, null)
         }
         
         Log.i(TAG, "Package $packageName found successfully")
@@ -34,7 +34,7 @@ class UnityDetector(private val context: Context) {
         val lastForegroundSeconds = getLastForegroundTime(packageName)
         val hasNotification = lastForegroundSeconds != null && lastForegroundSeconds < 300
         
-        return AppInfo(
+        return SpeedtestInfo(
             installed = true,
             versionName = versionName,
             versionCode = versionCode,
@@ -142,4 +142,3 @@ class UnityDetector(private val context: Context) {
         }
     }
 }
-
