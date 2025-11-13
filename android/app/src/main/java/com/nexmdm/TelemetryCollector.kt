@@ -125,11 +125,11 @@ class TelemetryCollector(
                 ?: return null
             
             val now = System.currentTimeMillis()
-            val oneHourAgo = now - (60 * 60 * 1000)
+            val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000)
             
             val stats = usageStatsManager.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
-                oneHourAgo,
+                twentyFourHoursAgo,
                 now
             )
             

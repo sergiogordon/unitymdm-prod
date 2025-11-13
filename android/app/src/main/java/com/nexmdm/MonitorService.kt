@@ -43,7 +43,7 @@ class MonitorService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var prefs: SecurePreferences
     private lateinit var telemetry: TelemetryCollector
-    private lateinit var speedtestDetector: SpeedtestDetector
+    private lateinit var unityDetector: UnityDetector
     private lateinit var queueManager: QueueManager
     private lateinit var networkMonitor: NetworkMonitor
     private lateinit var powerMonitor: PowerManagementMonitor
@@ -82,7 +82,7 @@ class MonitorService : Service() {
         networkMonitor.start()
         
         telemetry = TelemetryCollector(this, powerMonitor, networkMonitor, queueManager)
-        speedtestDetector = SpeedtestDetector(this)
+        unityDetector = UnityDetector(this)
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         
         acquireWakeLock()
@@ -208,8 +208,8 @@ class MonitorService : Service() {
     }
 
     private suspend fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
-        val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
-        val unityInfo = speedtestDetector.detectSpeedtest("com.unitynetwork.unityapp")
+        val speedtestAppInfo = unityDetector.detectApp(prefs.speedtestPackage)
+        val unityAppInfo = unityDetector.detectApp("com.unitynetwork.unityapp")
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
@@ -217,14 +217,14 @@ class MonitorService : Service() {
         
         val appVersionsMap = mutableMapOf<String, AppVersion>()
         appVersionsMap[prefs.speedtestPackage] = AppVersion(
-            installed = speedtestInfo.installed,
-            version_name = speedtestInfo.versionName,
-            version_code = speedtestInfo.versionCode?.toLong() ?: 0L
+            installed = speedtestAppInfo.installed,
+            version_name = speedtestAppInfo.versionName,
+            version_code = speedtestAppInfo.versionCode?.toLong() ?: 0L
         )
         appVersionsMap["com.unitynetwork.unityapp"] = AppVersion(
-            installed = unityInfo.installed,
-            version_name = unityInfo.versionName,
-            version_code = unityInfo.versionCode?.toLong() ?: 0L
+            installed = unityAppInfo.installed,
+            version_name = unityAppInfo.versionName,
+            version_code = unityAppInfo.versionCode?.toLong() ?: 0L
         )
         
         return HeartbeatPayload(
@@ -234,8 +234,8 @@ class MonitorService : Service() {
             timestamp_utc = java.time.Instant.now().toString(),
             app_versions = appVersionsMap,
             speedtest_running_signals = SpeedtestRunningSignals(
-                has_service_notification = speedtestInfo.hasNotification,
-                foreground_recent_seconds = speedtestInfo.lastForegroundSeconds ?: -1
+                has_service_notification = speedtestAppInfo.hasNotification,
+                foreground_recent_seconds = speedtestAppInfo.lastForegroundSeconds ?: -1
             ),
             battery = telemetry.getBatteryInfo().asMap(),
             system = telemetry.getSystemInfo().asMap(),
