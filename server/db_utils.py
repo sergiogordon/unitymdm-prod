@@ -95,6 +95,8 @@ def record_heartbeat_with_bucketing(
     Dual-writes to both device_heartbeats (partitioned) and device_last_status (fast read).
     Multiple heartbeats within the same bucket window are deduplicated.
     
+    PERFORMANCE OPTIMIZED: Uses INSERT...ON CONFLICT for dedup check + insert in one query.
+    
     Args:
         db: Database session
         device_id: Device identifier
@@ -102,11 +104,11 @@ def record_heartbeat_with_bucketing(
         bucket_seconds: Time bucket size in seconds (default: 10)
         
     Returns:
-        dict with 'created' (bool), 'heartbeat' (record), and 'last_status_updated' (bool) keys
+        dict with 'created' (bool) and 'last_status_updated' (bool) keys
     """
     from models import DeviceHeartbeat, DeviceLastStatus
-    from sqlalchemy import insert
     from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from sqlalchemy import text
     
     start = datetime.now(timezone.utc)
     ts = datetime.now(timezone.utc)
@@ -115,32 +117,46 @@ def record_heartbeat_with_bucketing(
     bucket_ts = ts.replace(second=(ts.second // bucket_seconds) * bucket_seconds, 
                            microsecond=0)
     
-    # Check for existing heartbeat in this bucket
-    existing = db.query(DeviceHeartbeat).filter(
-        DeviceHeartbeat.device_id == device_id,
-        DeviceHeartbeat.ts >= bucket_ts,
-        DeviceHeartbeat.ts < bucket_ts + timedelta(seconds=bucket_seconds)
-    ).first()
+    # OPTIMIZATION: Use raw SQL with INSERT...ON CONFLICT for atomic dedup + insert
+    # This is much faster than checking first then inserting
+    heartbeat_insert_sql = text("""
+        INSERT INTO device_heartbeats 
+        (device_id, ts, ip, status, battery_pct, plugged, temp_c, network_type, 
+         signal_dbm, uptime_s, ram_used_mb, unity_pkg_version, unity_running, agent_version)
+        SELECT :device_id, :ts, :ip, :status, :battery_pct, :plugged, :temp_c, :network_type,
+               :signal_dbm, :uptime_s, :ram_used_mb, :unity_pkg_version, :unity_running, :agent_version
+        WHERE NOT EXISTS (
+            SELECT 1 FROM device_heartbeats 
+            WHERE device_id = :device_id 
+            AND ts >= :bucket_start 
+            AND ts < :bucket_end
+        )
+        RETURNING hb_id
+    """)
     
-    if existing:
-        latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
-        log_db_operation('dedup_hit', 'device_heartbeats', 
-                         {'device_id': device_id, 'bucket': str(bucket_ts)}, 
-                         latency_ms)
-        return {'created': False, 'heartbeat': existing, 'last_status_updated': False}
+    result = db.execute(heartbeat_insert_sql, {
+        'device_id': device_id,
+        'ts': ts,
+        'ip': heartbeat_data.get('ip'),
+        'status': heartbeat_data.get('status', 'ok'),
+        'battery_pct': heartbeat_data.get('battery_pct'),
+        'plugged': heartbeat_data.get('plugged'),
+        'temp_c': heartbeat_data.get('temp_c'),
+        'network_type': heartbeat_data.get('network_type'),
+        'signal_dbm': heartbeat_data.get('signal_dbm'),
+        'uptime_s': heartbeat_data.get('uptime_s'),
+        'ram_used_mb': heartbeat_data.get('ram_used_mb'),
+        'unity_pkg_version': heartbeat_data.get('unity_pkg_version'),
+        'unity_running': heartbeat_data.get('unity_running'),
+        'agent_version': heartbeat_data.get('agent_version'),
+        'bucket_start': bucket_ts,
+        'bucket_end': bucket_ts + timedelta(seconds=bucket_seconds)
+    })
     
-    # Create new heartbeat
-    heartbeat = DeviceHeartbeat(
-        device_id=device_id,
-        ts=ts,
-        status=heartbeat_data.get('status', 'ok'),
-        **{k: v for k, v in heartbeat_data.items() if k != 'status'}
-    )
+    # Check if a row was inserted (RETURNING clause returns hb_id if inserted)
+    created = result.fetchone() is not None
     
-    db.add(heartbeat)
-    
-    # DUAL WRITE: Upsert to device_last_status for O(1) reads
-    # Extract key metrics for fast read table
+    # DUAL WRITE: Always upsert to device_last_status for O(1) reads (even if heartbeat was deduped)
     last_status_data = {
         'device_id': device_id,
         'last_ts': ts,
@@ -170,14 +186,17 @@ def record_heartbeat_with_bucketing(
     )
     db.execute(stmt)
     
-    db.commit()
-    db.refresh(heartbeat)
-    
     latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
-    log_db_operation('create', 'device_heartbeats', 
-                     {'device_id': device_id}, latency_ms)
     
-    return {'created': True, 'heartbeat': heartbeat, 'last_status_updated': True}
+    if created:
+        log_db_operation('create', 'device_heartbeats', 
+                         {'device_id': device_id}, latency_ms)
+    else:
+        log_db_operation('dedup_hit', 'device_heartbeats', 
+                         {'device_id': device_id, 'bucket': str(bucket_ts)}, 
+                         latency_ms)
+    
+    return {'created': created, 'last_status_updated': True}
 
 
 def record_apk_download(

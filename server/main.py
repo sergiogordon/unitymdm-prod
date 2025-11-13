@@ -1694,6 +1694,9 @@ async def heartbeat(
     # Parse previous status for comparison
     prev_status = json.loads(device.last_status) if device.last_status else {}
     
+    # PERFORMANCE OPTIMIZATION: Use async event queue instead of synchronous logging
+    from background_tasks import background_tasks
+    
     # Check for status changes (online/offline)
     was_offline = False
     offline_seconds = 0
@@ -1703,7 +1706,8 @@ async def heartbeat(
         was_offline = offline_seconds > heartbeat_interval * 2
     
     if was_offline:
-        log_device_event(db, device.id, "status_change", {
+        # Async event logging - doesn't block the response
+        background_tasks.event_queue.enqueue(device.id, "status_change", {
             "from": "offline",
             "to": "online",
             "offline_duration_seconds": int(offline_seconds)
@@ -1714,15 +1718,15 @@ async def heartbeat(
     new_battery = payload.battery.pct if payload.battery else None
     if prev_battery is not None and new_battery is not None:
         if prev_battery >= 20 and new_battery < 20:
-            log_device_event(db, device.id, "battery_low", {"level": new_battery})
+            background_tasks.event_queue.enqueue(device.id, "battery_low", {"level": new_battery})
         elif prev_battery >= 15 and new_battery < 15:
-            log_device_event(db, device.id, "battery_critical", {"level": new_battery})
+            background_tasks.event_queue.enqueue(device.id, "battery_critical", {"level": new_battery})
     
     # Check for network changes
     prev_network = prev_status.get("network", {}).get("transport")
     new_network = payload.network.transport if payload.network else None
     if prev_network and new_network and prev_network != new_network:
-        log_device_event(db, device.id, "network_change", {
+        background_tasks.event_queue.enqueue(device.id, "network_change", {
             "from": prev_network,
             "to": new_network,
             "ssid": payload.network.ssid if new_network == "wifi" else None,
@@ -1800,7 +1804,8 @@ async def heartbeat(
             device.last_ping_response = datetime.now(timezone.utc)
             latency_ms = int((device.last_ping_response - ensure_utc(device.last_ping_sent)).total_seconds() * 1000)
             print(f"[FCM-PING] ✓ Response from {device.alias}: {latency_ms}ms latency")
-            log_device_event(db, device.id, "ping_response", {"latency_ms": latency_ms})
+            # Async event logging
+            background_tasks.event_queue.enqueue(device.id, "ping_response", {"latency_ms": latency_ms})
             # Clear ping state after successful response
             device.ping_request_id = None
     
