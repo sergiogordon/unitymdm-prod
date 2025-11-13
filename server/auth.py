@@ -121,43 +121,31 @@ async def get_current_user(
     """Get current user from JWT token in Authorization header"""
     token = None
     
-    # DEBUG: Log what we received
-    print(f"[AUTH DEBUG] Authorization header: {authorization[:50] if authorization else 'None'}...")
-    print(f"[AUTH DEBUG] Credentials: {credentials}")
-    
     # Try Bearer token from security scheme first
     if credentials:
         token = credentials.credentials
-        print(f"[AUTH DEBUG] Token from credentials: {token[:20] if token else 'None'}...")
     # Fallback to manual Authorization header parsing
     elif authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "")
-        print(f"[AUTH DEBUG] Token from header: {token[:20] if token else 'None'}...")
     
     if not token:
-        print("[AUTH DEBUG] No token found - raising 401")
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     # Verify and decode JWT token
     try:
         payload = verify_jwt_token(token)
-        print(f"[AUTH DEBUG] Token verified successfully, payload: {payload}")
     except Exception as e:
-        print(f"[AUTH DEBUG] Token verification failed: {e}")
         raise
         
     user_id = payload.get("user_id")
     
     if not user_id:
-        print("[AUTH DEBUG] No user_id in payload - raising 401")
         raise HTTPException(status_code=401, detail="Invalid token payload")
     
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        print(f"[AUTH DEBUG] User {user_id} not found - raising 401")
         raise HTTPException(status_code=401, detail="User not found")
     
-    print(f"[AUTH DEBUG] Authentication successful for user: {user.username}")
     return user
 
 async def get_current_user_optional(

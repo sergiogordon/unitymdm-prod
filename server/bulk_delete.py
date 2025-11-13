@@ -343,13 +343,60 @@ def bulk_delete_devices(
                 error_type=type(e).__name__
             )
             # Rollback this device's changes
-            db.rollback()
-            # Start fresh transaction for next device
-            db.begin()
+            try:
+                db.rollback()
+            except Exception as rollback_error:
+                structured_logger.log_event(
+                    "device.delete.rollback_error",
+                    level="ERROR",
+                    request_id=request_id,
+                    device_id=device_id,
+                    rollback_error=str(rollback_error)
+                )
+                # If rollback fails, try to close and recreate session state
+                try:
+                    db.close()
+                except:
+                    pass
+            
+            # Ensure transaction is in a clean state for next device
+            try:
+                if not db.is_active:
+                    db.begin()
+            except Exception as begin_error:
+                structured_logger.log_event(
+                    "device.delete.begin_error",
+                    level="ERROR",
+                    request_id=request_id,
+                    device_id=device_id,
+                    begin_error=str(begin_error)
+                )
+                # If we can't begin a new transaction, we need to abort
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Database transaction error during bulk delete: {str(begin_error)}"
+                )
+            
             skipped_count += 1
     
-    # Commit immediate deletes
-    db.commit()
+    # Commit all successful deletes
+    try:
+        db.commit()
+    except Exception as commit_error:
+        db.rollback()
+        structured_logger.log_event(
+            "device.bulk_delete.commit_error",
+            level="ERROR",
+            request_id=request_id,
+            error=str(commit_error),
+            error_type=type(commit_error).__name__,
+            deleted_count=deleted_count,
+            skipped_count=skipped_count
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to commit bulk delete: {str(commit_error)}"
+        )
     
     # Token revocation batch log
     structured_logger.log_event(

@@ -106,14 +106,15 @@ class Config:
         """Get the database URL from environment"""
         return os.getenv("DATABASE_URL", "sqlite:///./data.db")
     
-    def validate(self) -> tuple[bool, list[str]]:
+    def validate(self) -> tuple[bool, list[str], list[str]]:
         """
         Validate that required configuration is present.
         
         Returns:
-            tuple: (is_valid, list_of_errors)
+            tuple: (is_valid, list_of_errors, list_of_warnings)
         """
         errors = []
+        warnings = []
         
         # Check SERVER_URL is available
         try:
@@ -121,14 +122,55 @@ class Config:
             if not url or url == "http://localhost:5000":
                 if self.is_production:
                     errors.append("Production deployment requires REPLIT_DOMAINS or SERVER_URL to be set")
+                else:
+                    warnings.append("Using default localhost URL - set REPLIT_DEV_DOMAIN for proper development setup")
         except Exception as e:
             errors.append(f"Error getting server URL: {str(e)}")
         
-        # Check ADMIN_KEY
-        if not self.get_admin_key():
+        # Check ADMIN_KEY (required)
+        admin_key = self.get_admin_key()
+        if not admin_key:
             errors.append("ADMIN_KEY environment variable is required")
+        elif len(admin_key) < 16:
+            warnings.append("ADMIN_KEY should be at least 16 characters for security")
+        elif admin_key == "admin" or admin_key == "changeme":
+            errors.append("ADMIN_KEY must not use default/insecure values")
         
-        return (len(errors) == 0, errors)
+        # Check JWT_SECRET (required for production)
+        jwt_secret = self.get_jwt_secret()
+        if jwt_secret == "dev-secret-change-in-production":
+            if self.is_production:
+                errors.append("JWT_SECRET must be set to a secure value in production")
+            else:
+                warnings.append("Using default JWT_SECRET - set SESSION_SECRET for production")
+        elif len(jwt_secret) < 32:
+            warnings.append("JWT_SECRET should be at least 32 characters for security")
+        
+        # Check DATABASE_URL
+        db_url = self.get_database_url()
+        if db_url == "sqlite:///./data.db":
+            if self.is_production:
+                warnings.append("Using SQLite database - PostgreSQL recommended for production")
+        elif "sqlite" in db_url.lower():
+            warnings.append("SQLite database detected - PostgreSQL recommended for production scale")
+        
+        # Check for Firebase credentials (optional but recommended)
+        firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        if not firebase_json:
+            warnings.append("FIREBASE_SERVICE_ACCOUNT_JSON not set - FCM push notifications will not work")
+        else:
+            # Validate JSON format
+            try:
+                import json
+                json.loads(firebase_json)
+            except json.JSONDecodeError:
+                errors.append("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON")
+        
+        # Check for optional but recommended services
+        if not os.getenv("DISCORD_WEBHOOK_URL"):
+            warnings.append("DISCORD_WEBHOOK_URL not set - Discord alerts will not work")
+        
+        return (len(errors) == 0, errors, warnings)
     
     def print_config_summary(self):
         """Print configuration summary for debugging"""
@@ -141,9 +183,11 @@ class Config:
         print(f"Database: {self.get_database_url()}")
         
         # Validation
-        is_valid, errors = self.validate()
+        is_valid, errors, warnings = self.validate()
         if is_valid:
             print(f"Status: ✓ All required configuration present")
+            if warnings:
+                print(f"Warnings: {len(warnings)} configuration warnings")
         else:
             print(f"Status: ✗ Configuration issues detected:")
             for error in errors:

@@ -240,20 +240,55 @@ class AlertManager:
             alerts = alert_evaluator.evaluate_all_devices(db)
             
             for alert_data in alerts:
+                # Use a savepoint for each alert to allow rollback without affecting others
                 try:
+                    # Create a savepoint for this alert
+                    db.begin_nested()
+                    
                     if alert_data.get('recovery'):
                         await self._handle_recovery(db, alert_data)
                     else:
                         await self._raise_alert(db, alert_data)
+                    
+                    # Commit this alert's changes
+                    db.commit()
                 
                 except Exception as e:
+                    # Rollback this alert's transaction (savepoint)
+                    try:
+                        db.rollback()
+                    except Exception as rollback_error:
+                        structured_logger.log_event(
+                            "alert.process.rollback_error",
+                            level="ERROR",
+                            device_id=alert_data.get('device_id', 'unknown'),
+                            condition=alert_data.get('condition', 'unknown'),
+                            rollback_error=str(rollback_error)
+                        )
+                    
                     structured_logger.log_event(
                         "alert.process.error",
                         level="ERROR",
                         device_id=alert_data.get('device_id', 'unknown'),
                         condition=alert_data.get('condition', 'unknown'),
-                        error=str(e)
+                        error=str(e),
+                        error_type=type(e).__name__
                     )
+                    # Continue processing other alerts
+        
+        except Exception as e:
+            # Critical error - rollback entire batch
+            try:
+                db.rollback()
+            except:
+                pass
+            structured_logger.log_event(
+                "alert.process.critical_error",
+                level="ERROR",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise
         
         finally:
             db.close()

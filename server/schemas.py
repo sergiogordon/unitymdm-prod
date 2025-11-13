@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -40,22 +40,22 @@ class SelfHealHints(BaseModel):
     last_crash_speedtest: Optional[str] = None
 
 class HeartbeatPayload(BaseModel):
-    device_id: str
-    alias: str
-    app_version: Optional[str] = None
-    timestamp_utc: str
+    device_id: str = Field(..., min_length=1, max_length=100)
+    alias: str = Field(..., min_length=1, max_length=200)
+    app_version: Optional[str] = Field(None, max_length=50)
+    timestamp_utc: str = Field(..., max_length=50)
     app_versions: dict[str, AppVersion]
     speedtest_running_signals: SpeedtestRunningSignals
     battery: Battery
     system: SystemInfo
     memory: Memory
     network: Network
-    fcm_token: Optional[str] = None
+    fcm_token: Optional[str] = Field(None, max_length=500)
     is_ping_response: Optional[bool] = None
-    ping_request_id: Optional[str] = None
+    ping_request_id: Optional[str] = Field(None, max_length=100)
     self_heal_hints: Optional[SelfHealHints] = None
     is_device_owner: Optional[bool] = None
-    monitored_foreground_recent_s: Optional[int] = None
+    monitored_foreground_recent_s: Optional[int] = Field(None, ge=0, le=86400)  # 0 to 24 hours in seconds
 
 class HeartbeatResponse(BaseModel):
     ok: bool
@@ -85,36 +85,43 @@ class RegisterResponse(BaseModel):
     device_id: str
 
 class UserRegisterRequest(BaseModel):
-    username: str
-    password: str
-    email: Optional[str] = None
+    username: str = Field(..., min_length=3, max_length=50, pattern="^[a-zA-Z0-9_-]+$")
+    password: str = Field(..., min_length=8, max_length=200)
+    email: Optional[str] = Field(None, max_length=255)
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v):
+        if v and '@' not in v:
+            raise ValueError('Invalid email format')
+        return v
 
 class UserLoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1, max_length=200)
 
 class UpdateDeviceAliasRequest(BaseModel):
-    alias: str
+    alias: str = Field(..., min_length=1, max_length=200)
 
 class DeployApkRequest(BaseModel):
     apk_id: int
     device_ids: Optional[list[str]] = None
 
 class UpdateDeviceSettingsRequest(BaseModel):
-    monitored_package: Optional[str] = None
-    monitored_app_name: Optional[str] = None
-    monitored_threshold_min: Optional[int] = None
+    monitored_package: Optional[str] = Field(None, max_length=200)
+    monitored_app_name: Optional[str] = Field(None, max_length=200)
+    monitored_threshold_min: Optional[int] = Field(None, ge=1, le=1440)  # 1 minute to 24 hours
     monitor_enabled: Optional[bool] = None
     auto_relaunch_enabled: Optional[bool] = None
 
 class ActionResultRequest(BaseModel):
-    request_id: str
-    device_id: str
-    action: str
-    outcome: str
-    message: Optional[str] = None
+    request_id: str = Field(..., min_length=1, max_length=100)
+    device_id: str = Field(..., min_length=1, max_length=100)
+    action: str = Field(..., max_length=50)
+    outcome: str = Field(..., max_length=50)
+    message: Optional[str] = Field(None, max_length=1000)
     finished_at: datetime
 
 class UpdateAutoRelaunchDefaultsRequest(BaseModel):
     enabled: Optional[bool] = None
-    package: Optional[str] = None
+    package: Optional[str] = Field(None, max_length=200)

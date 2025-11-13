@@ -447,22 +447,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     For multipart/form-data requests, the body stream is already consumed by
     the file upload parser, so attempting to read it again causes RuntimeError.
     """
-    print(f"[VALIDATION ERROR] {request.url.path}")
+    structured_logger.log_event(
+        "validation.error",
+        level="WARN",
+        path=request.url.path,
+        method=request.method,
+        errors=exc.errors()
+    )
     
-    # Skip body logging for multipart requests to avoid stream consumption errors
-    content_type = request.headers.get("content-type", "")
-    if "multipart/form-data" in content_type:
-        print(f"[VALIDATION ERROR] Body: <multipart/form-data - skipped to prevent stream error>")
-    else:
-        try:
-            body = await request.body()
-            print(f"[VALIDATION ERROR] Body preview: {str(body[:200])}")
-        except RuntimeError as e:
-            print(f"[VALIDATION ERROR] Body: <stream consumed - {e}>")
-        except Exception as e:
-            print(f"[VALIDATION ERROR] Body: <unable to read - {e}>")
-    
-    print(f"[VALIDATION ERROR] Errors: {exc.errors()}")
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors()}
@@ -473,43 +465,12 @@ def validate_configuration():
     Validate required environment variables and configuration on startup.
     Provides helpful error messages with links to documentation.
     """
-    errors = []
-    warnings = []
+    # Use config.validate() for comprehensive validation
+    is_valid, errors, warnings = config.validate()
     
-    # Check required secrets
-    admin_key = os.getenv("ADMIN_KEY")
-    if not admin_key:
-        errors.append(
-            "❌ ADMIN_KEY is not set!\n"
-            "   Generate one with: openssl rand -base64 32\n"
-            "   See DEPLOYMENT.md for detailed instructions."
-        )
-    elif len(admin_key) < 16:
-        warnings.append(
-            "⚠️  ADMIN_KEY is too short (minimum 16 characters recommended for security)"
-        )
-    
-    # Check Firebase service account (prefer JSON secret over file for security)
-    firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    # Check Firebase service account path (legacy support)
     firebase_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
-    
-    if not firebase_json and not firebase_path:
-        errors.append(
-            "❌ Firebase credentials not configured!\n"
-            "   RECOMMENDED (secure for public forks):\n"
-            "   1. Download your Firebase service account JSON from:\n"
-            "      https://console.firebase.google.com → Project Settings → Service Accounts\n"
-            "   2. Copy the ENTIRE JSON file contents\n"
-            "   3. Create a Replit Secret named: FIREBASE_SERVICE_ACCOUNT_JSON\n"
-            "   4. Paste the JSON content as the secret value\n"
-            "\n"
-            "   ALTERNATIVE (less secure - exposes credentials on public forks):\n"
-            "   - Upload JSON file and set FIREBASE_SERVICE_ACCOUNT_PATH\n"
-            "\n"
-            "   See DEPLOYMENT.md for detailed instructions."
-        )
-    elif firebase_path and not firebase_json:
-        # Using file path - warn about security
+    if firebase_path and not os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
         if not os.path.exists(firebase_path):
             errors.append(
                 f"❌ Firebase service account file not found: {firebase_path}\n"
@@ -522,36 +483,13 @@ def validate_configuration():
                 "   This exposes credentials on public forks. Consider using\n"
                 "   FIREBASE_SERVICE_ACCOUNT_JSON secret instead for better security."
             )
-    elif firebase_json:
-        # Validate it's valid JSON
-        try:
-            json.loads(firebase_json)
-        except json.JSONDecodeError:
-            errors.append(
-                "❌ FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON!\n"
-                "   Please paste the complete contents of your Firebase service account file."
-            )
     
-    # Check SERVER_URL (helpful for enrollment)
+    # Get server URL for summary
     server_url = None
     try:
         server_url = config.server_url
-        if not server_url or server_url == "http://localhost:5000":
-            warnings.append(
-                "⚠️  SERVER_URL could not be auto-detected\n"
-                "   Set SERVER_URL manually in Secrets (e.g., https://your-app.repl.co)\n"
-                "   Or ensure REPLIT_DOMAINS (production) or REPLIT_DEV_DOMAIN (dev) are available."
-            )
-    except Exception as e:
-        warnings.append(f"⚠️  Error detecting SERVER_URL: {str(e)}")
-    
-    # Check optional Discord webhook
-    discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
-    if not discord_webhook:
-        warnings.append(
-            "ℹ️  DISCORD_WEBHOOK_URL not set - alerts will only print to console\n"
-            "   To enable Discord notifications, create a webhook and add it to Secrets."
-        )
+    except Exception:
+        pass
     
     # Print validation results
     print("\n" + "="*80)
@@ -561,7 +499,7 @@ def validate_configuration():
     if errors:
         print("\n🚨 CONFIGURATION ERRORS - Server cannot start properly:\n")
         for error in errors:
-            print(error)
+            print(f"   {error}")
         print("\n📖 For setup instructions, see: DEPLOYMENT.md")
         print("   Or visit: https://github.com/yourusername/nexmdm#quick-start")
         print("\n" + "="*80 + "\n")
@@ -570,7 +508,7 @@ def validate_configuration():
     if warnings:
         print("\n⚠️  Configuration Warnings:\n")
         for warning in warnings:
-            print(warning)
+            print(f"   {warning}")
         print()
     
     # Print success status
@@ -578,8 +516,10 @@ def validate_configuration():
     
     # Print configuration summary
     print("\n📊 Configuration Summary:")
+    admin_key = config.get_admin_key()
     print(f"   • Admin Key: {'✓ Set' if admin_key else '✗ Missing'}")
     
+    firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
     if firebase_json:
         print(f"   • Firebase: ✓ JSON Secret (secure)")
     elif firebase_path and os.path.exists(firebase_path):
@@ -588,8 +528,10 @@ def validate_configuration():
         print(f"   • Firebase: ✗ Missing")
     
     print(f"   • Server URL: {server_url if server_url else '⚠️  Not set'}")
+    discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
     print(f"   • Discord Alerts: {'✓ Enabled' if discord_webhook else 'ℹ️  Disabled (console only)'}")
-    print(f"   • Database: {os.getenv('DATABASE_URL', 'sqlite:///./data.db')[:50]}...")
+    db_url = config.get_database_url()
+    print(f"   • Database: {db_url[:50]}...")
     print("="*80 + "\n")
     
     # Print detailed config summary
@@ -651,30 +593,63 @@ def migrate_database():
     from sqlalchemy import text
     from models import engine
     
+    # Whitelist of allowed column names and types to prevent SQL injection
+    ALLOWED_COLUMNS = {
+        "app_version": "VARCHAR",
+        "model": "VARCHAR",
+        "manufacturer": "VARCHAR",
+        "android_version": "VARCHAR",
+        "sdk_int": "INTEGER",
+        "build_id": "VARCHAR",
+        "is_device_owner": "BOOLEAN",
+    }
+    
+    # Allowed SQL types for validation
+    ALLOWED_TYPES = {"VARCHAR", "INTEGER", "BOOLEAN", "TEXT", "TIMESTAMP"}
+    
     with engine.connect() as conn:
         try:
-            columns_to_add = [
-                ("app_version", "VARCHAR"),
-                ("model", "VARCHAR"),
-                ("manufacturer", "VARCHAR"),
-                ("android_version", "VARCHAR"),
-                ("sdk_int", "INTEGER"),
-                ("build_id", "VARCHAR"),
-                ("is_device_owner", "BOOLEAN"),
-            ]
-            
-            for column_name, column_type in columns_to_add:
+            for column_name, column_type in ALLOWED_COLUMNS.items():
+                # Validate against whitelist to prevent SQL injection
+                if column_name not in ALLOWED_COLUMNS:
+                    structured_logger.log_event(
+                        "migration.invalid_column",
+                        level="ERROR",
+                        column_name=column_name
+                    )
+                    continue
+                
+                if column_type not in ALLOWED_TYPES:
+                    structured_logger.log_event(
+                        "migration.invalid_type",
+                        level="ERROR",
+                        column_type=column_type,
+                        column_name=column_name
+                    )
+                    continue
+                
                 try:
-                    conn.execute(text(f"ALTER TABLE devices ADD COLUMN {column_name} {column_type}"))
+                    # Use identifier quoting for column names to prevent injection
+                    # SQLAlchemy's text() with proper escaping is safer than f-strings
+                    conn.execute(text(f'ALTER TABLE devices ADD COLUMN "{column_name}" {column_type}'))
                     conn.commit()
-                    print(f"[MIGRATION] Added column: {column_name}")
+                    structured_logger.log_event(
+                        "migration.column_added",
+                        level="INFO",
+                        column_name=column_name
+                    )
                 except Exception as e:
                     if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
                         conn.rollback()
                     else:
                         raise
         except Exception as e:
-            print(f"[MIGRATION] Error: {e}")
+            structured_logger.log_event(
+                "migration.error",
+                level="ERROR",
+                error=str(e),
+                error_type=type(e).__name__
+            )
 
 def ensure_heartbeat_partitions():
     """
@@ -1564,6 +1539,12 @@ async def register_device(
     if not alias:
         raise HTTPException(status_code=422, detail="alias is required")
     
+    # Validate alias length
+    if len(alias) > 200:
+        raise HTTPException(status_code=422, detail="alias must be 200 characters or less")
+    if len(alias) < 1:
+        raise HTTPException(status_code=422, detail="alias must be at least 1 character")
+    
     queue_start = time.time()
     
     # Acquire semaphore to limit concurrent registrations
@@ -1586,6 +1567,19 @@ async def register_device(
         )
         
         try:
+            # Check for duplicate alias using database-level locking to prevent race conditions
+            # Use SELECT FOR UPDATE to lock the row if it exists
+            from sqlalchemy import text
+            existing_device = db.query(Device).filter(
+                Device.alias == alias
+            ).with_for_update(nowait=True).first()
+            
+            if existing_device:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Device with alias '{alias}' already exists"
+                )
+            
             # Generate device token
             device_token = generate_device_token()
             token_hash = hash_token(device_token)
@@ -2173,6 +2167,13 @@ async def get_metrics(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    Get device metrics (total, online, offline, low battery counts).
+    
+    NOTE: This endpoint is exempt from rate limiting as it's a read-only
+    dashboard endpoint that's heavily cached (5 second TTL). It should never
+    be rate limited to ensure dashboard functionality.
+    """
     # Check cache first (5 second TTL)
     cache_key = make_cache_key("/v1/metrics")
     cached_result = response_cache.get(cache_key, ttl_seconds=5)
@@ -2246,6 +2247,13 @@ async def list_devices(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    List devices with pagination.
+    
+    NOTE: This endpoint is exempt from rate limiting as it's a read-only
+    dashboard endpoint that's cached (2 second TTL for first page). It should
+    never be rate limited to ensure dashboard functionality.
+    """
     # Cache first page only (2 second TTL) - most common query
     cache_key = None
     if page == 1 and limit == 25:
@@ -8652,16 +8660,12 @@ async def remote_exec_ack(
     
     body = await request.json()
     
-    print(f"[REMOTE-EXEC-ACK] Received ACK payload: {body}")
-    
     exec_id = body.get("exec_id")
     device_id = body.get("device_id")
     correlation_id = body.get("correlation_id")
     status = body.get("status")
     exit_code = body.get("exit_code")
     output = body.get("output", "")
-    
-    print(f"[REMOTE-EXEC-ACK] Parsed fields: exec_id={exec_id}, device_id={device_id}, correlation_id={correlation_id}, status={status}")
     
     if not all([exec_id, device_id, correlation_id, status]):
         missing_fields = []
@@ -8671,7 +8675,12 @@ async def remote_exec_ack(
         if not status: missing_fields.append("status")
         
         error_msg = f"Missing required fields: {', '.join(missing_fields)}"
-        print(f"[REMOTE-EXEC-ACK] ERROR: {error_msg}")
+        structured_logger.log_event(
+            "remote_exec.ack.validation_error",
+            level="WARN",
+            device_id=device_id,
+            missing_fields=missing_fields
+        )
         raise HTTPException(status_code=400, detail=error_msg)
     
     # Validate device_id matches authenticated device
@@ -8694,7 +8703,12 @@ async def remote_exec_ack(
     ).first()
     
     if not result:
-        print(f"[REMOTE-EXEC-ACK] No result found for correlation_id={correlation_id}")
+        structured_logger.log_event(
+            "remote_exec.ack.result_not_found",
+            level="WARN",
+            correlation_id=correlation_id,
+            device_id=device_id
+        )
         return {"ok": False, "error": "Result not found"}
     
     # Additional validation: verify result belongs to authenticated device
@@ -8704,33 +8718,53 @@ async def remote_exec_ack(
             detail="Correlation ID does not belong to authenticated device"
         )
     
-    result.status = status.upper()
-    result.exit_code = exit_code
-    result.output_preview = output[:2000] if output else None
-    result.error = body.get("error")
-    result.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    
-    # Use atomic SQL updates to prevent race conditions
-    from sqlalchemy import update
-    if status.upper() == "OK":
-        db.execute(
-            update(RemoteExec)
-            .where(RemoteExec.id == exec_id)
-            .values(acked_count=RemoteExec.acked_count + 1)
+    try:
+        # Update result record
+        result.status = status.upper()
+        result.exit_code = exit_code
+        result.output_preview = output[:2000] if output else None
+        result.error = body.get("error")
+        result.updated_at = datetime.now(timezone.utc)
+        
+        # Use atomic SQL updates to prevent race conditions
+        from sqlalchemy import update
+        if status.upper() == "OK":
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(acked_count=RemoteExec.acked_count + 1)
+            )
+        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(error_count=RemoteExec.error_count + 1)
+            )
+        
+        # Single commit after all operations
+        db.commit()
+        
+        structured_logger.log_event(
+            "remote_exec.ack.success",
+            level="INFO",
+            device_id=device_id,
+            exec_id=exec_id,
+            status=status.upper(),
+            exit_code=exit_code
         )
-    elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
-        db.execute(
-            update(RemoteExec)
-            .where(RemoteExec.id == exec_id)
-            .values(error_count=RemoteExec.error_count + 1)
+        
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        structured_logger.log_event(
+            "remote_exec.ack.error",
+            level="ERROR",
+            device_id=device_id,
+            exec_id=exec_id,
+            error=str(e),
+            error_type=type(e).__name__
         )
-    
-    db.commit()
-    
-    print(f"[REMOTE-EXEC-ACK] Device {device_id} → {status.upper()}, exit_code={exit_code}")
-    
-    return {"ok": True}
+        raise HTTPException(status_code=500, detail="Failed to process ACK")
 
 @app.get("/admin/cache/stats")
 async def get_apk_cache_stats(
