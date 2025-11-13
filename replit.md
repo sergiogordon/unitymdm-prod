@@ -33,7 +33,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Core Control Loop**: Secure device registration, heartbeat processing, FCM command dispatch, action result tracking, HMAC signature validation.
 - **Device Management**: Real-time heartbeat monitoring, battery/memory tracking, remote command execution, auto-relaunch, offline detection.
 - **Bulk Device Deletion**: Comprehensive hard delete system with UI, token revocation, async data purging, rate limiting, and safety modals.
-- **Alert System**: Automated alerting for offline devices, low battery, app down, and configurable service monitoring with Discord integration and optional auto-remediation.
+- **Alert System**: Automated alerting for offline devices, low battery, app down, and configurable service monitoring with Discord integration and optional auto-remediation. Offline threshold set to 20 minutes (4x heartbeat interval) with consecutive evaluation requirement (2 cycles) to prevent false alarms from temporary network delays.
 - **Service Monitoring**: Per-device configurable foreground monitoring for Android packages, triggering Discord alerts on service downtime.
 - **Security**: bcrypt hashing, HMAC SHA-256, JWT, IP-based rate limiting, audit tracking.
 - **Operational Tooling**: Load testing infrastructure, acceptance test suite, automated maintenance jobs.
