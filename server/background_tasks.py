@@ -2,6 +2,7 @@
 Background tasks for NexMDM - runs purge jobs and cleanup operations.
 """
 import asyncio
+import time
 from datetime import datetime, timezone
 from purge_jobs import purge_manager
 from bulk_delete import cleanup_expired_selections
@@ -43,9 +44,9 @@ class AsyncEventQueue:
     def get_batch(self, max_batch_size: int = 50, timeout: float = 0.1):
         """Get a batch of events from the queue."""
         events = []
-        deadline = asyncio.get_event_loop().time() + timeout
+        deadline = time.time() + timeout
         
-        while len(events) < max_batch_size and asyncio.get_event_loop().time() < deadline:
+        while len(events) < max_batch_size and time.time() < deadline:
             try:
                 event = self._queue.get_nowait()
                 events.append(event)
@@ -77,14 +78,15 @@ class BackgroundTaskManager:
         self._running = True
         structured_logger.log_event("background_tasks.started")
         
+        # TEMPORARILY DISABLED ALL WORKERS FOR DEBUGGING
         # Start purge jobs processor
-        self._purge_task = asyncio.create_task(self._run_purge_worker())
+        # self._purge_task = asyncio.create_task(self._run_purge_worker())
         
         # Start selection cleanup task
-        self._cleanup_task = asyncio.create_task(self._run_cleanup_worker())
+        # self._cleanup_task = asyncio.create_task(self._run_cleanup_worker())
         
         # Start event logging worker
-        self._event_logger_task = asyncio.create_task(self._run_event_logger_worker())
+        # self._event_logger_task = asyncio.create_task(self._run_event_logger_worker())
     
     async def stop(self):
         """Stop all background tasks."""
