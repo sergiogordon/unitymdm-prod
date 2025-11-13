@@ -44,6 +44,7 @@ from monitoring_defaults_cache import monitoring_defaults_cache
 from apk_download_service import download_apk_optimized, get_cache_statistics
 from config import config
 from response_cache import response_cache, make_cache_key
+from alert_config import alert_config
 
 # Feature flags for gradual rollout
 READ_FROM_LAST_STATUS = os.getenv("READ_FROM_LAST_STATUS", "false").lower() == "true"
@@ -1704,7 +1705,7 @@ async def heartbeat(
     offline_seconds = 0
     if device.last_seen:
         offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
-        heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "120"))
+        heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
         was_offline = offline_seconds > heartbeat_interval * 2
     
     if was_offline:
@@ -2180,7 +2181,7 @@ async def get_metrics(
     
     total_devices = db.query(func.count(Device.id)).scalar()
     
-    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "300"))
+    heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
     offline_threshold = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval * 3)
     
     # Optimized: Use device_last_status table if available for better performance
@@ -2265,7 +2266,7 @@ async def list_devices(
         device_statuses = fast_reads.get_all_device_statuses_fast(db, device_ids)
     
     result = []
-    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "300"))
+    heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
     
     for device in devices:
         # Determine online/offline status

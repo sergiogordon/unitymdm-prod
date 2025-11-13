@@ -4,7 +4,18 @@ from config import config
 
 class AlertConfig:
     def __init__(self):
-        self.ALERT_OFFLINE_MINUTES = int(os.getenv("ALERT_OFFLINE_MINUTES", "12"))
+        # Heartbeat interval in seconds (default: 120 seconds = 2 minutes)
+        self.HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "120"))
+        
+        # Alert threshold: require 2 consecutive missed heartbeats
+        # Calculated as: heartbeat_interval * 2 / 60 (convert to minutes)
+        # Default: 120 * 2 / 60 = 4 minutes
+        alert_offline_minutes_env = os.getenv("ALERT_OFFLINE_MINUTES")
+        if alert_offline_minutes_env:
+            self.ALERT_OFFLINE_MINUTES = int(alert_offline_minutes_env)
+        else:
+            self.ALERT_OFFLINE_MINUTES = int(self.HEARTBEAT_INTERVAL_SECONDS * 2 / 60)
+        
         self.ALERT_LOW_BATTERY_PCT = int(os.getenv("ALERT_LOW_BATTERY_PCT", "15"))
         self.ALERT_DEVICE_COOLDOWN_MIN = int(os.getenv("ALERT_DEVICE_COOLDOWN_MIN", "30"))
         self.ALERT_GLOBAL_CAP_PER_MIN = int(os.getenv("ALERT_GLOBAL_CAP_PER_MIN", "60"))

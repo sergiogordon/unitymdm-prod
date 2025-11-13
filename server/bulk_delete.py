@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from observability import structured_logger, metrics
 from models import Device, DeviceEvent, DeviceSelection, DeviceLastStatus, AlertState, ApkInstallation, Command, FcmDispatch
 from purge_jobs import purge_manager
+from alert_config import alert_config
 
 # Constants
 SELECTION_TTL_MINUTES = 15
@@ -49,7 +50,7 @@ def create_device_selection(
     status_filter = filter_criteria.get("status", "")
     if status_filter:
         # Status filtering based on last_seen
-        heartbeat_interval = int(filter_criteria.get("heartbeat_interval", 300))
+        heartbeat_interval = int(filter_criteria.get("heartbeat_interval", alert_config.HEARTBEAT_INTERVAL_SECONDS))
         offline_threshold = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval * 3)
         
         if status_filter == "online":

@@ -62,19 +62,40 @@ class AlertEvaluator:
         db: Session,
         device: Device
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        now = datetime.now(timezone.utc)
-        last_seen = device.last_seen
+        """
+        Evaluate if device is offline, requiring 2 consecutive missed heartbeats.
         
-        if not last_seen:
+        Alert threshold: heartbeat_interval * 2 (default: 4 minutes with 2-min interval)
+        This ensures we've missed 2 consecutive expected heartbeats before alerting.
+        """
+        now = datetime.now(timezone.utc)
+        heartbeat_interval_seconds = self.config.HEARTBEAT_INTERVAL_SECONDS
+        
+        # Get last 2 heartbeats to verify consecutive missed heartbeats
+        heartbeats = db.query(DeviceHeartbeat).filter(
+            DeviceHeartbeat.device_id == device.id
+        ).order_by(DeviceHeartbeat.ts.desc()).limit(2).all()
+        
+        if not heartbeats:
+            # No heartbeats at all - can't determine offline status
             return False, None, None
+        
+        latest_heartbeat = heartbeats[0]
+        last_seen = latest_heartbeat.ts
         
         if last_seen.tzinfo is None:
             last_seen = last_seen.replace(tzinfo=timezone.utc)
         
-        offline_threshold = timedelta(minutes=self.config.ALERT_OFFLINE_MINUTES)
+        # Calculate time since last heartbeat
         time_since_last_seen = now - last_seen
         
-        is_offline = time_since_last_seen > offline_threshold
+        # Alert threshold: require 2 consecutive missed heartbeats
+        # If time since last heartbeat > heartbeat_interval * 2, we've missed 2 consecutive expected heartbeats
+        alert_threshold_seconds = heartbeat_interval_seconds * 2
+        alert_threshold = timedelta(seconds=alert_threshold_seconds)
+        
+        # Check if we've missed 2 consecutive heartbeats
+        is_offline = time_since_last_seen > alert_threshold
         
         alert_state = self._get_alert_state(db, device.id, AlertCondition.OFFLINE)
         
@@ -88,6 +109,7 @@ class AlertEvaluator:
                     "alias": device.alias,
                     "last_seen": last_seen,
                     "minutes_offline": minutes_offline,
+                    "missed_heartbeats": int(time_since_last_seen.total_seconds() / heartbeat_interval_seconds),
                     "severity": "CRIT"
                 }
                 return True, value, context
