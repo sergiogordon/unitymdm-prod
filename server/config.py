@@ -142,7 +142,7 @@ class Config:
             if self.is_production:
                 errors.append("JWT_SECRET must be set to a secure value in production")
             else:
-                warnings.append("Using default JWT_SECRET - set SESSION_SECRET for production")
+                warnings.append("Using default JWT_SECRET - set JWT_SECRET for production")
         elif len(jwt_secret) < 32:
             warnings.append("JWT_SECRET should be at least 32 characters for security")
         
