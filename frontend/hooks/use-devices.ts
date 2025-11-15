@@ -17,9 +17,9 @@ interface Pagination {
   has_prev: boolean
 }
 
-// Client-side cache with TTL (5 seconds)
+// Client-side cache with TTL (5 minutes)
 const deviceCache = new Map<string, { data: { devices: Device[], pagination: Pagination }, timestamp: number }>()
-const CACHE_TTL = 5000 // 5 seconds
+const CACHE_TTL = 300000 // 5 minutes (300 seconds)
 
 function getCacheKey(page: number, limit: number): string {
   return `devices:${page}:${limit}`

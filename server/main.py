@@ -2179,12 +2179,12 @@ async def get_metrics(
     Get device metrics (total, online, offline, low battery counts).
     
     NOTE: This endpoint is exempt from rate limiting as it's a read-only
-    dashboard endpoint that's heavily cached (5 second TTL). It should never
+    dashboard endpoint that's heavily cached (60 second TTL). It should never
     be rate limited to ensure dashboard functionality.
     """
-    # Check cache first (5 second TTL)
+    # Check cache first (60 second TTL)
     cache_key = make_cache_key("/v1/metrics")
-    cached_result = response_cache.get(cache_key, ttl_seconds=5)
+    cached_result = response_cache.get(cache_key, ttl_seconds=60)
     if cached_result is not None:
         return cached_result
     
@@ -2244,7 +2244,7 @@ async def get_metrics(
     }
     
     # Cache the result
-    response_cache.set(cache_key, result, ttl_seconds=5)
+    response_cache.set(cache_key, result, ttl_seconds=60)
     
     return result
 
@@ -2259,14 +2259,14 @@ async def list_devices(
     List devices with pagination.
     
     NOTE: This endpoint is exempt from rate limiting as it's a read-only
-    dashboard endpoint that's cached (2 second TTL for first page). It should
+    dashboard endpoint that's cached (5 minute TTL for first page). It should
     never be rate limited to ensure dashboard functionality.
     """
-    # Cache first page only (2 second TTL) - most common query
+    # Cache first page only (5 minute TTL) - most common query
     cache_key = None
     if page == 1 and limit == 25:
         cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": 25})
-        cached_result = response_cache.get(cache_key, ttl_seconds=2)
+        cached_result = response_cache.get(cache_key, ttl_seconds=300)
         if cached_result is not None:
             return cached_result
     
@@ -2371,7 +2371,7 @@ async def list_devices(
     
     # Cache first page result
     if cache_key:
-        response_cache.set(cache_key, response, ttl_seconds=2)
+        response_cache.set(cache_key, response, ttl_seconds=300)
     
     return response
 
