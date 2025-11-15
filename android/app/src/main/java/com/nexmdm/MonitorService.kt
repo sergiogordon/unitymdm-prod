@@ -34,8 +34,8 @@ class MonitorService : Service() {
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "monitor_channel"
         private const val NOTIFICATION_ID = 1
-        private const val HEARTBEAT_INTERVAL_MS = 300_000L
-        private const val WATCHDOG_INTERVAL_MS = 600_000L
+        private const val HEARTBEAT_INTERVAL_MS = 600_000L
+        private const val WATCHDOG_INTERVAL_MS = 1_200_000L
     }
     
     private val handler = Handler(Looper.getMainLooper())

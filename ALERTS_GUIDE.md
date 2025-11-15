@@ -7,7 +7,7 @@ The MDM alert system provides real-time monitoring and notifications for critica
 ## Alert Conditions
 
 ### 1. Offline Alert (CRIT)
-- **Trigger**: No heartbeat received for >12 minutes
+- **Trigger**: No heartbeat received for >20 minutes
 - **Severity**: CRITICAL
 - **Auto-remediation**: Sends FCM ping (if enabled)
 
@@ -28,8 +28,8 @@ All settings are configured via environment variables:
 ### Alert Thresholds
 
 ```bash
-# Offline detection threshold in minutes (default: 12)
-ALERT_OFFLINE_MINUTES=12
+# Offline detection threshold in minutes (default: 20)
+ALERT_OFFLINE_MINUTES=20
 
 # Low battery percentage threshold (default: 15)
 ALERT_LOW_BATTERY_PCT=15
@@ -289,7 +289,7 @@ CREATE TABLE alert_states (
 
 ```bash
 # Production-ready configuration for 100+ devices
-ALERT_OFFLINE_MINUTES=12
+ALERT_OFFLINE_MINUTES=20
 ALERT_LOW_BATTERY_PCT=15
 ALERT_DEVICE_COOLDOWN_MIN=30
 ALERT_GLOBAL_CAP_PER_MIN=60

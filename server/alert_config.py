@@ -4,12 +4,12 @@ from config import config
 
 class AlertConfig:
     def __init__(self):
-        # Heartbeat interval in seconds (default: 120 seconds = 2 minutes)
-        self.HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "120"))
+        # Heartbeat interval in seconds (default: 600 seconds = 10 minutes)
+        self.HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "600"))
         
         # Alert threshold: require 2 consecutive missed heartbeats
         # Calculated as: heartbeat_interval * 2 / 60 (convert to minutes)
-        # Default: 120 * 2 / 60 = 4 minutes
+        # Default: 600 * 2 / 60 = 20 minutes
         alert_offline_minutes_env = os.getenv("ALERT_OFFLINE_MINUTES")
         if alert_offline_minutes_env:
             self.ALERT_OFFLINE_MINUTES = int(alert_offline_minutes_env)
