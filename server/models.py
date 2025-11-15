@@ -365,6 +365,10 @@ class AlertState(Base):
     last_recovered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     cooldown_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     
+    # Debouncing fields: track when condition first started/cleared
+    condition_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    condition_cleared_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
     consecutive_violations: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     
