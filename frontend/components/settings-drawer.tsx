@@ -34,6 +34,11 @@ interface WiFiSettings {
   updated_at: string | null
 }
 
+interface DiscordSettings {
+  enabled: boolean
+  updated_at: string | null
+}
+
 export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -73,6 +78,15 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   const [isSavingWifi, setIsSavingWifi] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
+  const [discordSettings, setDiscordSettings] = useState<DiscordSettings>({
+    enabled: true,
+    updated_at: null
+  })
+  const [discordSettingsOriginal, setDiscordSettingsOriginal] = useState<DiscordSettings | null>(null)
+  const [isSavingDiscord, setIsSavingDiscord] = useState(false)
+  const [discordSaveStatus, setDiscordSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const discordTimerRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
@@ -83,6 +97,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
       fetchMonitoringDefaults()
       fetchAutoRelaunchDefaults()
       fetchWiFiSettings()
+      fetchDiscordSettings()
     }
     return () => {
       document.removeEventListener("keydown", handleEscape)
@@ -398,8 +413,155 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
     wifiSettings.enabled !== wifiSettingsOriginal.enabled
   )
 
-  const handleSendTestAlert = () => {
-    setLastTestAlert(new Date().toLocaleString())
+  const fetchDiscordSettings = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.warn('No auth token available for Discord settings')
+        return
+      }
+      
+      const response = await fetch('/v1/settings/discord', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setDiscordSettings(data)
+        setDiscordSettingsOriginal(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch Discord settings:', error)
+    }
+  }
+
+  const handleSaveDiscordSettings = async (showToast = true) => {
+    setIsSavingDiscord(true)
+    setDiscordSaveStatus('saving')
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        setDiscordSaveStatus('idle')
+        setIsSavingDiscord(false)
+        return
+      }
+      
+      const response = await fetch('/v1/settings/discord', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(discordSettings)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setDiscordSettings(data)
+        setDiscordSettingsOriginal(data)
+        setDiscordSaveStatus('saved')
+        setTimeout(() => setDiscordSaveStatus('idle'), 2000)
+        if (showToast) {
+          toast({
+            title: "Success",
+            description: "Discord settings saved successfully"
+          })
+        }
+      } else {
+        const error = await response.json()
+        setDiscordSaveStatus('idle')
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to save Discord settings",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      setDiscordSaveStatus('idle')
+      toast({
+        title: "Error",
+        description: "Failed to save Discord settings",
+        variant: "destructive"
+      })
+    } finally {
+      setIsSavingDiscord(false)
+    }
+  }
+
+  const handleCancelDiscordSettings = () => {
+    if (discordSettingsOriginal) {
+      setDiscordSettings(discordSettingsOriginal)
+    }
+  }
+
+  const hasDiscordChanges = discordSettingsOriginal && (
+    discordSettings.enabled !== discordSettingsOriginal.enabled
+  )
+
+  useEffect(() => {
+    if (discordTimerRef.current) {
+      clearTimeout(discordTimerRef.current)
+    }
+
+    if (hasDiscordChanges) {
+      discordTimerRef.current = setTimeout(() => {
+        handleSaveDiscordSettings(false)
+      }, 1500)
+    }
+
+    return () => {
+      if (discordTimerRef.current) {
+        clearTimeout(discordTimerRef.current)
+      }
+    }
+  }, [discordSettings, hasDiscordChanges])
+
+  const handleSendTestAlert = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Not authenticated",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const response = await fetch('/v1/test-alert', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (response.ok) {
+        setLastTestAlert(new Date().toLocaleString())
+        toast({
+          title: "Success",
+          description: "Test alert sent to Discord"
+        })
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Error",
+          description: error.detail || "Failed to send test alert",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send test alert",
+        variant: "destructive"
+      })
+    }
   }
 
   const handleCopy = (text: string, item: string) => {
@@ -710,13 +872,61 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
 
             {/* Discord */}
             <section className="mb-8">
-              <h3 className="mb-4 text-sm font-semibold">Discord</h3>
-              <div className="space-y-3">
-                <Button onClick={handleSendTestAlert} className="w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold">Discord</h3>
+                {discordSaveStatus === 'saving' && (
+                  <span className="text-xs text-muted-foreground">Saving...</span>
+                )}
+                {discordSaveStatus === 'saved' && (
+                  <span className="flex items-center gap-1 text-xs text-green-600">
+                    <Check className="h-3 w-3" />
+                    Saved
+                  </span>
+                )}
+              </div>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Enable or disable Discord alert notifications. Alerts will be suppressed when disabled, even if webhook is configured.
+              </p>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm text-muted-foreground">Enable Discord Alerts</label>
+                  <button
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      discordSettings.enabled ? 'bg-primary' : 'bg-muted'
+                    }`}
+                    onClick={() => setDiscordSettings({ ...discordSettings, enabled: !discordSettings.enabled })}
+                  >
+                    <span
+                      className={`absolute top-1 h-4 w-4 rounded-full bg-background transition-transform ${
+                        discordSettings.enabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                <Button onClick={handleSendTestAlert} className="w-full" disabled={!discordSettings.enabled}>
                   Send Test Alert
                 </Button>
                 {lastTestAlert && <p className="text-xs text-muted-foreground">Last test: {lastTestAlert}</p>}
               </div>
+              {hasDiscordChanges && (
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    onClick={() => handleSaveDiscordSettings(true)}
+                    disabled={isSavingDiscord}
+                    className="flex-1"
+                  >
+                    {isSavingDiscord ? "Saving..." : "Save Now"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancelDiscordSettings}
+                    disabled={isSavingDiscord}
+                    className="flex-1"
+                  >
+                    Discard
+                  </Button>
+                </div>
+              )}
             </section>
 
             {/* Enrollment */}

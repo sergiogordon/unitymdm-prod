@@ -125,3 +125,6 @@ class ActionResultRequest(BaseModel):
 class UpdateAutoRelaunchDefaultsRequest(BaseModel):
     enabled: Optional[bool] = None
     package: Optional[str] = Field(None, max_length=200)
+
+class UpdateDiscordSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None

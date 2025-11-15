@@ -16,11 +16,12 @@ import os
 import time
 import hashlib
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
-    UpdateDeviceSettingsRequest, ActionResultRequest, UpdateAutoRelaunchDefaultsRequest
+    UpdateDeviceSettingsRequest, ActionResultRequest, UpdateAutoRelaunchDefaultsRequest,
+    UpdateDiscordSettingsRequest
 )
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
@@ -41,6 +42,7 @@ import bulk_delete
 from purge_jobs import purge_manager
 from rate_limiter import rate_limiter
 from monitoring_defaults_cache import monitoring_defaults_cache
+from discord_settings_cache import discord_settings_cache
 from apk_download_service import download_apk_optimized, get_cache_statistics
 from config import config
 from response_cache import response_cache, make_cache_key
@@ -3076,6 +3078,88 @@ async def update_auto_relaunch_defaults(
         "updated_at": defaults_record.updated_at.isoformat() + "Z"
     }
 
+@app.get("/admin/settings/discord")
+async def get_discord_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get Discord alert settings.
+    Returns enabled status for Discord alerts.
+    Defaults to enabled=True if no settings exist.
+    """
+    start_time = time.time()
+    
+    settings_record = db.query(DiscordSettings).first()
+    
+    if settings_record:
+        settings = {
+            "enabled": settings_record.enabled,
+            "updated_at": settings_record.updated_at.isoformat() + "Z"
+        }
+    else:
+        settings = {
+            "enabled": True,
+            "updated_at": None
+        }
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("discord_settings_get_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.discord.read",
+        user=current_user.username,
+        latency_ms=latency_ms
+    )
+    
+    return settings
+
+@app.patch("/admin/settings/discord")
+async def update_discord_settings(
+    request: UpdateDiscordSettingsRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update Discord alert settings.
+    Requires device_manage scope (admin user).
+    """
+    start_time = time.time()
+    
+    settings_record = db.query(DiscordSettings).first()
+    
+    if not settings_record:
+        settings_record = DiscordSettings()
+        db.add(settings_record)
+    
+    updates = {}
+    
+    if request.enabled is not None:
+        settings_record.enabled = request.enabled
+        updates["enabled"] = settings_record.enabled
+    
+    settings_record.updated_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    db.refresh(settings_record)
+    
+    discord_settings_cache.invalidate()
+    
+    latency_ms = (time.time() - start_time) * 1000
+    metrics.observe_histogram("discord_settings_update_latency_ms", latency_ms, {})
+    
+    structured_logger.log_event(
+        "settings.discord.update",
+        user=current_user.username,
+        updates=updates,
+        latency_ms=latency_ms
+    )
+    
+    return {
+        "enabled": settings_record.enabled,
+        "updated_at": settings_record.updated_at.isoformat() + "Z"
+    }
+
 @app.get("/v1/settings/wifi")
 async def get_wifi_settings(
     current_user: User = Depends(get_current_user),
@@ -3675,12 +3759,18 @@ async def update_all_devices_settings(
     }
 
 @app.post("/v1/test-alert")
-async def send_test_alert():
+async def send_test_alert(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     from discord_webhook import discord_client
     from alert_config import alert_config
     
     if not alert_config.DISCORD_WEBHOOK_URL:
         raise HTTPException(status_code=400, detail="Discord webhook not configured")
+    
+    if not discord_settings_cache.is_enabled(db):
+        raise HTTPException(status_code=400, detail="Discord alerts are disabled")
     
     success = await discord_client.send_alert(
         condition="test",

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from alert_config import alert_config
 from observability import structured_logger, metrics
+from models import SessionLocal
+from discord_settings_cache import discord_settings_cache
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +13,14 @@ class DiscordWebhookClient:
     def __init__(self):
         self.webhook_url = alert_config.DISCORD_WEBHOOK_URL
         self.timeout = 5.0
+    
+    def _is_enabled(self) -> bool:
+        """Check if Discord alerts are enabled."""
+        db = SessionLocal()
+        try:
+            return discord_settings_cache.is_enabled(db)
+        finally:
+            db.close()
     
     def _get_severity_color(self, severity: str) -> int:
         colors = {
@@ -185,6 +195,15 @@ class DiscordWebhookClient:
             )
             return False
         
+        if not self._is_enabled():
+            structured_logger.log_event(
+                "discord.webhook.disabled",
+                level="INFO",
+                device_id=device_id,
+                condition=condition
+            )
+            return False
+        
         embed = self._build_embed(
             condition=condition,
             device_id=device_id,
@@ -260,6 +279,15 @@ class DiscordWebhookClient:
         if not self.webhook_url:
             return False
         
+        if not self._is_enabled():
+            structured_logger.log_event(
+                "discord.webhook.disabled",
+                level="INFO",
+                condition=condition,
+                type="rollup"
+            )
+            return False
+        
         embed = self._build_rollup_embed(
             condition=condition,
             severity=severity,
@@ -309,6 +337,16 @@ class DiscordWebhookClient:
         alias: str
     ) -> bool:
         if not self.webhook_url:
+            return False
+        
+        if not self._is_enabled():
+            structured_logger.log_event(
+                "discord.webhook.disabled",
+                level="INFO",
+                device_id=device_id,
+                condition=condition,
+                type="recovery"
+            )
             return False
         
         embed = {
