@@ -17,6 +17,87 @@ class AlertEvaluator:
     def __init__(self):
         self.config = alert_config
     
+    def _check_min_duration_met(
+        self,
+        alert_state: Optional[AlertState],
+        started_at_field: str,
+        min_duration_minutes: int
+    ) -> Tuple[bool, Optional[datetime]]:
+        """
+        Check if minimum duration has passed since condition started.
+        Returns (met, started_at_datetime)
+        """
+        now = datetime.now(timezone.utc)
+        
+        if not alert_state:
+            return False, None
+        
+        started_at = getattr(alert_state, started_at_field, None)
+        if not started_at:
+            return False, None
+        
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        
+        duration_minutes = (now - started_at).total_seconds() / 60
+        return duration_minutes >= min_duration_minutes, started_at
+    
+    def _update_condition_started_at(
+        self,
+        db: Session,
+        alert_state: Optional[AlertState],
+        device_id: str,
+        condition: str
+    ) -> AlertState:
+        """Update or set condition_started_at timestamp."""
+        if not alert_state:
+            alert_state = self._get_alert_state(db, device_id, condition)
+        
+        if not alert_state:
+            alert_state = AlertState(
+                device_id=device_id,
+                condition=condition,
+                state='ok',
+                condition_started_at=datetime.now(timezone.utc)
+            )
+            db.add(alert_state)
+        elif not alert_state.condition_started_at:
+            alert_state.condition_started_at = datetime.now(timezone.utc)
+        
+        # Clear cleared_at when condition starts again
+        alert_state.condition_cleared_at = None
+        db.commit()
+        db.refresh(alert_state)
+        return alert_state
+    
+    def _update_condition_cleared_at(
+        self,
+        db: Session,
+        alert_state: Optional[AlertState],
+        device_id: str,
+        condition: str
+    ) -> AlertState:
+        """Update or set condition_cleared_at timestamp."""
+        if not alert_state:
+            alert_state = self._get_alert_state(db, device_id, condition)
+        
+        if not alert_state:
+            alert_state = AlertState(
+                device_id=device_id,
+                condition=condition,
+                state='ok',
+                condition_cleared_at=datetime.now(timezone.utc)
+            )
+            db.add(alert_state)
+        elif not alert_state.condition_cleared_at:
+            alert_state.condition_cleared_at = datetime.now(timezone.utc)
+        
+        # Clear started_at when condition clears
+        alert_state.condition_started_at = None
+        db.commit()
+        db.refresh(alert_state)
+        return alert_state
+    
     def _get_latest_heartbeat(self, db: Session, device_id: str) -> Optional[DeviceHeartbeat]:
         return db.query(DeviceHeartbeat).filter(
             DeviceHeartbeat.device_id == device_id
@@ -100,10 +181,23 @@ class AlertEvaluator:
         alert_state = self._get_alert_state(db, device.id, AlertCondition.OFFLINE)
         
         if is_offline:
+            # Track when condition started
+            alert_state = self._update_condition_started_at(
+                db, alert_state, device.id, AlertCondition.OFFLINE
+            )
+            
+            # Check if minimum duration has passed
+            min_duration_met, _ = self._check_min_duration_met(
+                alert_state,
+                'condition_started_at',
+                self.config.ALERT_MIN_DURATION_BEFORE_ALERT_MIN
+            )
+            
             minutes_offline = int(time_since_last_seen.total_seconds() / 60)
             value = f"{minutes_offline}m"
             
-            if not alert_state or alert_state.state != "raised":
+            # Only alert if condition has persisted for minimum duration
+            if min_duration_met and (not alert_state or alert_state.state != "raised"):
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -115,13 +209,27 @@ class AlertEvaluator:
                 return True, value, context
         
         else:
+            # Device is online - track when condition cleared
             if alert_state and alert_state.state == "raised":
-                context = {
-                    "device_id": device.id,
-                    "alias": device.alias,
-                    "recovered": True
-                }
-                return False, None, context
+                alert_state = self._update_condition_cleared_at(
+                    db, alert_state, device.id, AlertCondition.OFFLINE
+                )
+                
+                # Check if minimum duration has passed since clearing
+                min_duration_met, _ = self._check_min_duration_met(
+                    alert_state,
+                    'condition_cleared_at',
+                    self.config.ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN
+                )
+                
+                # Only recover if condition has been clear for minimum duration
+                if min_duration_met:
+                    context = {
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "recovered": True
+                    }
+                    return False, None, context
         
         return False, None, None
     
@@ -140,9 +248,22 @@ class AlertEvaluator:
         alert_state = self._get_alert_state(db, device.id, AlertCondition.LOW_BATTERY)
         
         if is_low:
+            # Track when condition started
+            alert_state = self._update_condition_started_at(
+                db, alert_state, device.id, AlertCondition.LOW_BATTERY
+            )
+            
+            # Check if minimum duration has passed
+            min_duration_met, _ = self._check_min_duration_met(
+                alert_state,
+                'condition_started_at',
+                self.config.ALERT_MIN_DURATION_BEFORE_ALERT_MIN
+            )
+            
             value = f"{heartbeat.battery_pct}%"
             
-            if not alert_state or alert_state.state != "raised":
+            # Only alert if condition has persisted for minimum duration
+            if min_duration_met and (not alert_state or alert_state.state != "raised"):
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -155,14 +276,28 @@ class AlertEvaluator:
                 return True, value, context
         
         else:
+            # Battery is above threshold - track when condition cleared
             if alert_state and alert_state.state == "raised":
-                context = {
-                    "device_id": device.id,
-                    "alias": device.alias,
-                    "battery_pct": heartbeat.battery_pct,
-                    "recovered": True
-                }
-                return False, None, context
+                alert_state = self._update_condition_cleared_at(
+                    db, alert_state, device.id, AlertCondition.LOW_BATTERY
+                )
+                
+                # Check if minimum duration has passed since clearing
+                min_duration_met, _ = self._check_min_duration_met(
+                    alert_state,
+                    'condition_cleared_at',
+                    self.config.ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN
+                )
+                
+                # Only recover if condition has been clear for minimum duration
+                if min_duration_met:
+                    context = {
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "battery_pct": heartbeat.battery_pct,
+                        "recovered": True
+                    }
+                    return False, None, context
         
         return False, None, None
     
@@ -191,10 +326,23 @@ class AlertEvaluator:
         alert_state = self._get_alert_state(db, device.id, AlertCondition.UNITY_DOWN)
         
         if is_down:
+            # Track when condition started
+            alert_state = self._update_condition_started_at(
+                db, alert_state, device.id, AlertCondition.UNITY_DOWN
+            )
+            
+            # Check if minimum duration has passed
+            min_duration_met, _ = self._check_min_duration_met(
+                alert_state,
+                'condition_started_at',
+                self.config.ALERT_MIN_DURATION_BEFORE_ALERT_MIN
+            )
+            
             latest_hb = self._get_latest_heartbeat(db, device.id)
             value = "down"
             
-            if not alert_state or alert_state.state != "raised":
+            # Only alert if condition has persisted for minimum duration
+            if min_duration_met and (not alert_state or alert_state.state != "raised"):
                 alert_state_obj = self._create_or_update_alert_state(
                     db, device.id, AlertCondition.UNITY_DOWN, "raised", value
                 )
@@ -221,20 +369,34 @@ class AlertEvaluator:
                 return True, value, context
         
         else:
+            # Unity is running - track when condition cleared
             if alert_state and alert_state.state == "raised":
-                latest_hb = self._get_latest_heartbeat(db, device.id)
+                alert_state = self._update_condition_cleared_at(
+                    db, alert_state, device.id, AlertCondition.UNITY_DOWN
+                )
                 
-                self_healed = alert_state.consecutive_violations > 0
+                # Check if minimum duration has passed since clearing
+                min_duration_met, _ = self._check_min_duration_met(
+                    alert_state,
+                    'condition_cleared_at',
+                    self.config.ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN
+                )
                 
-                context = {
-                    "device_id": device.id,
-                    "alias": device.alias,
-                    "unity_running": True,
-                    "unity_version": latest_hb.unity_pkg_version if latest_hb else None,
-                    "recovered": True,
-                    "self_healed": self_healed
-                }
-                return False, None, context
+                # Only recover if condition has been clear for minimum duration
+                if min_duration_met:
+                    latest_hb = self._get_latest_heartbeat(db, device.id)
+                    
+                    self_healed = alert_state.consecutive_violations > 0
+                    
+                    context = {
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "unity_running": True,
+                        "unity_version": latest_hb.unity_pkg_version if latest_hb else None,
+                        "recovered": True,
+                        "self_healed": self_healed
+                    }
+                    return False, None, context
         
         return False, None, None
     
@@ -270,41 +432,90 @@ class AlertEvaluator:
             return False, None, None
         
         alert_state = self._get_alert_state(db, device.id, AlertCondition.SERVICE_DOWN)
+        threshold_minutes = monitoring_settings["threshold_min"]
+        threshold_seconds = threshold_minutes * 60
+        
+        # Hysteresis: recovery threshold is lower than alert threshold
+        recovery_threshold_seconds = int(threshold_seconds * self.config.ALERT_RECOVERY_THRESHOLD_MULTIPLIER)
+        recovery_threshold_minutes = recovery_threshold_seconds / 60
         
         if not service_up:
-            # Service is DOWN
-            value = f"{int(foreground_recent_s)}s" if foreground_recent_s else "unknown"
+            # Service is DOWN - check against alert threshold
+            is_below_alert_threshold = foreground_recent_s and foreground_recent_s > threshold_seconds
             
-            if not alert_state or alert_state.state != "raised":
-                self._create_or_update_alert_state(
-                    db, device.id, AlertCondition.SERVICE_DOWN, "raised", value
+            if is_below_alert_threshold:
+                # Track when condition started
+                alert_state = self._update_condition_started_at(
+                    db, alert_state, device.id, AlertCondition.SERVICE_DOWN
                 )
                 
-                context = {
-                    "device_id": device.id,
-                    "alias": device.alias,
-                    "monitored_package": monitoring_settings["package"],
-                    "monitored_app_name": monitoring_settings["alias"],
-                    "foreground_recent_s": foreground_recent_s,
-                    "threshold_min": monitoring_settings["threshold_min"],
-                    "last_seen": device.last_seen,
-                    "severity": "CRIT",
-                    "requires_remediation": False
-                }
-                return True, value, context
+                # Check if minimum duration has passed
+                min_duration_met, _ = self._check_min_duration_met(
+                    alert_state,
+                    'condition_started_at',
+                    self.config.ALERT_MIN_DURATION_BEFORE_ALERT_MIN
+                )
+                
+                value = f"{int(foreground_recent_s)}s" if foreground_recent_s else "unknown"
+                
+                # Only alert if condition has persisted for minimum duration
+                if min_duration_met and (not alert_state or alert_state.state != "raised"):
+                    self._create_or_update_alert_state(
+                        db, device.id, AlertCondition.SERVICE_DOWN, "raised", value
+                    )
+                    
+                    context = {
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "monitored_package": monitoring_settings["package"],
+                        "monitored_app_name": monitoring_settings["alias"],
+                        "foreground_recent_s": foreground_recent_s,
+                        "threshold_min": threshold_minutes,
+                        "last_seen": device.last_seen,
+                        "severity": "CRIT",
+                        "requires_remediation": False
+                    }
+                    return True, value, context
+            else:
+                # Service is down but below alert threshold - clear started_at if set
+                if alert_state and alert_state.condition_started_at:
+                    alert_state.condition_started_at = None
+                    db.commit()
         else:
-            # Service is UP
+            # Service is UP - check against recovery threshold (hysteresis)
+            is_above_recovery_threshold = foreground_recent_s and foreground_recent_s <= recovery_threshold_seconds
+            
             if alert_state and alert_state.state == "raised":
-                context = {
-                    "device_id": device.id,
-                    "alias": device.alias,
-                    "monitored_package": monitoring_settings["package"],
-                    "monitored_app_name": monitoring_settings["alias"],
-                    "foreground_recent_s": foreground_recent_s,
-                    "recovered": True,
-                    "self_healed": False
-                }
-                return False, None, context
+                if is_above_recovery_threshold:
+                    # Service is above recovery threshold - track when condition cleared
+                    alert_state = self._update_condition_cleared_at(
+                        db, alert_state, device.id, AlertCondition.SERVICE_DOWN
+                    )
+                    
+                    # Check if minimum duration has passed since clearing
+                    min_duration_met, _ = self._check_min_duration_met(
+                        alert_state,
+                        'condition_cleared_at',
+                        self.config.ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN
+                    )
+                    
+                    # Only recover if condition has been clear for minimum duration
+                    if min_duration_met:
+                        context = {
+                            "device_id": device.id,
+                            "alias": device.alias,
+                            "monitored_package": monitoring_settings["package"],
+                            "monitored_app_name": monitoring_settings["alias"],
+                            "foreground_recent_s": foreground_recent_s,
+                            "recovered": True,
+                            "self_healed": False
+                        }
+                        return False, None, context
+                else:
+                    # Service is up but still below recovery threshold - clear cleared_at if set
+                    if alert_state.condition_cleared_at:
+                        alert_state.condition_cleared_at = None
+                        db.commit()
         
         return False, None, None
     

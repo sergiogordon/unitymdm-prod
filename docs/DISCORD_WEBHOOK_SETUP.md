@@ -201,17 +201,30 @@ Once frontend is implemented:
    grep "monitoring.evaluate" /tmp/logs/backend_*.log
    ```
 
-### Too many alerts
+### Too many alerts / Alert flapping
 
-1. **Increase cooldown period:**
+1. **Increase debouncing duration:**
+   ```bash
+   ALERT_MIN_DURATION_BEFORE_ALERT_MIN=5  # Wait 5 minutes before alerting
+   ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN=5  # Wait 5 minutes before recovering
+   ```
+
+2. **Increase cooldown period:**
    ```bash
    ALERT_DEVICE_COOLDOWN_MIN=60  # 1 hour
    ```
 
-2. **Adjust threshold:**
+3. **Adjust hysteresis (recovery threshold):**
+   ```bash
+   # Lower multiplier = recover sooner (default: 0.8)
+   # Higher multiplier = recover later (e.g., 0.9 = recover at 90% of alert threshold)
+   ALERT_RECOVERY_THRESHOLD_MULTIPLIER=0.9
+   ```
+
+4. **Adjust threshold:**
    - Increase `monitored_threshold_min` from 10 to 20 or 30 minutes
 
-3. **Disable alerts for specific devices:**
+5. **Disable alerts for specific devices:**
    ```bash
    curl -X PATCH https://your-replit-url/admin/devices/{device_id}/monitoring \
      -d '{"monitor_enabled": false}'

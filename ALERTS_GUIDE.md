@@ -51,6 +51,25 @@ ALERT_GLOBAL_CAP_PER_MIN=60
 ALERT_ROLLUP_THRESHOLD=10
 ```
 
+### Debouncing & Hysteresis (Prevents Alert Flapping)
+
+```bash
+# Minimum duration condition must persist before alerting (default: 3 minutes)
+ALERT_MIN_DURATION_BEFORE_ALERT_MIN=3
+
+# Minimum duration condition must be clear before recovery (default: 3 minutes)
+ALERT_MIN_DURATION_BEFORE_RECOVERY_MIN=3
+
+# Recovery threshold multiplier for hysteresis (default: 0.8 = 80% of alert threshold)
+# Example: Alert at 10 min, recover at 8 min (0.8 * 10)
+ALERT_RECOVERY_THRESHOLD_MULTIPLIER=0.8
+```
+
+**How it works:**
+- **Debouncing**: Conditions must persist for minimum duration before alerting/recovering
+- **Hysteresis**: Recovery threshold is lower than alert threshold (prevents rapid flapping)
+- **Example**: Service down alert at 10 min threshold, recovery at 8 min threshold
+
 ### Auto-Remediation
 
 ```bash
