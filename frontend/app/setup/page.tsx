@@ -41,7 +41,7 @@ interface SetupStatus {
   ready: boolean
 }
 
-const BACKEND_URL = typeof window !== 'undefined' ? '/api/proxy' : 'http://localhost:8000'
+const BACKEND_URL = '/api/proxy'
 
 export default function SetupPage() {
   const router = useRouter()
@@ -318,7 +318,10 @@ export default function SetupPage() {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {steps[currentStep].icon && <steps[currentStep].icon className="h-5 w-5" />}
+              {(() => {
+                const Icon = steps[currentStep].icon
+                return Icon && <Icon className="h-5 w-5" />
+              })()}
               {steps[currentStep].title}
             </CardTitle>
           </CardHeader>

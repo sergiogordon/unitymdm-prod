@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Moon, Sun, LogIn } from "lucide-react"
+import { Moon, Sun, LogIn, Loader2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,21 +12,49 @@ import { useAuth } from "@/lib/auth"
 import { ForgotPasswordModal } from "@/components/forgot-password-modal"
 import { useTheme } from "@/contexts/ThemeContext"
 
+const BACKEND_URL = '/api/proxy'
+
 export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
+  const [checkingSetup, setCheckingSetup] = useState(true)
   const router = useRouter()
   const { login, isAuthenticated } = useAuth()
   const { isDark, toggleTheme } = useTheme()
 
+  // Check setup status before allowing login
+  useEffect(() => {
+    const checkSetup = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/setup/status`)
+        if (response.ok) {
+          const status = await response.json()
+          if (!status.ready) {
+            // Setup not complete, redirect to setup wizard
+            router.push('/setup')
+            return
+          }
+        }
+        // Setup is complete or check failed - allow login page to render
+        setCheckingSetup(false)
+      } catch (error) {
+        // If backend is unreachable, assume setup needed
+        console.error('Setup check failed:', error)
+        router.push('/setup')
+      }
+    }
+
+    checkSetup()
+  }, [router])
+
   // Only redirect if we're actually on the login page and user is authenticated
   useEffect(() => {
-    if (isAuthenticated && typeof window !== 'undefined' && window.location.pathname === '/login') {
+    if (!checkingSetup && isAuthenticated && typeof window !== 'undefined' && window.location.pathname === '/login') {
       router.push('/')
     }
-  }, [isAuthenticated, router])
+  }, [isAuthenticated, router, checkingSetup])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -47,6 +75,17 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Checking configuration...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

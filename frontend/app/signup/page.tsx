@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Moon, Sun, UserPlus } from "lucide-react"
+import { Moon, Sun, UserPlus, Loader2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,20 +12,48 @@ import { signup, isAuthenticated } from "@/lib/api-client"
 import { useTheme } from "@/contexts/ThemeContext"
 import Link from "next/link"
 
+const BACKEND_URL = '/api/proxy'
+
 export default function SignupPage() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [checkingSetup, setCheckingSetup] = useState(true)
   const router = useRouter()
   const { isDark, toggleTheme } = useTheme()
 
+  // Check setup status before allowing signup
   useEffect(() => {
-    if (isAuthenticated() && typeof window !== 'undefined' && window.location.pathname === '/signup') {
+    const checkSetup = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/setup/status`)
+        if (response.ok) {
+          const status = await response.json()
+          if (!status.ready) {
+            // Setup not complete, redirect to setup wizard
+            router.push('/setup')
+            return
+          }
+        }
+        // Setup is complete or check failed - allow signup page to render
+        setCheckingSetup(false)
+      } catch (error) {
+        // If backend is unreachable, assume setup needed
+        console.error('Setup check failed:', error)
+        router.push('/setup')
+      }
+    }
+
+    checkSetup()
+  }, [router])
+
+  useEffect(() => {
+    if (!checkingSetup && isAuthenticated() && typeof window !== 'undefined' && window.location.pathname === '/signup') {
       router.push('/')
     }
-  }, [router])
+  }, [router, checkingSetup])
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,6 +100,17 @@ export default function SignupPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Checking configuration...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

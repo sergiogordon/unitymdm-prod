@@ -19,9 +19,10 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Skip check if already checked in this session
+    // Only skip check if setup is confirmed complete (ready === true)
+    // Don't skip if we haven't checked yet or if setup was incomplete
     const setupChecked = sessionStorage.getItem('setup_checked')
-    if (setupChecked === 'true') {
+    if (setupChecked === 'ready') {
       setChecking(false)
       return
     }
@@ -34,22 +35,43 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
           const status = await response.json()
           if (!status.ready) {
             // Setup not complete, redirect to setup wizard
-            sessionStorage.setItem('setup_checked', 'true')
+            // Clear any cached check status to allow re-checking
+            sessionStorage.removeItem('setup_checked')
             setSetupRequired(true)
             router.push('/setup')
+            return
+          } else {
+            // Setup is complete, cache this result
+            sessionStorage.setItem('setup_checked', 'ready')
+            setChecking(false)
             return
           }
         }
         
-        // Setup is complete or check failed (assume OK to avoid redirect loops)
-        sessionStorage.setItem('setup_checked', 'true')
+        // If response not OK, assume setup needed (especially for 502/503)
+        if (response.status === 502 || response.status === 503) {
+          // Backend unreachable - likely needs setup
+          sessionStorage.removeItem('setup_checked')
+          setSetupRequired(true)
+          router.push('/setup')
+          return
+        }
+        
+        // Other errors - don't cache, allow re-checking
+        sessionStorage.removeItem('setup_checked')
         setChecking(false)
       } catch (error) {
-        // If backend is down, don't redirect (let user proceed)
-        // They'll see errors on pages that need backend
+        // Network error or backend unreachable - assume setup needed
+        // Clear cache to allow re-checking
+        sessionStorage.removeItem('setup_checked')
         console.error('Setup check failed:', error)
-        sessionStorage.setItem('setup_checked', 'true')
-        setChecking(false)
+        // Only redirect if we're not already on a public page
+        if (pathname !== '/signup') {
+          setSetupRequired(true)
+          router.push('/setup')
+        } else {
+          setChecking(false)
+        }
       }
     }
 

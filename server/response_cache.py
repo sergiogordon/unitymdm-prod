@@ -41,7 +41,7 @@ class ResponseCache:
             
             return entry['value']
     
-    def set(self, key: str, value: Any, ttl_seconds: int):
+    def set(self, key: str, value: Any, ttl_seconds: int, path: Optional[str] = None):
         """
         Store value in cache with TTL.
         
@@ -49,12 +49,14 @@ class ResponseCache:
             key: Cache key
             value: Value to cache
             ttl_seconds: Time-to-live in seconds
+            path: Request path for pattern-based invalidation (e.g., "/v1/devices")
         """
         with self._lock:
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
             self._cache[key] = {
                 'value': value,
-                'expires_at': expires_at
+                'expires_at': expires_at,
+                'path': path  # Store path for pattern-based invalidation
             }
     
     def invalidate(self, pattern: Optional[str] = None):
@@ -62,14 +64,20 @@ class ResponseCache:
         Invalidate cache entries.
         
         Args:
-            pattern: If provided, only invalidate keys starting with pattern.
+            pattern: If provided, invalidate entries matching the path pattern.
+                     Matches entries where stored path starts with pattern.
                      If None, invalidate all entries.
         """
         with self._lock:
             if pattern is None:
                 self._cache.clear()
             else:
-                keys_to_remove = [k for k in self._cache.keys() if k.startswith(pattern)]
+                # Match by stored path metadata instead of key prefix
+                # This works with MD5-hashed keys
+                keys_to_remove = [
+                    k for k, entry in self._cache.items()
+                    if entry.get('path') and entry['path'].startswith(pattern)
+                ]
                 for key in keys_to_remove:
                     del self._cache[key]
     

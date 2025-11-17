@@ -2454,7 +2454,7 @@ async def get_metrics(
     }
     
     # Cache the result
-    response_cache.set(cache_key, result, ttl_seconds=60)
+    response_cache.set(cache_key, result, ttl_seconds=60, path="/v1/metrics")
     
     return result
 
@@ -2581,7 +2581,7 @@ async def list_devices(
     
     # Cache first page result
     if cache_key:
-        response_cache.set(cache_key, response, ttl_seconds=300)
+        response_cache.set(cache_key, response, ttl_seconds=300, path="/v1/devices")
     
     return response
 
@@ -2853,6 +2853,10 @@ async def bulk_delete_devices_endpoint(
         admin_user=user.username
     )
     
+    # Invalidate cache on bulk device deletion
+    response_cache.invalidate("/v1/metrics")
+    response_cache.invalidate("/v1/devices")
+    
     return result
 
 @app.post("/v1/devices/bulk-delete")
@@ -2896,6 +2900,10 @@ async def bulk_delete_devices_legacy(
         purge_history=False,  # Legacy endpoint doesn't purge history
         admin_user=user.username if user else None
     )
+    
+    # Invalidate cache on bulk device deletion
+    response_cache.invalidate("/v1/metrics")
+    response_cache.invalidate("/v1/devices")
     
     return {
         "ok": True, 
