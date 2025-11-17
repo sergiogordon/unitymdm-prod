@@ -100,7 +100,7 @@ class Config:
     
     def get_jwt_secret(self) -> str:
         """Get the JWT secret key from environment"""
-        return os.getenv("JWT_SECRET", "dev-secret-change-in-production")
+        return os.getenv("SESSION_SECRET", "dev-secret-change-in-production")
     
     def get_database_url(self) -> str:
         """Get the database URL from environment"""
@@ -136,15 +136,15 @@ class Config:
         elif admin_key == "admin" or admin_key == "changeme":
             errors.append("ADMIN_KEY must not use default/insecure values")
         
-        # Check JWT_SECRET (required for production)
+        # Check SESSION_SECRET (required for production)
         jwt_secret = self.get_jwt_secret()
         if jwt_secret == "dev-secret-change-in-production":
             if self.is_production:
-                errors.append("JWT_SECRET must be set to a secure value in production")
+                errors.append("SESSION_SECRET must be set to a secure value in production")
             else:
-                warnings.append("Using default JWT_SECRET - set JWT_SECRET for production")
+                warnings.append("Using default SESSION_SECRET - set SESSION_SECRET for production")
         elif len(jwt_secret) < 32:
-            warnings.append("JWT_SECRET should be at least 32 characters for security")
+            warnings.append("SESSION_SECRET should be at least 32 characters for security")
         
         # Check DATABASE_URL
         db_url = self.get_database_url()

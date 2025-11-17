@@ -7,6 +7,7 @@ import "./globals.css"
 import { ConditionalSidebar } from "@/components/conditional-sidebar"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { SettingsProvider } from "@/contexts/SettingsContext"
+import { SetupCheck } from "@/components/setup-check"
 
 const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
@@ -27,9 +28,11 @@ export default function RootLayout({
       <body className={`font-sans antialiased`}>
         <ThemeProvider>
           <SettingsProvider>
-            <ConditionalSidebar>
-              {children}
-            </ConditionalSidebar>
+            <SetupCheck>
+              <ConditionalSidebar>
+                {children}
+              </ConditionalSidebar>
+            </SetupCheck>
           </SettingsProvider>
           <Toaster richColors position="top-right" />
           <Analytics />

@@ -1323,6 +1323,216 @@ async def signup_user(
         }
     }
 
+# Rate limiter for setup endpoints: 10 requests per minute per IP
+setup_rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
+
+@app.get("/api/setup/status")
+async def get_setup_status(request: Request):
+    """
+    Check which secrets are configured for the setup wizard.
+    Returns status of required and optional configuration.
+    Public endpoint - no authentication required.
+    """
+    # Rate limiting to prevent abuse
+    client_ip = request.client.host if request.client else "unknown"
+    if not setup_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": "60"}
+        )
+    
+    import json
+    
+    status = {
+        "required": {
+            "admin_key": {
+                "configured": bool(os.getenv("ADMIN_KEY")),
+                "valid": False,
+                "message": ""
+            },
+            "jwt_secret": {
+                "configured": bool(os.getenv("SESSION_SECRET")),
+                "valid": False,
+                "message": ""
+            },
+            "firebase": {
+                "configured": bool(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")),
+                "valid": False,
+                "message": ""
+            }
+        },
+        "optional": {
+            "discord_webhook": {
+                "configured": bool(os.getenv("DISCORD_WEBHOOK_URL")),
+                "message": ""
+            },
+            "github_ci": {
+                "configured": False,
+                "message": ""
+            }
+        },
+        "ready": False
+    }
+    
+    # Validate ADMIN_KEY
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if admin_key:
+        if len(admin_key) < 16:
+            status["required"]["admin_key"]["valid"] = False
+            status["required"]["admin_key"]["message"] = "ADMIN_KEY should be at least 16 characters"
+        elif admin_key in ["admin", "changeme", "default"]:
+            status["required"]["admin_key"]["valid"] = False
+            status["required"]["admin_key"]["message"] = "ADMIN_KEY must not use default/insecure values"
+        else:
+            status["required"]["admin_key"]["valid"] = True
+            status["required"]["admin_key"]["message"] = "✓ Valid"
+    else:
+        status["required"]["admin_key"]["message"] = "Not configured"
+    
+    # Validate SESSION_SECRET
+    jwt_secret = os.getenv("SESSION_SECRET", "")
+    if jwt_secret:
+        if jwt_secret == "dev-secret-change-in-production" or jwt_secret == "default-secret-change-in-production":
+            status["required"]["jwt_secret"]["valid"] = False
+            status["required"]["jwt_secret"]["message"] = "Using default secret - change for production"
+        elif len(jwt_secret) < 32:
+            status["required"]["jwt_secret"]["valid"] = False
+            status["required"]["jwt_secret"]["message"] = "SESSION_SECRET should be at least 32 characters"
+        else:
+            status["required"]["jwt_secret"]["valid"] = True
+            status["required"]["jwt_secret"]["message"] = "✓ Valid"
+    else:
+        status["required"]["jwt_secret"]["message"] = "Not configured"
+    
+    # Validate Firebase JSON
+    firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    if firebase_json:
+        try:
+            # Parse JSON (handles whitespace)
+            firebase_data = json.loads(firebase_json.strip())
+            # Check for required fields
+            if "type" in firebase_data and firebase_data["type"] == "service_account":
+                # Check for critical fields
+                required_fields = ["project_id", "private_key_id", "private_key", "client_email"]
+                missing_fields = [field for field in required_fields if field not in firebase_data]
+                if missing_fields:
+                    status["required"]["firebase"]["valid"] = False
+                    status["required"]["firebase"]["message"] = f"Missing required fields: {', '.join(missing_fields)}"
+                else:
+                    status["required"]["firebase"]["valid"] = True
+                    status["required"]["firebase"]["message"] = "✓ Valid"
+            else:
+                status["required"]["firebase"]["valid"] = False
+                status["required"]["firebase"]["message"] = "Invalid service account JSON format"
+        except json.JSONDecodeError as e:
+            status["required"]["firebase"]["valid"] = False
+            status["required"]["firebase"]["message"] = f"Invalid JSON format: {str(e)}"
+    else:
+        status["required"]["firebase"]["message"] = "Not configured"
+    
+    # Check GitHub CI secrets (optional)
+    github_secrets = [
+        "ANDROID_KEYSTORE_BASE64",
+        "KEYSTORE_PASSWORD",
+        "ANDROID_KEY_ALIAS",
+        "ANDROID_KEY_ALIAS_PASSWORD",
+        "BACKEND_URL",
+        "ADMIN_KEY"
+    ]
+    github_configured = all(os.getenv(secret) for secret in github_secrets)
+    status["optional"]["github_ci"]["configured"] = github_configured
+    status["optional"]["github_ci"]["message"] = "Configure GitHub Actions secrets for Android CI/CD" if not github_configured else "✓ Configured"
+    
+    # Check if all required secrets are valid
+    status["ready"] = all(
+        secret["configured"] and secret["valid"]
+        for secret in status["required"].values()
+    )
+    
+    return status
+
+@app.post("/api/setup/validate-firebase")
+async def validate_firebase_json(request: Request):
+    """
+    Validate Firebase service account JSON without saving it.
+    Useful for the setup wizard to check before user adds it to secrets.
+    Public endpoint - no authentication required.
+    """
+    # Rate limiting to prevent abuse
+    client_ip = request.client.host if request.client else "unknown"
+    if not setup_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again later.",
+            headers={"Retry-After": "60"}
+        )
+    
+    try:
+        data = await request.json()
+        firebase_json_str = data.get("firebase_json", "")
+        
+        if not firebase_json_str or not firebase_json_str.strip():
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": "Firebase JSON is required"}
+            )
+        
+        # Trim whitespace and parse JSON
+        firebase_json_str = firebase_json_str.strip()
+        
+        # Parse and validate JSON
+        try:
+            firebase_data = json.loads(firebase_json_str)
+        except json.JSONDecodeError as e:
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": f"Invalid JSON format: {str(e)}"}
+            )
+        
+        # Check required fields
+        required_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+        missing_fields = [field for field in required_fields if field not in firebase_data]
+        
+        if missing_fields:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "valid": False,
+                    "message": f"Missing required fields: {', '.join(missing_fields)}"
+                }
+            )
+        
+        if firebase_data.get("type") != "service_account":
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": "JSON is not a service account type"}
+            )
+        
+        # Validate that critical fields are not empty
+        if not firebase_data.get("project_id") or not firebase_data.get("client_email"):
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": "project_id and client_email cannot be empty"}
+            )
+        
+        if not firebase_data.get("private_key") or len(firebase_data.get("private_key", "")) < 100:
+            return JSONResponse(
+                status_code=400,
+                content={"valid": False, "message": "private_key appears to be invalid or too short"}
+            )
+        
+        return JSONResponse(
+            status_code=200,
+            content={"valid": True, "message": "✓ Valid Firebase service account JSON"}
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"valid": False, "message": f"Validation error: {str(e)}"}
+        )
+
 @app.put("/api/auth/profile/email")
 async def update_user_email(
     new_email: str = Form(...),
