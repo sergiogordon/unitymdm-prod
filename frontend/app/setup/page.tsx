@@ -205,6 +205,16 @@ export default function SetupPage() {
       
       if (!response.ok) {
         // Handle non-OK responses
+        // If backend is unavailable (500/502/503), treat as network error and allow proceeding
+        if (response.status === 500 || response.status === 502 || response.status === 503) {
+          setFirebaseValid(null) // Set to null to allow proceeding
+          const errorMsg = `Backend server is not running (HTTP ${response.status}). This is expected during initial setup. You can proceed if your JSON looks correct.`
+          setFirebaseMessage(errorMsg)
+          toast.warning("Backend unavailable - you can proceed if JSON looks correct.")
+          return
+        }
+        
+        // For other HTTP errors (400, 401, etc.), treat as validation failure
         let errorMessage = `Validation failed (HTTP ${response.status})`
         try {
           const errorData = await response.json()
@@ -627,15 +637,27 @@ export default function SetupPage() {
                           Invalid
                         </Badge>
                       )}
+                      {firebaseValid === null && firebaseMessage && (
+                        <Badge variant="outline" className="flex items-center gap-1 border-yellow-500 text-yellow-700 dark:text-yellow-400">
+                          <AlertCircle className="h-3 w-3" />
+                          Backend Unavailable
+                        </Badge>
+                      )}
                     </div>
                     {firebaseMessage && (
-                      <p className={`text-sm ${firebaseValid ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      <p className={`text-sm ${
+                        firebaseValid === true 
+                          ? 'text-green-600 dark:text-green-400' 
+                          : firebaseValid === false
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-yellow-600 dark:text-yellow-400'
+                      }`}>
                         {firebaseMessage}
                       </p>
                     )}
                   </div>
 
-                  {firebaseValid && (
+                  {(firebaseValid === true || (firebaseValid === null && firebaseJson.trim())) && (
                     <div className="bg-muted p-4 rounded-md">
                       <p className="text-sm font-mono mb-2">Add to Replit Secrets:</p>
                       <div className="space-y-2">
@@ -673,10 +695,18 @@ export default function SetupPage() {
                   </Button>
                   <Button
                     onClick={async () => {
-                      // Only require validation if it was attempted and explicitly failed
-                      // Allow proceeding if validation wasn't attempted or if backend is unavailable
-                      if (firebaseValid === false && firebaseMessage && !firebaseMessage.includes("Backend may not be running")) {
+                      // Only require validation if it was attempted and explicitly failed (not due to backend unavailability)
+                      // Allow proceeding if:
+                      // - Validation hasn't been attempted (firebaseValid === null)
+                      // - Backend is unavailable (firebaseValid === null with backend error message)
+                      // - Validation passed (firebaseValid === true)
+                      if (firebaseValid === false && firebaseMessage && !firebaseMessage.includes("Backend") && !firebaseMessage.includes("backend")) {
                         toast.error("Please fix Firebase JSON errors before continuing")
+                        return
+                      }
+                      // Require at least some JSON content
+                      if (!firebaseJson.trim()) {
+                        toast.error("Please paste Firebase service account JSON")
                         return
                       }
                       setChecking(true)
@@ -684,7 +714,7 @@ export default function SetupPage() {
                       setChecking(false)
                       handleStepChange(3)
                     }}
-                    disabled={checking || (firebaseValid === false && firebaseMessage ? !firebaseMessage.includes("Backend may not be running") : false)}
+                    disabled={checking || (firebaseValid === false && firebaseMessage && !firebaseMessage.includes("Backend") && !firebaseMessage.includes("backend")) || !firebaseJson.trim()}
                     className="flex-1"
                   >
                     {checking ? (
