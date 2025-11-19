@@ -203,6 +203,22 @@ export default function SetupPage() {
         body: JSON.stringify({ firebase_json: firebaseJson })
       })
       
+      if (!response.ok) {
+        // Handle non-OK responses
+        let errorMessage = `Validation failed (HTTP ${response.status})`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.message || errorData.error || errorMessage
+        } catch {
+          // If response isn't JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        setFirebaseValid(false)
+        setFirebaseMessage(errorMessage)
+        toast.error(errorMessage)
+        return
+      }
+      
       const data = await response.json()
       setFirebaseValid(data.valid)
       setFirebaseMessage(data.message)
@@ -213,10 +229,13 @@ export default function SetupPage() {
         toast.error(data.message)
       }
     } catch (error) {
-      setFirebaseValid(false)
-      const errorMsg = error instanceof Error ? error.message : "Failed to validate Firebase JSON"
+      // Network error or backend unreachable
+      setFirebaseValid(null) // Set to null instead of false to allow proceeding
+      const errorMsg = error instanceof Error 
+        ? `Unable to validate: ${error.message}. Backend may not be running. You can still proceed if your JSON looks correct.`
+        : "Unable to validate Firebase JSON. Backend may not be running. You can still proceed if your JSON looks correct."
       setFirebaseMessage(errorMsg)
-      toast.error("Failed to validate Firebase JSON")
+      toast.warning("Validation unavailable - backend may not be running. You can proceed if JSON looks correct.")
     } finally {
       setFirebaseValidating(false)
     }
@@ -347,8 +366,7 @@ export default function SetupPage() {
                 </p>
                 <Alert>
                   <AlertDescription>
-                    <strong>Important:</strong> You'll need to add secrets in Replit's Secrets tab.
-                    This wizard will generate secure values and provide copy-paste instructions.
+                    <strong>Important:</strong> You'll need to add secrets in Replit's Secrets tab. Each secret requires two inputs: the secret name (e.g., <code>ADMIN_KEY</code>) and the secret value. This wizard will generate secure values and provide copy-paste instructions. To access Secrets, click the <strong>"+"</strong> button in Replit and select <strong>"Secrets"</strong>.
                   </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
@@ -483,18 +501,31 @@ export default function SetupPage() {
                       </div>
                     </div>
                   )}
+                  
+                  {/* Warning about pre-populated SESSION_SECRET */}
+                  <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                    <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                    <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-sm">
+                      <strong>Important:</strong> If <code>SESSION_SECRET</code> already exists in Replit Secrets, it may be an insecure default value. Please replace it with the secure value generated above. The setup wizard will verify that you're using a secure value.
+                    </AlertDescription>
+                  </Alert>
                 </div>
 
                 <Alert>
                   <AlertDescription>
                     <strong>Next steps:</strong>
                     <ol className="list-decimal list-inside mt-2 space-y-1 text-sm">
-                      <li>Copy the generated values above</li>
-                      <li>Go to Replit → Secrets tab (🔒 icon in sidebar)</li>
-                      <li>Add each secret with the exact name shown</li>
-                      <li>Paste the generated value</li>
-                      <li>Click "Add Secret" for each</li>
-                      <li>Return here and click "Check Configuration"</li>
+                      <li>Copy the generated values above (you'll need both the secret name and value)</li>
+                      <li>In Replit, click the <strong>"+"</strong> button to open a new tab</li>
+                      <li>Select <strong>"Secrets"</strong> from the tab options (or look for the 🔒 icon)</li>
+                      <li>For each secret, you need to add two things:
+                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
+                          <li><strong>Secret Name:</strong> Enter the exact name shown (e.g., <code>ADMIN_KEY</code> or <code>SESSION_SECRET</code>)</li>
+                          <li><strong>Secret Value:</strong> Paste the generated value from above</li>
+                        </ul>
+                      </li>
+                      <li>Click <strong>"Add Secret"</strong> for each secret</li>
+                      <li>Return here and click <strong>"Check Configuration"</strong> to verify</li>
                     </ol>
                   </AlertDescription>
                 </Alert>
@@ -642,8 +673,10 @@ export default function SetupPage() {
                   </Button>
                   <Button
                     onClick={async () => {
-                      if (!firebaseValid) {
-                        toast.error("Please validate Firebase JSON first")
+                      // Only require validation if it was attempted and explicitly failed
+                      // Allow proceeding if validation wasn't attempted or if backend is unavailable
+                      if (firebaseValid === false && firebaseMessage && !firebaseMessage.includes("Backend may not be running")) {
+                        toast.error("Please fix Firebase JSON errors before continuing")
                         return
                       }
                       setChecking(true)
@@ -651,7 +684,7 @@ export default function SetupPage() {
                       setChecking(false)
                       handleStepChange(3)
                     }}
-                    disabled={checking || !firebaseValid}
+                    disabled={checking || (firebaseValid === false && firebaseMessage ? !firebaseMessage.includes("Backend may not be running") : false)}
                     className="flex-1"
                   >
                     {checking ? (
