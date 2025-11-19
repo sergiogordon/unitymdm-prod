@@ -92,11 +92,26 @@ export default function SetupPage() {
       const response = await fetch(`${BACKEND_URL}/api/setup/status`)
       
       if (!response.ok) {
+        if (response.status === 500) {
+          setBackendError("Backend server returned an error. This usually means the backend is not running or not properly configured. Please ensure the backend server is running and try again.")
+          return
+        }
         if (response.status === 502 || response.status === 503) {
           setBackendError("Backend server is not running. Please start the backend and refresh this page.")
           return
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        // Try to get error message from response
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          if (errorData.message || errorData.error) {
+            errorMessage = errorData.message || errorData.error
+          }
+        } catch {
+          // Ignore JSON parse errors
+        }
+        setBackendError(errorMessage)
+        return
       }
       
       const data = await response.json()
@@ -110,11 +125,10 @@ export default function SetupPage() {
       }
     } catch (error) {
       console.error("Failed to check setup status:", error)
-      setBackendError(
-        error instanceof Error 
-          ? error.message 
-          : "Failed to connect to backend. Please ensure the backend server is running."
-      )
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : "Failed to connect to backend. Please ensure the backend server is running."
+      setBackendError(errorMessage)
       toast.error("Failed to check setup status")
     } finally {
       setLoading(false)

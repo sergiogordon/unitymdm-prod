@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { Header } from "@/components/header"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { KpiTiles } from "@/components/kpi-tiles"
@@ -16,6 +16,7 @@ import { useSettings } from "@/contexts/SettingsContext"
 
 export default function Page() {
   const router = useRouter()
+  const pathname = usePathname()
   const { openSettings } = useSettings()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
@@ -25,14 +26,31 @@ export default function Page() {
   // Separate stats state for accurate KPI counters
   const [stats, setStats] = useState({ total: 0, online: 0, offline: 0, low_battery: 0 })
 
-  // Check authentication first
+  // Check authentication, but only after SetupCheck confirms setup is complete
+  // SetupCheck component wraps this page and will redirect to /setup if setup is incomplete
   useEffect(() => {
+    // Only proceed with auth check if:
+    // 1. We're still on root path (SetupCheck hasn't redirected us)
+    // 2. Setup is confirmed complete in sessionStorage
+    if (pathname !== '/') {
+      // SetupCheck redirected us, don't proceed with auth check
+      return
+    }
+
+    const setupChecked = sessionStorage.getItem('setup_checked')
+    if (setupChecked !== 'ready') {
+      // Setup not confirmed complete - SetupCheck should handle redirect
+      // Don't proceed with auth check yet
+      return
+    }
+
+    // Setup is confirmed complete, proceed with auth check
     if (!isAuthenticated()) {
       router.push('/login')
     } else {
       setAuthChecked(true)
     }
-  }, [router])
+  }, [router, pathname])
   
   // Fetch stats for KPIs (all devices, not just visible ones)
   useEffect(() => {

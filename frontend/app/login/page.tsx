@@ -36,9 +36,13 @@ export default function LoginPage() {
             router.push('/setup')
             return
           }
+          // Setup is confirmed complete - allow login page to render
+          setCheckingSetup(false)
+          return
         }
-        // Setup is complete or check failed - allow login page to render
-        setCheckingSetup(false)
+        // Response not OK - assume setup needed and redirect
+        console.error('Setup status check failed:', response.status, response.statusText)
+        router.push('/setup')
       } catch (error) {
         // If backend is unreachable, assume setup needed
         console.error('Setup check failed:', error)

@@ -48,18 +48,12 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
           }
         }
         
-        // If response not OK, assume setup needed (especially for 502/503)
-        if (response.status === 502 || response.status === 503) {
-          // Backend unreachable - likely needs setup
-          sessionStorage.removeItem('setup_checked')
-          setSetupRequired(true)
-          router.push('/setup')
-          return
-        }
-        
-        // Other errors - don't cache, allow re-checking
+        // If response not OK, assume setup needed - redirect to setup for any error
+        // This includes 400, 401, 404, 500, 502, 503, etc.
         sessionStorage.removeItem('setup_checked')
-        setChecking(false)
+        setSetupRequired(true)
+        router.push('/setup')
+        return
       } catch (error) {
         // Network error or backend unreachable - assume setup needed
         // Clear cache to allow re-checking
