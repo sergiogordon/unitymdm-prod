@@ -17,7 +17,8 @@ import {
   Github,
   Settings,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Info
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -93,19 +94,19 @@ export default function SetupPage() {
       
       if (!response.ok) {
         if (response.status === 500) {
-          setBackendError("Backend server returned an error. This usually means the backend is not running or not properly configured. Please ensure the backend server is running and try again.")
+          setBackendError("Unable to connect to backend server. This is expected if the backend is not running yet. You can proceed with the setup wizard below to configure your secrets. Once configured, restart the backend server and click 'Retry' to verify.")
           return
         }
         if (response.status === 502 || response.status === 503) {
-          setBackendError("Backend server is not running. Please start the backend and refresh this page.")
+          setBackendError("Backend server is not running. This is normal for initial setup. Please proceed with configuring your secrets below. After adding secrets to Replit, restart the backend server and click 'Retry' to verify your configuration.")
           return
         }
         // Try to get error message from response
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        let errorMessage = `Unable to verify setup status (HTTP ${response.status}). This is expected if the backend is not running. You can proceed with the setup wizard below to configure your secrets.`
         try {
           const errorData = await response.json()
           if (errorData.message || errorData.error) {
-            errorMessage = errorData.message || errorData.error
+            errorMessage = `${errorData.message || errorData.error} - You can still proceed with configuration below.`
           }
         } catch {
           // Ignore JSON parse errors
@@ -125,11 +126,8 @@ export default function SetupPage() {
       }
     } catch (error) {
       console.error("Failed to check setup status:", error)
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : "Failed to connect to backend. Please ensure the backend server is running."
-      setBackendError(errorMessage)
-      toast.error("Failed to check setup status")
+      setBackendError("Unable to connect to backend server. This is expected if the backend is not running yet. You can proceed with the setup wizard below to configure your secrets. Once configured, restart the backend server and click 'Retry' to verify.")
+      // Don't show toast error - this is expected during initial setup
     } finally {
       setLoading(false)
     }
@@ -301,16 +299,16 @@ export default function SetupPage() {
           <p className="text-muted-foreground">Configure your MDM instance step by step</p>
         </div>
 
-        {/* Backend Error Alert */}
+        {/* Backend Status Alert */}
         {backendError && (
-          <Alert className="mb-6 border-red-500">
-            <AlertCircle className="h-4 w-4 text-red-500" />
-            <AlertDescription className="text-red-700 dark:text-red-400">
+          <Alert className="mb-6 border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+            <Info className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+            <AlertDescription className="text-yellow-800 dark:text-yellow-300">
               {backendError}
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-4"
+                className="ml-4 border-yellow-600 text-yellow-700 hover:bg-yellow-100 dark:border-yellow-500 dark:text-yellow-400 dark:hover:bg-yellow-900/30"
                 onClick={checkSetupStatus}
               >
                 Retry
