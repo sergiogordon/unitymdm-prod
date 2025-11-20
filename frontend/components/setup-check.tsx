@@ -48,24 +48,40 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
           }
         }
         
-        // If response not OK, assume setup needed - redirect to setup for any error
+        // If response not OK, check if setup was previously verified
         // This includes 400, 401, 404, 500, 502, 503, etc.
+        const previouslyVerified = sessionStorage.getItem('setup_checked') === 'ready'
+        
+        if (previouslyVerified) {
+          // Setup was previously verified - allow access even if backend is temporarily unavailable
+          // This handles cases where backend goes down after setup was completed
+          setChecking(false)
+          return
+        }
+        
+        // Setup not verified or backend unavailable - redirect to setup
         sessionStorage.removeItem('setup_checked')
         setSetupRequired(true)
         router.push('/setup')
         return
       } catch (error) {
-        // Network error or backend unreachable - assume setup needed
-        // Clear cache to allow re-checking
-        sessionStorage.removeItem('setup_checked')
+        // Network error or backend unreachable
         console.error('Setup check failed:', error)
-        // Only redirect if we're not already on a public page
-        if (pathname !== '/signup') {
-          setSetupRequired(true)
-          router.push('/setup')
-        } else {
+        
+        // Check if setup was previously verified before allowing access
+        const previouslyVerified = sessionStorage.getItem('setup_checked') === 'ready'
+        
+        if (previouslyVerified) {
+          // Setup was previously verified - allow access even if backend is temporarily unavailable
+          // This handles cases where backend goes down after setup was completed
           setChecking(false)
+          return
         }
+        
+        // Setup not verified or backend unavailable - redirect to setup
+        sessionStorage.removeItem('setup_checked')
+        setSetupRequired(true)
+        router.push('/setup')
       }
     }
 

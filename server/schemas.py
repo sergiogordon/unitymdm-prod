@@ -55,7 +55,7 @@ class HeartbeatPayload(BaseModel):
     ping_request_id: Optional[str] = Field(None, max_length=100)
     self_heal_hints: Optional[SelfHealHints] = None
     is_device_owner: Optional[bool] = None
-    monitored_foreground_recent_s: Optional[int] = Field(None, ge=0, le=86400)  # 0 to 24 hours in seconds
+    monitored_foreground_recent_s: Optional[int] = Field(None, ge=-1, le=86400)  # -1 sentinel for unavailable, 0-86400 seconds (0 to 24 hours)
 
 class HeartbeatResponse(BaseModel):
     ok: bool
@@ -110,7 +110,7 @@ class DeployApkRequest(BaseModel):
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = Field(None, max_length=200)
     monitored_app_name: Optional[str] = Field(None, max_length=200)
-    monitored_threshold_min: Optional[int] = Field(None, ge=1, le=1440)  # 1 minute to 24 hours
+    monitored_threshold_min: Optional[int] = Field(None, ge=1, le=120)  # 1 to 120 minutes
     monitor_enabled: Optional[bool] = None
     auto_relaunch_enabled: Optional[bool] = None
 

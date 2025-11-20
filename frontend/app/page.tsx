@@ -26,19 +26,56 @@ export default function Page() {
   // Separate stats state for accurate KPI counters
   const [stats, setStats] = useState({ total: 0, online: 0, offline: 0, low_battery: 0 })
 
+  // Track setup check status to sync with SetupCheck component
+  const [setupReady, setSetupReady] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('setup_checked') === 'ready'
+    }
+    return false
+  })
+
+  // Listen for sessionStorage changes to sync with SetupCheck completion
+  useEffect(() => {
+    const checkSetupStatus = () => {
+      if (typeof window !== 'undefined') {
+        const setupChecked = sessionStorage.getItem('setup_checked')
+        setSetupReady(setupChecked === 'ready')
+      }
+    }
+
+    // Check immediately
+    checkSetupStatus()
+
+    // Listen for storage events (when SetupCheck updates sessionStorage)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'setup_checked') {
+        checkSetupStatus()
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
+    // Also poll periodically to catch same-tab updates (storage event only fires for other tabs)
+    const interval = setInterval(checkSetupStatus, 100)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      clearInterval(interval)
+    }
+  }, [])
+
   // Check authentication, but only after SetupCheck confirms setup is complete
   // SetupCheck component wraps this page and will redirect to /setup if setup is incomplete
   useEffect(() => {
     // Only proceed with auth check if:
     // 1. We're still on root path (SetupCheck hasn't redirected us)
-    // 2. Setup is confirmed complete in sessionStorage
+    // 2. Setup is confirmed complete
     if (pathname !== '/') {
       // SetupCheck redirected us, don't proceed with auth check
       return
     }
 
-    const setupChecked = sessionStorage.getItem('setup_checked')
-    if (setupChecked !== 'ready') {
+    if (!setupReady) {
       // Setup not confirmed complete - SetupCheck should handle redirect
       // Don't proceed with auth check yet
       return
@@ -50,7 +87,7 @@ export default function Page() {
     } else {
       setAuthChecked(true)
     }
-  }, [router, pathname])
+  }, [router, pathname, setupReady])
   
   // Fetch stats for KPIs (all devices, not just visible ones)
   useEffect(() => {

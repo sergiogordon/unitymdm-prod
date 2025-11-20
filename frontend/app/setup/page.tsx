@@ -28,6 +28,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ChevronDown, ExternalLink, HelpCircle } from "lucide-react"
 
 interface SetupStatus {
   required: {
@@ -63,8 +67,9 @@ export default function SetupPage() {
   const [firebaseValid, setFirebaseValid] = useState<boolean | null>(null)
   const [firebaseMessage, setFirebaseMessage] = useState("")
   
-  // Step 3: GitHub CI (optional)
+  // Step 3: GitHub CI (recommended)
   const [showGitHub, setShowGitHub] = useState(false)
+  const [skipGitHubCI, setSkipGitHubCI] = useState(false)
   
   // Step 4: Keystore (optional)
   const [keystorePassword, setKeystorePassword] = useState("")
@@ -269,7 +274,7 @@ export default function SetupPage() {
     },
     {
       id: 'github',
-      title: 'GitHub CI/CD (Optional)',
+      title: 'GitHub CI/CD (Recommended)',
       icon: Github
     },
     {
@@ -585,14 +590,44 @@ export default function SetupPage() {
                 <div className="space-y-4">
                   <div>
                     <h3 className="font-semibold mb-2">How to get Firebase credentials:</h3>
-                    <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-                      <li>Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Firebase Console</a></li>
-                      <li>Create a new project or select existing</li>
-                      <li>Navigate to <strong>Project Settings</strong> → <strong>Service Accounts</strong></li>
-                      <li>Click <strong>Generate New Private Key</strong></li>
-                      <li>Download the JSON file</li>
-                      <li>Paste the entire JSON content below</li>
+                    <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground mb-4">
+                      <li>Go to <a href="https://console.firebase.google.com" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">Firebase Console <ExternalLink className="h-3 w-3" /></a></li>
+                      <li>Create a new project or select an existing one</li>
+                      <li>
+                        <strong>Enable Firebase Cloud Messaging (FCM):</strong>
+                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
+                          <li>Go to <strong>Project Settings</strong> → <strong>Cloud Messaging</strong> tab</li>
+                          <li>Ensure Firebase Cloud Messaging API is enabled (it should be enabled by default)</li>
+                        </ul>
+                      </li>
+                      <li>
+                        <strong>Add an Android app to your Firebase project (if not already added):</strong>
+                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
+                          <li>Click the Android icon or "Add app" → Select Android</li>
+                          <li>Enter your Android package name (e.g., <code className="bg-background px-1 py-0.5 rounded">com.nexmdm.app</code>)</li>
+                          <li>Follow the setup wizard to complete Android app registration</li>
+                        </ul>
+                      </li>
+                      <li>
+                        <strong>Get Service Account JSON:</strong>
+                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
+                          <li>Navigate to <strong>Project Settings</strong> (gear icon) → <strong>General</strong> tab</li>
+                          <li>Scroll down to the <strong>"Your apps"</strong> section</li>
+                          <li>Click on <strong>"Service accounts"</strong> tab</li>
+                          <li>Click <strong>"Generate new private key"</strong></li>
+                          <li>Click <strong>"Generate key"</strong> in the confirmation dialog</li>
+                          <li>The JSON file will download automatically</li>
+                        </ul>
+                      </li>
+                      <li>Open the downloaded JSON file and paste the entire content below</li>
                     </ol>
+                    <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                      <Info className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                      <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-sm">
+                        <strong>Tip:</strong> The Service Accounts tab is located in Project Settings → General tab, not in the Cloud Messaging section. 
+                        Scroll down past the "Your apps" section to find it.
+                      </AlertDescription>
+                    </Alert>
                   </div>
 
                   <div className="space-y-2">
@@ -658,31 +693,64 @@ export default function SetupPage() {
                   </div>
 
                   {(firebaseValid === true || (firebaseValid === null && firebaseJson.trim())) && (
-                    <div className="bg-muted p-4 rounded-md">
-                      <p className="text-sm font-mono mb-2">Add to Replit Secrets:</p>
+                    <div className="bg-muted p-4 rounded-md space-y-4">
+                      <div>
+                        <p className="text-sm font-semibold mb-2">Add to Replit Secrets:</p>
+                        <ol className="list-decimal list-inside space-y-2 text-sm mb-4">
+                          <li>Click the <strong>"+"</strong> button in the Replit Secrets tab</li>
+                          <li>In the <strong>"Secret Name"</strong> field, enter: <code className="bg-background px-1 py-0.5 rounded">FIREBASE_SERVICE_ACCOUNT_JSON</code></li>
+                          <li>In the <strong>"Secret Value"</strong> field, paste the JSON below (as a single-line string)</li>
+                          <li>Click <strong>"Add Secret"</strong></li>
+                        </ol>
+                      </div>
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs flex-1 bg-background p-2 rounded break-all">
-                            FIREBASE_SERVICE_ACCOUNT_JSON={JSON.stringify(JSON.parse(firebaseJson))}
-                          </code>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              try {
-                                const jsonStr = JSON.stringify(JSON.parse(firebaseJson))
-                                copyToClipboard(`FIREBASE_SERVICE_ACCOUNT_JSON=${jsonStr}`, 'firebase-full')
-                              } catch (e) {
-                                toast.error("Failed to format JSON")
-                              }
-                            }}
-                          >
-                            {copied === 'firebase-full' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                          </Button>
+                        <div>
+                          <Label className="text-xs font-semibold">Secret Name:</Label>
+                          <div className="flex items-center gap-2 mt-1">
+                            <code className="text-xs flex-1 bg-background p-2 rounded">
+                              FIREBASE_SERVICE_ACCOUNT_JSON
+                            </code>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => copyToClipboard('FIREBASE_SERVICE_ACCOUNT_JSON', 'firebase-secret-name')}
+                            >
+                              {copied === 'firebase-secret-name' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs font-semibold">Secret Value (paste this JSON):</Label>
+                          <div className="flex items-center gap-2 mt-1">
+                            <code className="text-xs flex-1 bg-background p-2 rounded break-all font-mono">
+                              {(() => {
+                                try {
+                                  return JSON.stringify(JSON.parse(firebaseJson))
+                                } catch {
+                                  return firebaseJson.trim()
+                                }
+                              })()}
+                            </code>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                try {
+                                  const jsonStr = JSON.stringify(JSON.parse(firebaseJson))
+                                  copyToClipboard(jsonStr, 'firebase-json-value')
+                                } catch (e) {
+                                  copyToClipboard(firebaseJson.trim(), 'firebase-json-value')
+                                }
+                              }}
+                            >
+                              {copied === 'firebase-json-value' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Note: In Replit Secrets, paste the JSON as a single-line string (no line breaks)
+                          Note: Paste the JSON as a single-line string (no line breaks) in the Secret Value field.
                         </p>
                       </div>
                     </div>
@@ -732,42 +800,131 @@ export default function SetupPage() {
               </div>
             )}
 
-            {/* Step 3: GitHub CI (Optional) */}
+            {/* Step 3: GitHub CI (Recommended) */}
             {currentStep === 3 && (
               <div className="space-y-6">
-                <Alert>
-                  <AlertDescription>
-                    GitHub Actions CI/CD is optional but recommended for automated Android builds.
-                    You can skip this step and configure it later.
+                <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <AlertDescription className="text-blue-800 dark:text-blue-300">
+                    <strong>Recommended:</strong> GitHub Actions CI/CD automates Android APK builds, making deployment much easier. 
+                    If you're not familiar with Android Studio, we strongly recommend setting this up now.
                   </AlertDescription>
                 </Alert>
 
                 <div className="space-y-4">
-                  <div>
-                    <h3 className="font-semibold mb-2">GitHub Actions Setup:</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Configure secrets in your GitHub repository for automated Android APK builds.
-                    </p>
-                    
-                    <div className="bg-muted p-4 rounded-md space-y-3">
-                      <div>
-                        <Label className="text-sm font-semibold">Required GitHub Secrets:</Label>
-                        <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                          <li><code>ANDROID_KEYSTORE_BASE64</code> - Base64-encoded keystore</li>
-                          <li><code>KEYSTORE_PASSWORD</code> - Keystore password</li>
-                          <li><code>ANDROID_KEY_ALIAS</code> - Key alias (e.g., "nexmdm")</li>
-                          <li><code>ANDROID_KEY_ALIAS_PASSWORD</code> - Key password</li>
-                          <li><code>BACKEND_URL</code> - Your Replit deployment URL</li>
-                          <li><code>ADMIN_KEY</code> - Same as ADMIN_KEY secret above</li>
-                        </ul>
-                      </div>
-                    </div>
+                  <div className="flex items-center space-x-2 p-4 bg-muted rounded-md">
+                    <Checkbox
+                      id="skip-github"
+                      checked={skipGitHubCI}
+                      onCheckedChange={(checked) => setSkipGitHubCI(checked === true)}
+                    />
+                    <Label htmlFor="skip-github" className="text-sm font-normal cursor-pointer">
+                      I'm familiar with Android Studio and will build APKs manually
+                    </Label>
+                  </div>
 
-                    <div className="space-y-2">
-                      <Label>Generate Keystore Command:</Label>
-                      <div className="bg-muted p-4 rounded-md">
-                        <code className="text-xs block mb-2"># Run this in your terminal:</code>
-                        <code className="text-xs block whitespace-pre-wrap break-all">
+                  {!skipGitHubCI && (
+                    <>
+                      <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                        <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        <AlertDescription className="text-blue-800 dark:text-blue-300 text-sm">
+                          <strong>Before you begin:</strong> You need an Android project ready before setting up GitHub CI/CD. 
+                          If you already have an Android project, you can clone it to your repository. 
+                          If you don't have one yet, you can skip GitHub CI/CD for now and set it up later once your Android project is ready.
+                        </AlertDescription>
+                      </Alert>
+
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 1: Create GitHub Account</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          If you don't have a GitHub account yet, go to <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">github.com <ExternalLink className="h-3 w-3" /></a> and create one. 
+                          Once you have an account, continue with the steps below.
+                        </p>
+                      </div>
+
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 2: Install and Authenticate GitHub CLI</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Run these commands in the Replit Shell:
+                        </p>
+                        <div className="bg-muted p-4 rounded-md space-y-3">
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">1. Check if GitHub CLI is installed:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh --version
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh --version', 'gh-version')}
+                              >
+                                {copied === 'gh-version' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              If not installed, run: <code className="bg-background px-1 py-0.5 rounded">pkg install gh</code>
+                            </p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">2. Authenticate with GitHub:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh auth login
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh auth login', 'gh-auth')}
+                              >
+                                {copied === 'gh-auth' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Follow the prompts to authenticate. Choose "HTTPS" and "Login with a web browser".
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 3: Create GitHub Repository</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Create a new repository for your Android project:
+                        </p>
+                        <div className="bg-muted p-4 rounded-md space-y-3">
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">Create a new repository (replace &lt;repo-name&gt; with your desired name):</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh repo create &lt;repo-name&gt; --public
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh repo create <repo-name> --public', 'gh-repo-create')}
+                              >
+                                {copied === 'gh-repo-create' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Use <code className="bg-background px-1 py-0.5 rounded">--private</code> for a private repository instead.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 4: Generate Android Keystore</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Generate a keystore file for signing your Android APK:
+                        </p>
+                        <div className="bg-muted p-4 rounded-md">
+                          <code className="text-xs block mb-2"># Run this in Replit Shell:</code>
+                          <code className="text-xs block whitespace-pre-wrap break-all">
 {`keytool -genkey -v \\
   -keystore release.keystore \\
   -alias nexmdm \\
@@ -776,82 +933,351 @@ export default function SetupPage() {
   -validity 10000 \\
   -storepass YOUR_STORE_PASSWORD \\
   -keypass YOUR_KEY_PASSWORD`}
-                        </code>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="mt-2"
-                          onClick={() => copyToClipboard(`keytool -genkey -v -keystore release.keystore -alias nexmdm -keyalg RSA -keysize 2048 -validity 10000 -storepass YOUR_STORE_PASSWORD -keypass YOUR_KEY_PASSWORD`, 'keystore-cmd')}
-                        >
-                          {copied === 'keystore-cmd' ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                          Copy Command
-                        </Button>
+                          </code>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="mt-2"
+                            onClick={() => copyToClipboard(`keytool -genkey -v -keystore release.keystore -alias nexmdm -keyalg RSA -keysize 2048 -validity 10000 -storepass YOUR_STORE_PASSWORD -keypass YOUR_KEY_PASSWORD`, 'keystore-cmd')}
+                          >
+                            {copied === 'keystore-cmd' ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+                            Copy Command
+                          </Button>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Replace <code className="bg-background px-1 py-0.5 rounded">YOUR_STORE_PASSWORD</code> and <code className="bg-background px-1 py-0.5 rounded">YOUR_KEY_PASSWORD</code> with secure passwords.
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="space-y-2">
-                      <Label>Encode Keystore to Base64:</Label>
-                      <div className="bg-muted p-4 rounded-md space-y-2">
-                        <div>
-                          <code className="text-xs block mb-2"># Linux/Mac:</code>
-                          <code className="text-xs block whitespace-pre-wrap break-all mb-4">
-                            base64 -w 0 release.keystore
-                          </code>
-                        </div>
-                        <div>
-                          <code className="text-xs block mb-2"># Windows (PowerShell):</code>
-                          <code className="text-xs block whitespace-pre-wrap break-all">
-                            [Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore"))
-                          </code>
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard('base64 -w 0 release.keystore', 'base64-linux')}
-                          >
-                            {copied === 'base64-linux' ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                            Copy Linux Command
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => copyToClipboard('[Convert]::ToBase64String([IO.File]::ReadAllBytes("release.keystore"))', 'base64-powershell')}
-                          >
-                            {copied === 'base64-powershell' ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-                            Copy PowerShell Command
-                          </Button>
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 5: Add Secrets to GitHub Repository</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Add the required secrets to your GitHub repository using the CLI:
+                        </p>
+                        <div className="bg-muted p-4 rounded-md space-y-3">
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">1. Add keystore (Base64-encoded):</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                gh secret set ANDROID_KEYSTORE_BASE64 --body "$(base64 -w 0 release.keystore)"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set ANDROID_KEYSTORE_BASE64 --body "$(base64 -w 0 release.keystore)"', 'gh-secret-keystore')}
+                              >
+                                {copied === 'gh-secret-keystore' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">2. Add keystore password:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh secret set KEYSTORE_PASSWORD --body "YOUR_STORE_PASSWORD"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set KEYSTORE_PASSWORD --body "YOUR_STORE_PASSWORD"', 'gh-secret-storepass')}
+                              >
+                                {copied === 'gh-secret-storepass' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">3. Add key alias:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh secret set ANDROID_KEY_ALIAS --body "nexmdm"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set ANDROID_KEY_ALIAS --body "nexmdm"', 'gh-secret-alias')}
+                              >
+                                {copied === 'gh-secret-alias' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">4. Add key password:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                gh secret set ANDROID_KEY_ALIAS_PASSWORD --body "YOUR_KEY_PASSWORD"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set ANDROID_KEY_ALIAS_PASSWORD --body "YOUR_KEY_PASSWORD"', 'gh-secret-keypass')}
+                              >
+                                {copied === 'gh-secret-keypass' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">5. Add backend URL:</Label>
+                            <Collapsible className="mb-2">
+                              <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                                <HelpCircle className="h-3 w-3" />
+                                How to find your Replit deployment URL
+                                <ChevronDown className="h-3 w-3" />
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="mt-2 text-xs text-muted-foreground space-y-2 pl-4 border-l-2 border-muted">
+                                <p><strong>Option 1: From Replit Deploy tab</strong></p>
+                                <ol className="list-decimal list-inside space-y-1 ml-2">
+                                  <li>Click the <strong>"Deploy"</strong> button in the top right of Replit</li>
+                                  <li>If already deployed, you'll see your deployment URL displayed</li>
+                                  <li>It will look like: <code className="bg-background px-1 py-0.5 rounded">https://your-repl-name.replit.app</code> or <code className="bg-background px-1 py-0.5 rounded">https://xxx-xxx-xxx.replit.dev</code></li>
+                                </ol>
+                                <p className="mt-2"><strong>Option 2: From Replit URL bar</strong></p>
+                                <p className="ml-2">If your Repl is deployed, check the URL in your browser's address bar when viewing the deployed app.</p>
+                                <p className="mt-2"><strong>Option 3: From environment variables</strong></p>
+                                <p className="ml-2">In Replit Shell, run: <code className="bg-background px-1 py-0.5 rounded">echo $REPLIT_DOMAINS</code></p>
+                                <p className="text-xs mt-2 italic">Note: Use the production URL (ends in .replit.app or .replit.dev), not the development URL.</p>
+                              </CollapsibleContent>
+                            </Collapsible>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                gh secret set BACKEND_URL --body "https://your-repl-url.repl.co"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set BACKEND_URL --body "https://your-repl-url.repl.co"', 'gh-secret-backend')}
+                              >
+                                {copied === 'gh-secret-backend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Replace <code className="bg-background px-1 py-0.5 rounded">https://your-repl-url.repl.co</code> with your actual Replit deployment URL (see instructions above).
+                            </p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">6. Add admin key:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                gh secret set ADMIN_KEY --body "YOUR_ADMIN_KEY"
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh secret set ADMIN_KEY --body "YOUR_ADMIN_KEY"', 'gh-secret-admin')}
+                              >
+                                {copied === 'gh-secret-admin' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Use the same ADMIN_KEY value you added to Replit Secrets earlier.
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+
+                      <div>
+                        <h3 className="font-semibold mb-2">Step 6: Clone Repository and Setup Workflow</h3>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Clone your repository and add the GitHub Actions workflow file:
+                        </p>
+                        <div className="bg-muted p-4 rounded-md space-y-3">
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">1. Clone your repository:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                gh repo clone &lt;your-username&gt;/&lt;repo-name&gt;
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('gh repo clone <your-username>/<repo-name>', 'gh-clone')}
+                              >
+                                {copied === 'gh-clone' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">2. Create GitHub Actions workflow directory:</Label>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                mkdir -p .github/workflows
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('mkdir -p .github/workflows', 'gh-mkdir')}
+                              >
+                                {copied === 'gh-mkdir' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">3. Create workflow file:</Label>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Create <code className="bg-background px-1 py-0.5 rounded">.github/workflows/android-build.yml</code> with the following content:
+                            </p>
+                            <Collapsible className="mt-2">
+                              <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline mb-2">
+                                <span>Click to view workflow file template</span>
+                                <ChevronDown className="h-3 w-3" />
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <div className="bg-background border rounded-md p-4 mt-2">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <code className="text-xs text-muted-foreground">.github/workflows/android-build.yml</code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        const workflowContent = `name: Build and Deploy Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x android/gradlew
+      working-directory: \${{ github.workspace }}
+    
+    - name: Build APK
+      run: ./gradlew assembleRelease
+      working-directory: \${{ github.workspace }}/android
+    
+    - name: Register APK with NexMDM
+      env:
+        BACKEND_URL: \${{ secrets.BACKEND_URL }}
+        ADMIN_KEY: \${{ secrets.ADMIN_KEY }}
+      run: |
+        # Extract APK info and register with backend
+        # Add your registration script here
+    
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-release
+        path: android/app/build/outputs/apk/release/*.apk`
+                                        copyToClipboard(workflowContent, 'workflow-file')
+                                      }}
+                                    >
+                                      {copied === 'workflow-file' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                    </Button>
+                                  </div>
+                                    <pre className="text-xs overflow-x-auto">
+                                    <code>{`name: Build and Deploy Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x android/gradlew
+      working-directory: \${{ github.workspace }}
+    
+    - name: Build APK
+      run: ./gradlew assembleRelease
+      working-directory: \${{ github.workspace }}/android
+    
+    - name: Register APK with NexMDM
+      env:
+        BACKEND_URL: \${{ secrets.BACKEND_URL }}
+        ADMIN_KEY: \${{ secrets.ADMIN_KEY }}
+      run: |
+        # Extract APK info and register with backend
+        # Add your registration script here
+    
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-release
+        path: android/app/build/outputs/apk/release/*.apk`}</code>
+                                  </pre>
+                                  <p className="text-xs text-muted-foreground mt-2">
+                                    <strong>Note:</strong> This is a basic template. You may need to customize it based on your Android project structure. 
+                                    Make sure your Android project is in the <code className="bg-muted px-1 py-0.5 rounded">android/</code> directory.
+                                  </p>
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {skipGitHubCI && (
+                    <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                      <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                      <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-sm">
+                        You've chosen to skip GitHub CI/CD setup. You'll need to build APKs manually using Android Studio. 
+                        You can configure GitHub Actions later if needed.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
 
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => handleStepChange(2)}>
                     <ArrowLeft className="mr-2 h-4 w-4" /> Back
                   </Button>
-                  <Button
-                    onClick={() => {
-                      setShowGitHub(true)
-                      handleStepChange(4)
-                    }}
-                    className="flex-1"
-                  >
-                    Skip GitHub Setup <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setShowGitHub(true)
-                      handleStepChange(4)
-                    }}
-                    variant="default"
-                  >
-                    Configure GitHub <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
+                  {skipGitHubCI ? (
+                    <Button
+                      onClick={() => {
+                        setShowGitHub(true)
+                        handleStepChange(4)
+                      }}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      Skip (Not Recommended) <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        setShowGitHub(true)
+                        handleStepChange(4)
+                      }}
+                      className="flex-1"
+                    >
+                      Continue to Next Step <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -867,14 +1293,141 @@ export default function SetupPage() {
                   </p>
                 </div>
 
-                <Alert>
-                  <AlertDescription>
-                    <strong>Next steps:</strong>
-                    <ol className="list-decimal list-inside mt-2 space-y-1 text-sm">
-                      <li>Make sure all secrets are added to Replit Secrets tab</li>
-                      <li>Restart your Repl if needed</li>
-                      <li>Create your admin account via the signup page</li>
-                      <li>Start enrolling devices!</li>
+                {/* Verification Steps */}
+                <Collapsible>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full p-4 bg-muted rounded-md hover:bg-muted/80">
+                    <div className="flex items-center gap-2">
+                      <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                      <span className="font-semibold">Verify Your Setup</span>
+                    </div>
+                    <ChevronDown className="h-4 w-4" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="p-4 space-y-4 bg-muted/50 rounded-b-md">
+                      <div>
+                        <h4 className="font-semibold mb-2 text-sm">1. Check Backend Status</h4>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Verify that your backend is running and accessible:
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs flex-1 bg-background p-2 rounded">
+                            curl {typeof window !== 'undefined' ? window.location.origin : ''}/api/setup/status
+                          </code>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(`${typeof window !== 'undefined' ? window.location.origin : ''}/api/setup/status`, 'verify-backend')}
+                          >
+                            {copied === 'verify-backend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Or click the "Verify Configuration" button below to check automatically.
+                        </p>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-2 text-sm">2. Verify Secrets</h4>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          Make sure all secrets are correctly added to Replit Secrets:
+                        </p>
+                        <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
+                          <li><code className="bg-background px-1 py-0.5 rounded">ADMIN_KEY</code> - Should be at least 16 characters</li>
+                          <li><code className="bg-background px-1 py-0.5 rounded">SESSION_SECRET</code> - Should be at least 32 characters</li>
+                          <li><code className="bg-background px-1 py-0.5 rounded">FIREBASE_SERVICE_ACCOUNT_JSON</code> - Should be valid JSON</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-2 text-sm">3. Restart Backend (if needed)</h4>
+                        <p className="text-sm text-muted-foreground">
+                          If you just added secrets, restart your Repl backend to load the new environment variables.
+                          Click the "Stop" button and then "Run" again in Replit.
+                        </p>
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Troubleshooting Section */}
+                <Accordion type="single" collapsible>
+                  <AccordionItem value="troubleshooting">
+                    <AccordionTrigger className="flex items-center gap-2">
+                      <HelpCircle className="h-5 w-5 text-muted-foreground" />
+                      <span>Troubleshooting</span>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="space-y-4 text-sm">
+                        <div>
+                          <h4 className="font-semibold mb-1">Backend not accessible</h4>
+                          <ul className="list-disc list-inside text-muted-foreground space-y-1 ml-2">
+                            <li>Check if backend is running in Replit (look for "Running" status)</li>
+                            <li>Verify the backend URL is correct</li>
+                            <li>Check Replit console for error messages</li>
+                            <li>Try restarting the backend</li>
+                          </ul>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold mb-1">Firebase validation fails</h4>
+                          <ul className="list-disc list-inside text-muted-foreground space-y-1 ml-2">
+                            <li>Ensure JSON is valid (no extra commas, proper quotes)</li>
+                            <li>Check that all required fields are present: <code className="bg-background px-1 py-0.5 rounded">type</code>, <code className="bg-background px-1 py-0.5 rounded">project_id</code>, <code className="bg-background px-1 py-0.5 rounded">private_key</code>, <code className="bg-background px-1 py-0.5 rounded">client_email</code></li>
+                            <li>Make sure you copied the entire JSON content, including opening and closing braces</li>
+                            <li>Verify the JSON is pasted as a single-line string in Replit Secrets</li>
+                          </ul>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold mb-1">GitHub CLI authentication fails</h4>
+                          <ul className="list-disc list-inside text-muted-foreground space-y-1 ml-2">
+                            <li>Re-run <code className="bg-background px-1 py-0.5 rounded">gh auth login</code></li>
+                            <li>Choose "HTTPS" and "Login with a web browser"</li>
+                            <li>Complete authentication in the browser window that opens</li>
+                            <li>Verify with <code className="bg-background px-1 py-0.5 rounded">gh auth status</code></li>
+                          </ul>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold mb-1">Secrets not working</h4>
+                          <ul className="list-disc list-inside text-muted-foreground space-y-1 ml-2">
+                            <li>Verify secret names match exactly (case-sensitive): <code className="bg-background px-1 py-0.5 rounded">ADMIN_KEY</code>, <code className="bg-background px-1 py-0.5 rounded">SESSION_SECRET</code>, etc.</li>
+                            <li>Check for typos or extra spaces</li>
+                            <li>Ensure secrets are added to the correct Replit Secrets tab</li>
+                            <li>Restart backend after adding new secrets</li>
+                          </ul>
+                        </div>
+                        <div>
+                          <h4 className="font-semibold mb-1">Setup status shows "Not Ready"</h4>
+                          <ul className="list-disc list-inside text-muted-foreground space-y-1 ml-2">
+                            <li>Click "Verify Configuration" button to refresh status</li>
+                            <li>Check that all required secrets are configured and valid</li>
+                            <li>Review error messages in the setup status response</li>
+                            <li>Ensure backend is running and accessible</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+
+                {/* What's Next Section */}
+                <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                  <Info className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  <AlertDescription className="text-green-800 dark:text-green-300">
+                    <strong>What's Next:</strong>
+                    <ol className="list-decimal list-inside mt-2 space-y-2 text-sm">
+                      <li>
+                        <strong>Verify your configuration:</strong> Click "Verify Configuration" below to ensure all secrets are properly set up
+                      </li>
+                      <li>
+                        <strong>Restart your Repl:</strong> If you just added secrets, stop and restart your Repl backend to load the new environment variables
+                      </li>
+                      <li>
+                        <strong>Create your admin account:</strong> Click "Go to Signup" to create your first admin user account
+                      </li>
+                      <li>
+                        <strong>Start enrolling devices:</strong> Once logged in, you can begin enrolling Android devices to your MDM system
+                      </li>
+                      <li>
+                        <strong>Configure GitHub CI/CD (optional):</strong> If you skipped GitHub setup earlier, you can set it up later when your Android project is ready
+                      </li>
                     </ol>
                   </AlertDescription>
                 </Alert>
@@ -896,11 +1449,17 @@ export default function SetupPage() {
                         Verifying...
                       </>
                     ) : (
-                      "Verify Configuration"
+                      <>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Verify Configuration
+                      </>
                     )}
                   </Button>
                   <Button
                     onClick={() => {
+                      // Mark setup as complete in sessionStorage before navigating
+                      // This ensures SetupCheck allows signup page to proceed
+                      sessionStorage.setItem('setup_checked', 'ready')
                       localStorage.removeItem('setup_step')
                       router.push('/signup')
                     }}

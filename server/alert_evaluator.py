@@ -273,7 +273,10 @@ class AlertEvaluator:
         
         if not service_up:
             # Service is DOWN
-            value = f"{int(foreground_recent_s)}s" if foreground_recent_s else "unknown"
+            if foreground_recent_s is not None:
+                value = f"{int(foreground_recent_s)}s"
+            else:
+                value = "unknown"
             
             if not alert_state or alert_state.state != "raised":
                 self._create_or_update_alert_state(
