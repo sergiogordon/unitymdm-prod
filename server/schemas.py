@@ -116,7 +116,7 @@ class UpdateDeviceSettingsRequest(BaseModel):
 
 class ActionResultRequest(BaseModel):
     request_id: str = Field(..., min_length=1, max_length=100)
-    device_id: str = Field(..., min_length=1, max_length=100)
+    device_id: Optional[str] = Field(None, max_length=100)  # Optional - use authenticated device.id instead
     action: str = Field(..., max_length=50)
     outcome: str = Field(..., max_length=50)
     message: Optional[str] = Field(None, max_length=1000)

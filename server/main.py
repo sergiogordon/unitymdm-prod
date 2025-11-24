@@ -2309,10 +2309,18 @@ async def action_result(
 ):
     """
     Receive action result from device after executing FCM command.
-    Validates device_id matches authenticated device and updates dispatch record.
+    Uses authenticated device.id as the authoritative source (not payload.device_id).
     """
-    if payload.device_id != device.id:
-        raise HTTPException(status_code=403, detail="device_id mismatch")
+    # Use authenticated device.id - don't trust client-provided device_id
+    # Log if there's a mismatch for debugging (but don't reject)
+    if payload.device_id and payload.device_id != device.id:
+        structured_logger.log_event(
+            "result.device_id_mismatch",
+            level="WARN",
+            payload_device_id=payload.device_id,
+            auth_device_id=device.id,
+            message="Using authenticated device.id"
+        )
     
     from models import FcmDispatch
     
@@ -2325,7 +2333,7 @@ async def action_result(
             "result.unknown",
             level="WARN",
             request_id=payload.request_id,
-            device_id=payload.device_id,
+            device_id=device.id,
             action=payload.action,
             outcome=payload.outcome
         )
@@ -2335,7 +2343,7 @@ async def action_result(
         structured_logger.log_event(
             "result.duplicate",
             request_id=payload.request_id,
-            device_id=payload.device_id,
+            device_id=device.id,
             action=payload.action,
             outcome=payload.outcome,
             message="idempotent_repost"
@@ -2351,7 +2359,7 @@ async def action_result(
     structured_logger.log_event(
         "result.posted",
         request_id=payload.request_id,
-        device_id=payload.device_id,
+        device_id=device.id,
         action=payload.action,
         outcome=payload.outcome,
         message=payload.message
