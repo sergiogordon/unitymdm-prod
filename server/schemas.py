@@ -40,7 +40,7 @@ class SelfHealHints(BaseModel):
     last_crash_speedtest: Optional[str] = None
 
 class HeartbeatPayload(BaseModel):
-    device_id: str = Field(..., min_length=1, max_length=100)
+    device_id: Optional[str] = Field(None, max_length=100)  # Optional - use authenticated device.id instead
     alias: str = Field(..., min_length=1, max_length=200)
     app_version: Optional[str] = Field(None, max_length=50)
     timestamp_utc: str = Field(..., max_length=50)
