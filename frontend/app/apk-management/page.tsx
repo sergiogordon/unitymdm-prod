@@ -5,9 +5,18 @@ import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
 import { SettingsDrawer } from "@/components/settings-drawer"
 import { ApkUploadDialog } from "@/components/apk-upload-dialog"
-import { Package, Upload, Download, Trash2, RefreshCw, Send } from "lucide-react"
+import { Package, Upload, Download, Trash2, RefreshCw, Send, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { format } from "date-fns"
 import { toZonedTime } from "date-fns-tz"
 import { useTheme } from "@/contexts/ThemeContext"
@@ -32,6 +41,9 @@ export default function ApkManagementPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showUploadModal, setShowUploadModal] = useState(false)
+  const [selectedBuildIds, setSelectedBuildIds] = useState<Set<number>>(new Set())
+  const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const fetchApkBuilds = async () => {
     setIsLoading(true)
@@ -54,6 +66,22 @@ export default function ApkManagementPage() {
   useEffect(() => {
     fetchApkBuilds()
   }, [])
+
+  // Clean up selected IDs that no longer exist in the list
+  useEffect(() => {
+    if (apkBuilds.length > 0 && selectedBuildIds.size > 0) {
+      const existingIds = new Set(apkBuilds.map(apk => apk.build_id))
+      setSelectedBuildIds(prev => {
+        const next = new Set<number>()
+        prev.forEach(id => {
+          if (existingIds.has(id)) {
+            next.add(id)
+          }
+        })
+        return next
+      })
+    }
+  }, [apkBuilds])
 
   const handleRefresh = () => {
     fetchApkBuilds()
@@ -105,11 +133,100 @@ export default function ApkManagementPage() {
       }
       
       fetchApkBuilds()
+      setSelectedBuildIds(prev => {
+        const next = new Set(prev)
+        next.delete(buildId)
+        return next
+      })
     } catch (err) {
       console.error('Delete error:', err)
       alert('Failed to delete APK build')
     }
   }
+
+  const handleToggleSelect = (buildId: number) => {
+    setSelectedBuildIds(prev => {
+      const next = new Set(prev)
+      if (next.has(buildId)) {
+        next.delete(buildId)
+      } else {
+        next.add(buildId)
+      }
+      return next
+    })
+  }
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedBuildIds(new Set(apkBuilds.map(apk => apk.build_id)))
+    } else {
+      setSelectedBuildIds(new Set())
+    }
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedBuildIds.size === 0) return
+
+    setIsDeleting(true)
+    setError(null)
+
+    const buildIdsArray = Array.from(selectedBuildIds)
+    const failedDeletes: { buildId: number; filename: string }[] = []
+    const successfulDeletes: number[] = []
+
+    // Delete APKs sequentially to avoid overwhelming the server
+    for (const buildId of buildIdsArray) {
+      const apk = apkBuilds.find(a => a.build_id === buildId)
+      if (!apk) continue
+
+      try {
+        const response = await fetch(`/admin/apk/builds?build_id=${buildId}`, {
+          method: 'DELETE',
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || errorData.error || 'Delete failed')
+        }
+
+        successfulDeletes.push(buildId)
+      } catch (err) {
+        console.error(`Failed to delete APK ${buildId}:`, err)
+        failedDeletes.push({ buildId, filename: apk.filename })
+      }
+    }
+
+    setIsDeleting(false)
+    setShowBatchDeleteDialog(false)
+
+    // Update UI optimistically - remove successfully deleted items
+    if (successfulDeletes.length > 0) {
+      setApkBuilds(prev => prev.filter(apk => !successfulDeletes.includes(apk.build_id)))
+      setSelectedBuildIds(prev => {
+        const next = new Set(prev)
+        successfulDeletes.forEach(id => next.delete(id))
+        return next
+      })
+    }
+
+    // Show results
+    if (failedDeletes.length > 0) {
+      const failedNames = failedDeletes.map(f => f.filename).join(', ')
+      const message = successfulDeletes.length > 0
+        ? `Successfully deleted ${successfulDeletes.length} APK(s). Failed to delete: ${failedNames}`
+        : `Failed to delete APK(s): ${failedNames}`
+      setError(message)
+    } else if (successfulDeletes.length > 0) {
+      // Refresh to ensure consistency
+      fetchApkBuilds()
+    }
+  }
+
+  const getSelectedApks = () => {
+    return apkBuilds.filter(apk => selectedBuildIds.has(apk.build_id))
+  }
+
+  const isAllSelected = apkBuilds.length > 0 && selectedBuildIds.size === apkBuilds.length
 
 
   const formatFileSize = (bytes: number): string => {
@@ -137,8 +254,26 @@ export default function ApkManagementPage() {
         <div className="space-y-6">
           <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-card-foreground">Available APK Files</h2>
+              <div className="flex items-center gap-4">
+                <h2 className="text-lg font-semibold text-card-foreground">Available APK Files</h2>
+                {selectedBuildIds.size > 0 && (
+                  <span className="text-sm text-muted-foreground">
+                    {selectedBuildIds.size} selected
+                  </span>
+                )}
+              </div>
               <div className="flex gap-2">
+                {selectedBuildIds.size > 0 && (
+                  <Button
+                    onClick={() => setShowBatchDeleteDialog(true)}
+                    variant="destructive"
+                    className="gap-2"
+                    disabled={isDeleting || isLoading}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete Selected ({selectedBuildIds.size})
+                  </Button>
+                )}
                 <Button onClick={handleRefresh} variant="outline" className="gap-2" disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                   Refresh
@@ -169,6 +304,13 @@ export default function ApkManagementPage() {
                 <table className="w-full">
                   <thead className="border-b border-border bg-muted/50">
                     <tr>
+                      <th className="w-12 px-4 py-3">
+                        <Checkbox
+                          checked={isAllSelected}
+                          onCheckedChange={handleSelectAll}
+                          aria-label="Select all APKs"
+                        />
+                      </th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">File Name</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Version</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Size</th>
@@ -177,47 +319,66 @@ export default function ApkManagementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {apkBuilds.map((apk) => (
-                      <tr key={apk.build_id} className="border-b border-border last:border-0">
-                        <td className="px-4 py-3 font-mono text-sm text-card-foreground">{apk.filename}</td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">{apk.version_name}</td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {formatFileSize(apk.file_size_bytes)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-muted-foreground">
-                          {formatUploadedTime(apk.uploaded_at)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDownload(apk.build_id, apk.filename)}
-                              title="Download APK"
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => window.location.href = `/apk-deploy/${apk.build_id}`}
-                              title="Deploy to Devices"
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-950"
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(apk.build_id, apk.filename)}
-                              title="Delete APK"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {apkBuilds.map((apk) => {
+                      const isSelected = selectedBuildIds.has(apk.build_id)
+                      return (
+                        <tr
+                          key={apk.build_id}
+                          className={`border-b border-border last:border-0 transition-colors ${
+                            isSelected ? 'bg-primary/5' : ''
+                          }`}
+                        >
+                          <td className="px-4 py-3">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => handleToggleSelect(apk.build_id)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={`Select ${apk.filename}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-mono text-sm text-card-foreground">{apk.filename}</td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">{apk.version_name}</td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">
+                            {formatFileSize(apk.file_size_bytes)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">
+                            {formatUploadedTime(apk.uploaded_at)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownload(apk.build_id, apk.filename)}
+                                title="Download APK"
+                                disabled={isDeleting}
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => window.location.href = `/apk-deploy/${apk.build_id}`}
+                                title="Deploy to Devices"
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-950"
+                                disabled={isDeleting}
+                              >
+                                <Send className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(apk.build_id, apk.filename)}
+                                title="Delete APK"
+                                disabled={isDeleting}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -235,6 +396,60 @@ export default function ApkManagementPage() {
       />
 
       <SettingsDrawer isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+      {/* Batch Delete Confirmation Dialog */}
+      <Dialog open={showBatchDeleteDialog} onOpenChange={setShowBatchDeleteDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Delete {selectedBuildIds.size} APK{selectedBuildIds.size !== 1 ? 's' : ''}
+            </DialogTitle>
+            <DialogDescription className="text-left pt-2">
+              This action <strong>cannot be undone</strong>. This will permanently delete the selected APK files.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {getSelectedApks().length > 0 && (
+              <div>
+                <div className="text-sm font-medium mb-2">APKs to be deleted:</div>
+                <div className="mt-2 rounded-md border border-border bg-muted/50 p-3 max-h-[200px] overflow-y-auto">
+                  <ul className="text-sm space-y-1">
+                    {getSelectedApks().slice(0, 10).map((apk) => (
+                      <li key={apk.build_id} className="text-muted-foreground font-mono text-xs">
+                        • {apk.filename} ({apk.version_name})
+                      </li>
+                    ))}
+                    {getSelectedApks().length > 10 && (
+                      <li className="text-muted-foreground italic">
+                        ... and {getSelectedApks().length - 10} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowBatchDeleteDialog(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBatchDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : `Delete ${selectedBuildIds.size} APK${selectedBuildIds.size !== 1 ? 's' : ''}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
