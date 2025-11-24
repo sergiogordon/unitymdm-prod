@@ -58,7 +58,8 @@ const FCM_PRESETS = {
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
   enable_dnd: { type: "set_dnd", enable: "true" },
   disable_dnd: { type: "set_dnd", enable: "false" },
-  exempt_unity_app: { type: "exempt_unity_app" }
+  exempt_unity_app: { type: "exempt_unity_app" },
+  enable_stay_awake: { type: "enable_stay_awake" }
 }
 
 const SHELL_PRESETS = {
@@ -68,7 +69,8 @@ const SHELL_PRESETS = {
   disable_auto_update: "settings put global auto_system_update_policy 0",
   trigger_update_service: "cmd jobscheduler run -f android/com.android.server.update.SystemUpdateService 1",
   check_os_version: "getprop ro.build.version.release",
-  check_security_patch: "getprop ro.build.version.security_patch"
+  check_security_patch: "getprop ro.build.version.security_patch",
+  enable_stay_awake: "settings put global stay_on_while_plugged_in 7"
 }
 
 export default function RemoteExecutionPage() {
@@ -791,6 +793,7 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="enable_dnd">Enable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="exempt_unity_app">🔋 Exempt Unity App from Battery Optimization</SelectItem>
+                          <SelectItem value="enable_stay_awake">🔋 Enable Stay Awake When Charging</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -827,6 +830,7 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="check_os_version">📱 Check OS Version</SelectItem>
                           <SelectItem value="check_security_patch">🔒 Check Security Patch Level</SelectItem>
                           <SelectItem value="apply_bloatware">🚫 Apply Disabled Apps List</SelectItem>
+                          <SelectItem value="enable_stay_awake">🔋 Enable Stay Awake When Charging</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

@@ -164,6 +164,11 @@ class QueueManager(
             return false
         }
         
+        if (item.type == TYPE_HEARTBEAT && deviceId.isEmpty()) {
+            Log.w(TAG, "send.skip: type=${item.type}, id=${item.id}, missing_device_id=true")
+            return false
+        }
+        
         val endpoint = when (item.type) {
             TYPE_HEARTBEAT -> "/v1/heartbeat"
             TYPE_ACTION_RESULT -> "/v1/devices/$deviceId/ack"

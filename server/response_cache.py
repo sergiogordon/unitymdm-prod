@@ -66,6 +66,7 @@ class ResponseCache:
         Args:
             pattern: If provided, invalidate entries matching the path pattern.
                      Matches entries where stored path starts with pattern.
+                     Also invalidates entries without path metadata (legacy entries).
                      If None, invalidate all entries.
         """
         with self._lock:
@@ -74,9 +75,11 @@ class ResponseCache:
             else:
                 # Match by stored path metadata instead of key prefix
                 # This works with MD5-hashed keys
+                # Also invalidate entries without path metadata (legacy entries created before path was added)
+                # to avoid serving stale data from entries that can't be matched by pattern
                 keys_to_remove = [
                     k for k, entry in self._cache.items()
-                    if entry.get('path') and entry['path'].startswith(pattern)
+                    if not entry.get('path') or entry['path'].startswith(pattern)
                 ]
                 for key in keys_to_remove:
                     del self._cache[key]

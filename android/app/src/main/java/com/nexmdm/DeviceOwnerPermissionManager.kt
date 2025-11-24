@@ -270,6 +270,35 @@ class DeviceOwnerPermissionManager(private val context: Context) {
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
+    fun enableStayAwake(): Boolean {
+        if (!isDeviceOwner()) {
+            Log.e(TAG, "Not Device Owner - cannot enable Stay Awake")
+            return false
+        }
+
+        return try {
+            // Value 7 enables stay awake for all charging types:
+            // 1 = AC charging
+            // 2 = USB charging
+            // 4 = Wireless charging
+            // 7 = All (1+2+4)
+            devicePolicyManager.setGlobalSetting(
+                adminComponent,
+                "stay_on_while_plugged_in",
+                "7"
+            )
+            Log.i(TAG, "Stay Awake enabled successfully (all charging types)")
+            true
+        } catch (e: SecurityException) {
+            Log.e(TAG, "SecurityException while enabling Stay Awake", e)
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception while enabling Stay Awake", e)
+            false
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
     fun verifyAdaptiveBatteryStatus(): BatteryManagementStatus {
         val settings = mutableMapOf<String, String>()
         

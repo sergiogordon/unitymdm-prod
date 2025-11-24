@@ -177,7 +177,7 @@ class MonitorService : Service() {
     }
     
     private fun sendHeartbeat(isPingResponse: Boolean = false, pingRequestId: String? = null) {
-        if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty()) {
+        if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty() || prefs.deviceId.isEmpty()) {
             return
         }
         

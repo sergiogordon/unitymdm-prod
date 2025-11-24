@@ -1260,6 +1260,27 @@ class FcmMessagingService : FirebaseMessagingService() {
                         error = "Not Device Owner - cannot exempt Unity app from battery optimization"
                     }
                 }
+                "enable_stay_awake" -> {
+                    val permissionManager = DeviceOwnerPermissionManager(this)
+                    if (permissionManager.isDeviceOwner()) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val success = permissionManager.enableStayAwake()
+                            if (success) {
+                                output = "Stay Awake enabled successfully (all charging types)"
+                                status = "OK"
+                            } else {
+                                status = "FAILED"
+                                error = "Failed to enable Stay Awake"
+                            }
+                        } else {
+                            status = "FAILED"
+                            error = "Stay Awake requires Android M (API 23) or higher"
+                        }
+                    } else {
+                        status = "FAILED"
+                        error = "Not Device Owner - cannot enable Stay Awake"
+                    }
+                }
                 else -> {
                     status = "FAILED"
                     error = "Unknown FCM command type: $type"

@@ -110,7 +110,7 @@ class DeployApkRequest(BaseModel):
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = Field(None, max_length=200)
     monitored_app_name: Optional[str] = Field(None, max_length=200)
-    monitored_threshold_min: Optional[int] = Field(None, ge=1, le=120)  # 1 to 120 minutes
+    monitored_threshold_min: Optional[int] = Field(None, ge=1, le=1440)  # 1 to 1440 minutes (24 hours) - values > 120 minutes are deprecated but allowed for backward compatibility
     monitor_enabled: Optional[bool] = None
     auto_relaunch_enabled: Optional[bool] = None
 

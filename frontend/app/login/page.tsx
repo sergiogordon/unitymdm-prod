@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Moon, Sun, LogIn, Loader2 } from "lucide-react"
+import { Moon, Sun, LogIn } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,53 +12,23 @@ import { useAuth } from "@/lib/auth"
 import { ForgotPasswordModal } from "@/components/forgot-password-modal"
 import { useTheme } from "@/contexts/ThemeContext"
 
-const BACKEND_URL = '/api/proxy'
-
 export default function LoginPage() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [showForgotPassword, setShowForgotPassword] = useState(false)
-  const [checkingSetup, setCheckingSetup] = useState(true)
   const router = useRouter()
   const { login, isAuthenticated } = useAuth()
   const { isDark, toggleTheme } = useTheme()
 
-  // Check setup status before allowing login
-  useEffect(() => {
-    const checkSetup = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/setup/status`)
-        if (response.ok) {
-          const status = await response.json()
-          if (!status.ready) {
-            // Setup not complete, redirect to setup wizard
-            router.push('/setup')
-            return
-          }
-          // Setup is confirmed complete - allow login page to render
-          setCheckingSetup(false)
-          return
-        }
-        // Response not OK - assume setup needed and redirect
-        console.error('Setup status check failed:', response.status, response.statusText)
-        router.push('/setup')
-      } catch (error) {
-        // If backend is unreachable, assume setup needed
-        console.error('Setup check failed:', error)
-        router.push('/setup')
-      }
-    }
-
-    checkSetup()
-  }, [router])
-
+  // SetupCheck wrapper handles setup verification
+  // It allows login page to proceed even when backend is temporarily unavailable
   // Only redirect if we're actually on the login page and user is authenticated
   useEffect(() => {
-    if (!checkingSetup && isAuthenticated && typeof window !== 'undefined' && window.location.pathname === '/login') {
+    if (isAuthenticated && typeof window !== 'undefined' && window.location.pathname === '/login') {
       router.push('/')
     }
-  }, [isAuthenticated, router, checkingSetup])
+  }, [isAuthenticated, router])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -79,17 +49,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false)
     }
-  }
-
-  if (checkingSetup) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground">Checking configuration...</p>
-        </div>
-      </div>
-    )
   }
 
   return (

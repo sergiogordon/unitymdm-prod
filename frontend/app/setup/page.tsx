@@ -76,6 +76,40 @@ export default function SetupPage() {
   const [keyPassword, setKeyPassword] = useState("")
   const [keyAlias, setKeyAlias] = useState("nexmdm")
 
+  // Define steps array before useEffect that references it
+  const steps = [
+    {
+      id: 'welcome',
+      title: 'Welcome to NexMDM Setup',
+      icon: Sparkles
+    },
+    {
+      id: 'admin',
+      title: 'Admin Credentials',
+      icon: Key
+    },
+    {
+      id: 'firebase',
+      title: 'Firebase Configuration',
+      icon: Cloud
+    },
+    {
+      id: 'github',
+      title: 'GitHub CI/CD (Recommended)',
+      icon: Github
+    },
+    {
+      id: 'keystore',
+      title: 'Android Keystore (Optional)',
+      icon: Shield
+    },
+    {
+      id: 'complete',
+      title: 'Setup Complete',
+      icon: CheckCircle2
+    }
+  ]
+
   // Load saved progress from localStorage
   useEffect(() => {
     const savedStep = localStorage.getItem('setup_step')
@@ -85,7 +119,7 @@ export default function SetupPage() {
         setCurrentStep(step)
       }
     }
-  }, [])
+  }, [steps.length])
 
   useEffect(() => {
     checkSetupStatus()
@@ -255,39 +289,6 @@ export default function SetupPage() {
       setFirebaseValidating(false)
     }
   }
-
-  const steps = [
-    {
-      id: 'welcome',
-      title: 'Welcome to NexMDM Setup',
-      icon: Sparkles
-    },
-    {
-      id: 'admin',
-      title: 'Admin Credentials',
-      icon: Key
-    },
-    {
-      id: 'firebase',
-      title: 'Firebase Configuration',
-      icon: Cloud
-    },
-    {
-      id: 'github',
-      title: 'GitHub CI/CD (Recommended)',
-      icon: Github
-    },
-    {
-      id: 'keystore',
-      title: 'Android Keystore (Optional)',
-      icon: Shield
-    },
-    {
-      id: 'complete',
-      title: 'Setup Complete',
-      icon: CheckCircle2
-    }
-  ]
 
   const progress = ((currentStep + 1) / steps.length) * 100
 

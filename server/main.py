@@ -1405,29 +1405,37 @@ async def get_setup_status(request: Request):
     else:
         status["required"]["jwt_secret"]["message"] = "Not configured"
     
-    # Validate Firebase JSON
+    # Validate Firebase JSON (consistent with validate_firebase_json endpoint)
     firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
     if firebase_json:
         try:
             # Parse JSON (handles whitespace)
             firebase_data = json.loads(firebase_json.strip())
             # Check for required fields
-            if "type" in firebase_data and firebase_data["type"] == "service_account":
-                # Check for critical fields
-                required_fields = ["project_id", "private_key_id", "private_key", "client_email"]
-                missing_fields = [field for field in required_fields if field not in firebase_data]
-                if missing_fields:
+            required_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+            missing_fields = [field for field in required_fields if field not in firebase_data]
+            
+            if missing_fields:
+                status["required"]["firebase"]["valid"] = False
+                status["required"]["firebase"]["message"] = f"Missing required fields: {', '.join(missing_fields)}"
+            elif firebase_data.get("type") != "service_account":
+                status["required"]["firebase"]["valid"] = False
+                status["required"]["firebase"]["message"] = "JSON is not a service account type"
+            elif not firebase_data.get("project_id") or not firebase_data.get("client_email"):
+                status["required"]["firebase"]["valid"] = False
+                status["required"]["firebase"]["message"] = "project_id and client_email cannot be empty"
+            else:
+                # Validate private_key: must be a string and at least 100 characters
+                private_key = firebase_data.get("private_key")
+                if not private_key or not isinstance(private_key, str) or len(private_key) < 100:
                     status["required"]["firebase"]["valid"] = False
-                    status["required"]["firebase"]["message"] = f"Missing required fields: {', '.join(missing_fields)}"
+                    status["required"]["firebase"]["message"] = "private_key appears to be invalid or too short"
                 else:
                     status["required"]["firebase"]["valid"] = True
                     status["required"]["firebase"]["message"] = "✓ Valid"
-            else:
-                status["required"]["firebase"]["valid"] = False
-                status["required"]["firebase"]["message"] = "Invalid service account JSON format"
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, TypeError, AttributeError) as e:
             status["required"]["firebase"]["valid"] = False
-            status["required"]["firebase"]["message"] = f"Invalid JSON format: {str(e)}"
+            status["required"]["firebase"]["message"] = f"Invalid JSON format or structure: {str(e)}"
     else:
         status["required"]["firebase"]["message"] = "Not configured"
     
@@ -1516,7 +1524,9 @@ async def validate_firebase_json(request: Request):
                 content={"valid": False, "message": "project_id and client_email cannot be empty"}
             )
         
-        if not firebase_data.get("private_key") or len(firebase_data.get("private_key", "")) < 100:
+        # Validate private_key: must be a string and at least 100 characters
+        private_key = firebase_data.get("private_key")
+        if not private_key or not isinstance(private_key, str) or len(private_key) < 100:
             return JSONResponse(
                 status_code=400,
                 content={"valid": False, "message": "private_key appears to be invalid or too short"}
@@ -2974,8 +2984,12 @@ async def update_device_settings(
         updates["monitored_app_name"] = device.monitored_app_name
     
     if request.monitored_threshold_min is not None:
-        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 120:
-            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 120 minutes")
+        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 1440:
+            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 1440 minutes (24 hours)")
+        # Warn but allow values > 120 for backward compatibility
+        if request.monitored_threshold_min > 120:
+            import warnings
+            warnings.warn(f"Threshold value {request.monitored_threshold_min} minutes exceeds recommended maximum of 120 minutes. Values > 120 are deprecated.", DeprecationWarning)
         device.monitored_threshold_min = request.monitored_threshold_min
         updates["monitored_threshold_min"] = device.monitored_threshold_min
     
@@ -3069,8 +3083,12 @@ async def update_device_monitoring_settings(
         has_monitoring_update = True
     
     if request.monitored_threshold_min is not None:
-        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 120:
-            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 120 minutes")
+        if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 1440:
+            raise HTTPException(status_code=400, detail="Threshold must be between 1 and 1440 minutes (24 hours)")
+        # Warn but allow values > 120 for backward compatibility
+        if request.monitored_threshold_min > 120:
+            import warnings
+            warnings.warn(f"Threshold value {request.monitored_threshold_min} minutes exceeds recommended maximum of 120 minutes. Values > 120 are deprecated.", DeprecationWarning)
         device.monitored_threshold_min = request.monitored_threshold_min
         updates["monitored_threshold_min"] = device.monitored_threshold_min
         has_monitoring_update = True
@@ -3089,6 +3107,10 @@ async def update_device_monitoring_settings(
     
     log_device_event(db, device.id, "monitoring_settings_updated", updates)
     structured_logger.log_event("monitoring.update", device_id=device.id, updates=updates)
+    
+    # Invalidate cache on monitoring settings update
+    response_cache.invalidate("/v1/metrics")
+    response_cache.invalidate("/v1/devices")
     
     return {
         "ok": True,

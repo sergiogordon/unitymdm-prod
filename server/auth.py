@@ -3,12 +3,15 @@ import secrets
 import jwt
 import os
 import hashlib
+import time
 from datetime import datetime, timezone, timedelta
-from fastapi import HTTPException, Security, Depends, Cookie, Header
+from fastapi import HTTPException, Security, Depends, Cookie, Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Request as FastAPIRequest
 from sqlalchemy.orm import Session
 from models import Device, User, Session as SessionModel, get_db
 from typing import Optional
+from observability import structured_logger, metrics
 
 security = HTTPBearer(auto_error=False)
 SESSION_DURATION_DAYS = 7
@@ -35,29 +38,108 @@ def generate_device_token() -> str:
 
 async def verify_device_token(
     credentials: HTTPAuthorizationCredentials | None = Security(security),
+    request: Optional[FastAPIRequest] = None,
     db: Session = Depends(get_db)
 ) -> Device:
+    auth_start_time = time.time()
+    client_ip = None
+    request_path = None
+    
+    # Extract request context if available
+    try:
+        if request:
+            client_ip = request.client.host if request.client else "unknown"
+            request_path = request.url.path
+    except Exception:
+        pass  # Request context not available, continue without it
+    
     if not credentials:
+        metrics.inc_counter("device_auth_failures_total", {"reason": "missing_header"})
+        structured_logger.log_event(
+            "auth.device_token.failed",
+            level="WARN",
+            reason="missing_header",
+            client_ip=client_ip,
+            request_path=request_path
+        )
         raise HTTPException(status_code=403, detail="Missing authorization header")
+    
     token = credentials.credentials
+    token_length = len(token) if token else 0
     
     # Compute token_id for fast lookup
     token_id = compute_token_id(token)
+    token_id_prefix = token_id[:8] if len(token_id) >= 8 else token_id
     
     # First try fast lookup by token_id (for new devices)
     device = db.query(Device).filter(Device.token_id == token_id).first()
-    if device and verify_token(token, device.token_hash):
-        return device
+    device_found_by_token_id = device is not None
     
-    # Fallback: check devices without token_id (legacy devices)
-    # This will only run for old devices until they're migrated
-    legacy_devices = db.query(Device).filter(Device.token_id.is_(None)).all()
-    for device in legacy_devices:
-        if verify_token(token, device.token_hash):
-            # Migrate legacy device by setting token_id
-            device.token_id = token_id
-            db.commit()
+    if device:
+        # Device found by token_id, verify the token hash
+        token_verified = verify_token(token, device.token_hash)
+        if token_verified:
+            auth_latency_ms = (time.time() - auth_start_time) * 1000
+            metrics.observe_histogram("device_auth_latency_ms", auth_latency_ms, {})
+            structured_logger.log_event(
+                "auth.device_token.success",
+                level="INFO",
+                device_id=device.id,
+                token_id_prefix=token_id_prefix,
+                lookup_method="token_id",
+                latency_ms=auth_latency_ms
+            )
             return device
+        else:
+            # Token ID matched but hash verification failed - data integrity issue
+            # Don't try legacy lookup since token_id is unique and already matched
+            metrics.inc_counter("device_auth_failures_total", {"reason": "token_mismatch"})
+            structured_logger.log_event(
+                "auth.device_token.failed",
+                level="WARN",
+                reason="token_mismatch",
+                token_id_prefix=token_id_prefix,
+                device_id=device.id,
+                device_found_by_token_id=True,
+                client_ip=client_ip,
+                request_path=request_path
+            )
+            raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    # Device not found by token_id, try legacy lookup
+    legacy_devices = db.query(Device).filter(Device.token_id.is_(None)).all()
+    legacy_count = len(legacy_devices)
+    
+    for legacy_device in legacy_devices:
+        if verify_token(token, legacy_device.token_hash):
+            # Migrate legacy device by setting token_id
+            legacy_device.token_id = token_id
+            db.commit()
+            auth_latency_ms = (time.time() - auth_start_time) * 1000
+            metrics.observe_histogram("device_auth_latency_ms", auth_latency_ms, {})
+            structured_logger.log_event(
+                "auth.device_token.success",
+                level="INFO",
+                device_id=legacy_device.id,
+                token_id_prefix=token_id_prefix,
+                lookup_method="legacy_migrated",
+                latency_ms=auth_latency_ms
+            )
+            return legacy_device
+    
+    # No device found matching the token
+    metrics.inc_counter("device_auth_failures_total", {"reason": "token_not_found"})
+    structured_logger.log_event(
+        "auth.device_token.failed",
+        level="WARN",
+        reason="token_not_found",
+        token_id_prefix=token_id_prefix,
+        device_found_by_token_id=False,
+        legacy_devices_checked=legacy_count,
+        token_length=token_length,
+        client_ip=client_ip,
+        request_path=request_path
+    )
     
     raise HTTPException(status_code=401, detail="Invalid device token")
 

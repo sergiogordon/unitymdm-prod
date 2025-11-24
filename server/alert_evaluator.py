@@ -273,7 +273,8 @@ class AlertEvaluator:
         
         if not service_up:
             # Service is DOWN
-            if foreground_recent_s is not None:
+            # Handle -1 sentinel value (unavailable) same as None
+            if foreground_recent_s is not None and foreground_recent_s >= 0:
                 value = f"{int(foreground_recent_s)}s"
             else:
                 value = "unknown"
