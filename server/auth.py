@@ -38,29 +38,16 @@ def generate_device_token() -> str:
 
 async def verify_device_token(
     credentials: HTTPAuthorizationCredentials | None = Security(security),
-    request: Optional[FastAPIRequest] = None,
     db: Session = Depends(get_db)
 ) -> Device:
     auth_start_time = time.time()
-    client_ip = None
-    request_path = None
-    
-    # Extract request context if available
-    try:
-        if request:
-            client_ip = request.client.host if request.client else "unknown"
-            request_path = request.url.path
-    except Exception:
-        pass  # Request context not available, continue without it
     
     if not credentials:
         metrics.inc_counter("device_auth_failures_total", {"reason": "missing_header"})
         structured_logger.log_event(
             "auth.device_token.failed",
             level="WARN",
-            reason="missing_header",
-            client_ip=client_ip,
-            request_path=request_path
+            reason="missing_header"
         )
         raise HTTPException(status_code=403, detail="Missing authorization header")
     
@@ -100,9 +87,7 @@ async def verify_device_token(
                 reason="token_mismatch",
                 token_id_prefix=token_id_prefix,
                 device_id=device.id,
-                device_found_by_token_id=True,
-                client_ip=client_ip,
-                request_path=request_path
+                device_found_by_token_id=True
             )
             raise HTTPException(status_code=401, detail="Invalid device token")
     
@@ -136,9 +121,7 @@ async def verify_device_token(
         token_id_prefix=token_id_prefix,
         device_found_by_token_id=False,
         legacy_devices_checked=legacy_count,
-        token_length=token_length,
-        client_ip=client_ip,
-        request_path=request_path
+        token_length=token_length
     )
     
     raise HTTPException(status_code=401, detail="Invalid device token")
