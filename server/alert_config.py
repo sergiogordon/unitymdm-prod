@@ -7,14 +7,14 @@ class AlertConfig:
         # Heartbeat interval in seconds (default: 600 seconds = 10 minutes)
         self.HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "600"))
         
-        # Alert threshold: require 2 consecutive missed heartbeats
-        # Calculated as: heartbeat_interval * 2 / 60 (convert to minutes)
-        # Default: 600 * 2 / 60 = 20 minutes
+        # Alert threshold: require 3 consecutive missed heartbeats
+        # Calculated as: heartbeat_interval * 3 / 60 (convert to minutes)
+        # Default: 600 * 3 / 60 = 30 minutes
         alert_offline_minutes_env = os.getenv("ALERT_OFFLINE_MINUTES")
         if alert_offline_minutes_env:
             self.ALERT_OFFLINE_MINUTES = int(alert_offline_minutes_env)
         else:
-            self.ALERT_OFFLINE_MINUTES = int(self.HEARTBEAT_INTERVAL_SECONDS * 2 / 60)
+            self.ALERT_OFFLINE_MINUTES = int(self.HEARTBEAT_INTERVAL_SECONDS * 3 / 60)
         
         self.ALERT_LOW_BATTERY_PCT = int(os.getenv("ALERT_LOW_BATTERY_PCT", "15"))
         self.ALERT_DEVICE_COOLDOWN_MIN = int(os.getenv("ALERT_DEVICE_COOLDOWN_MIN", "30"))

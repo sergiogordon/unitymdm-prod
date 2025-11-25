@@ -63,10 +63,10 @@ class AlertEvaluator:
         device: Device
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """
-        Evaluate if device is offline, requiring 2 consecutive missed heartbeats.
+        Evaluate if device is offline, requiring 3 consecutive missed heartbeats.
         
-        Alert threshold: heartbeat_interval * 2 (default: 4 minutes with 2-min interval)
-        This ensures we've missed 2 consecutive expected heartbeats before alerting.
+        Alert threshold: heartbeat_interval * 3 (default: 30 minutes with 10-min interval)
+        This ensures we've missed 3 consecutive expected heartbeats before alerting.
         """
         now = datetime.now(timezone.utc)
         heartbeat_interval_seconds = self.config.HEARTBEAT_INTERVAL_SECONDS
@@ -89,12 +89,12 @@ class AlertEvaluator:
         # Calculate time since last heartbeat
         time_since_last_seen = now - last_seen
         
-        # Alert threshold: require 2 consecutive missed heartbeats
-        # If time since last heartbeat > heartbeat_interval * 2, we've missed 2 consecutive expected heartbeats
-        alert_threshold_seconds = heartbeat_interval_seconds * 2
+        # Alert threshold: require 3 consecutive missed heartbeats
+        # If time since last heartbeat > heartbeat_interval * 3, we've missed 3 consecutive expected heartbeats
+        alert_threshold_seconds = heartbeat_interval_seconds * 3
         alert_threshold = timedelta(seconds=alert_threshold_seconds)
         
-        # Check if we've missed 2 consecutive heartbeats
+        # Check if we've missed 3 consecutive heartbeats
         is_offline = time_since_last_seen > alert_threshold
         
         alert_state = self._get_alert_state(db, device.id, AlertCondition.OFFLINE)

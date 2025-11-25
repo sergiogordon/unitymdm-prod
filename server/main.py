@@ -1926,7 +1926,7 @@ async def heartbeat(
     if device.last_seen:
         offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
         heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
-        was_offline = offline_seconds > heartbeat_interval * 2
+        was_offline = offline_seconds > heartbeat_interval * 3
     
     if was_offline:
         # Async event logging - doesn't block the response
