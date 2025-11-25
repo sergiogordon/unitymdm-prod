@@ -16,6 +16,17 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.random.Random
 
+sealed class SendResult {
+    object Success : SendResult()
+    object NetworkError : SendResult()
+    object AuthFailure401 : SendResult()
+    data class HttpError(val code: Int) : SendResult()
+}
+
+interface AuthFailureListener {
+    fun onAuthFailureThresholdReached()
+}
+
 class QueueManager(
     private val context: Context,
     private val prefs: SecurePreferences,
@@ -34,7 +45,10 @@ class QueueManager(
         private const val DEDUPE_BUCKET_SECONDS = 10
         private const val TYPE_HEARTBEAT = "heartbeat"
         private const val TYPE_ACTION_RESULT = "action_result"
+        private const val AUTH_FAILURE_THRESHOLD = 5
     }
+    
+    var authFailureListener: AuthFailureListener? = null
     
     private val db = QueueDatabase.getDatabase(context)
     private val dao = db.queueDao()
@@ -192,22 +206,28 @@ class QueueManager(
             }
             
             val response = client.newCall(request).execute()
+            val responseCode = response.code
             val success = response.isSuccessful
             
             if (item.type == TYPE_ACTION_RESULT) {
                 if (success) {
                     val responseBody = response.body?.string() ?: ""
-                    Log.i(TAG, "[ACK-FLOW-13] ✓ ACK sent successfully! HTTP ${response.code}, response: $responseBody")
+                    Log.i(TAG, "[ACK-FLOW-13] ✓ ACK sent successfully! HTTP $responseCode, response: $responseBody")
                 } else {
                     val responseBody = response.body?.string() ?: ""
-                    Log.e(TAG, "[ACK-FLOW-ERROR] ✗ ACK send failed! HTTP ${response.code}, response: $responseBody")
+                    Log.e(TAG, "[ACK-FLOW-ERROR] ✗ ACK send failed! HTTP $responseCode, response: $responseBody")
                 }
             }
             
             if (success) {
                 Log.d(TAG, "send.ok: type=${item.type}, endpoint=$endpoint")
+                prefs.resetAuth401Counter()
             } else {
-                Log.w(TAG, "send.fail: type=${item.type}, endpoint=$endpoint, code=${response.code}")
+                Log.w(TAG, "send.fail: type=${item.type}, endpoint=$endpoint, code=$responseCode")
+                
+                if (responseCode == 401) {
+                    handleAuth401Error(item.type)
+                }
             }
             
             success
@@ -217,6 +237,19 @@ class QueueManager(
             }
             Log.e(TAG, "Network error sending ${item.type}", e)
             false
+        }
+    }
+    
+    private fun handleAuth401Error(itemType: String) {
+        val currentCount = prefs.consecutive401Count + 1
+        prefs.consecutive401Count = currentCount
+        
+        Log.w(TAG, "auth.401: consecutive_count=$currentCount, threshold=$AUTH_FAILURE_THRESHOLD, type=$itemType")
+        
+        if (currentCount >= AUTH_FAILURE_THRESHOLD) {
+            Log.e(TAG, "auth.401.threshold_reached: triggering credential reset and re-enrollment")
+            prefs.clearAuthCredentials()
+            authFailureListener?.onAuthFailureThresholdReached()
         }
     }
     
