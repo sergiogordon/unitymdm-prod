@@ -1877,6 +1877,7 @@ async def register_device(
 
 @app.post("/v1/heartbeat", response_model=HeartbeatResponse)
 async def heartbeat(
+    request: Request,
     payload: HeartbeatPayload,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
@@ -2305,6 +2306,7 @@ async def heartbeat(
 
 @app.post("/v1/action-result")
 async def action_result(
+    request: Request,
     payload: ActionResultRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
@@ -4046,6 +4048,7 @@ async def send_test_alert(
 
 @app.post("/v1/devices/fcm-token")
 async def update_fcm_token(
+    request: Request,
     payload: dict,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
@@ -4492,6 +4495,7 @@ class AckRequest(BaseModel):
 
 @app.post("/v1/devices/{device_id}/ack")
 async def acknowledge_command(
+    request: Request,
     device_id: str,
     payload: AckRequest,
     device: Device = Depends(verify_device_token),
@@ -4749,6 +4753,7 @@ async def grant_device_permissions(
 
 @app.post("/v1/diagnostic/packages")
 async def receive_package_list(
+    request: Request,
     payload: dict,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)

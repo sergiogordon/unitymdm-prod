@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, Security, Depends, Cookie, Header, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Request as FastAPIRequest
+from fastapi import Request
 from sqlalchemy.orm import Session
 from models import Device, User, Session as SessionModel, get_db
 from typing import Optional
@@ -37,17 +38,31 @@ def generate_device_token() -> str:
     return secrets.token_urlsafe(32)
 
 async def verify_device_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Security(security),
     db: Session = Depends(get_db)
 ) -> Device:
     auth_start_time = time.time()
+    
+    # Extract client IP address
+    client_ip = None
+    if request.client:
+        client_ip = request.client.host
+    elif request.headers.get("x-forwarded-for"):
+        # Handle proxy/load balancer forwarded IP
+        client_ip = request.headers.get("x-forwarded-for").split(",")[0].strip()
+    elif request.headers.get("x-real-ip"):
+        client_ip = request.headers.get("x-real-ip")
+    else:
+        client_ip = "unknown"
     
     if not credentials:
         metrics.inc_counter("device_auth_failures_total", {"reason": "missing_header"})
         structured_logger.log_event(
             "auth.device_token.failed",
             level="WARN",
-            reason="missing_header"
+            reason="missing_header",
+            client_ip=client_ip
         )
         raise HTTPException(status_code=403, detail="Missing authorization header")
     
@@ -87,6 +102,8 @@ async def verify_device_token(
                 reason="token_mismatch",
                 token_id_prefix=token_id_prefix,
                 device_id=device.id,
+                device_alias=device.alias,
+                client_ip=client_ip,
                 device_found_by_token_id=True
             )
             raise HTTPException(status_code=401, detail="Invalid device token")
@@ -113,16 +130,41 @@ async def verify_device_token(
             return legacy_device
     
     # No device found matching the token
+    # Try to match by IP address from recent heartbeats
+    matched_device_id = None
+    matched_device_alias = None
+    last_heartbeat_ts = None
+    
+    if client_ip and client_ip != "unknown":
+        from models import DeviceHeartbeat
+        recent_hb = db.query(DeviceHeartbeat).filter(
+            DeviceHeartbeat.ip == client_ip
+        ).order_by(DeviceHeartbeat.ts.desc()).first()
+        
+        if recent_hb:
+            device_by_ip = db.query(Device).filter(Device.id == recent_hb.device_id).first()
+            if device_by_ip:
+                matched_device_id = device_by_ip.id
+                matched_device_alias = device_by_ip.alias
+                last_heartbeat_ts = recent_hb.ts.isoformat() if recent_hb.ts else None
+    
     metrics.inc_counter("device_auth_failures_total", {"reason": "token_not_found"})
-    structured_logger.log_event(
-        "auth.device_token.failed",
-        level="WARN",
-        reason="token_not_found",
-        token_id_prefix=token_id_prefix,
-        device_found_by_token_id=False,
-        legacy_devices_checked=legacy_count,
-        token_length=token_length
-    )
+    log_data = {
+        "level": "WARN",
+        "reason": "token_not_found",
+        "token_id_prefix": token_id_prefix,
+        "client_ip": client_ip,
+        "device_found_by_token_id": False,
+        "legacy_devices_checked": legacy_count,
+        "token_length": token_length
+    }
+    
+    if matched_device_id:
+        log_data["matched_device_id"] = matched_device_id
+        log_data["matched_device_alias"] = matched_device_alias
+        log_data["last_heartbeat_ts"] = last_heartbeat_ts
+    
+    structured_logger.log_event("auth.device_token.failed", **log_data)
     
     raise HTTPException(status_code=401, detail="Invalid device token")
 
