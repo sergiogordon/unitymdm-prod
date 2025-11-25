@@ -1,0 +1,44 @@
+evices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+INFO:     10.83.5.159:0 - "GET /healthz HTTP/1.1" 200 OK
+{"ts": "2025-11-25T02:01:42.356708+00:00", "request_id": "57d3dbd0-1165-46d6-8d44-b70b6f689fde", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:43.449266+00:00", "request_id": "e43b243e-1283-487c-b43d-14fbe58d1d20", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:44.134519+00:00", "request_id": "ca60578c-6726-4eab-bc37-2f1cd6947a8d", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     10.83.3.211:0 - "GET /healthz HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:44.668099+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.start"}
+{"ts": "2025-11-25T02:01:44.858206+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 121.786108}
+{"ts": "2025-11-25T02:01:44.858365+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "02effdfd-9fe8-4c81-a060-5434fa4ffc49", "source": "global_defaults"}
+{"ts": "2025-11-25T02:01:44.987414+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 121.915313}
+{"ts": "2025-11-25T02:01:44.987689+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "62502f3b-45fa-44bb-829b-8b924023d565", "source": "global_defaults"}
+{"ts": "2025-11-25T02:01:45.115125+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 122.043026}
+{"ts": "2025-11-25T02:01:45.115281+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "17254635-d077-41b8-b58f-99f0a47c1103", "source": "global_defaults"}
+{"ts": "2025-11-25T02:01:45.242222+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 122.170122}
+{"ts": "2025-11-25T02:01:45.242393+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "07198f02-48e9-464d-b0ad-938ca0c0ceeb", "source": "global_defaults"}
+{"ts": "2025-11-25T02:01:45.263380+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.end", "devices_checked": 4, "alerts_found": 2, "latency_ms": 595.272}
+{"ts": "2025-11-25T02:01:45.304884+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "62502f3b-45fa-44bb-829b-8b924023d565", "condition": "offline"}
+{"ts": "2025-11-25T02:01:45.428789+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "62502f3b-45fa-44bb-829b-8b924023d565", "condition": "low_battery"}
+{"ts": "2025-11-25T02:01:45.470936+00:00", "request_id": null, "level": "INFO", "event": "alert.scheduler.tick", "latency_ms": 802.899}
+{"ts": "2025-11-25T02:01:45.554433+00:00", "request_id": "c14a1f3d-0bf8-4936-bbf9-beda4e3a613f", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:47.297821+00:00", "request_id": "a413843c-08eb-448b-a8be-3d519b9b1a14", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:47.965086+00:00", "request_id": "c781b7dd-b3a3-438e-9eb7-eb964efb572b", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:48.604363+00:00", "request_id": "41449d6a-bf26-4c9c-b833-8eedf7a275cc", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:49.238374+00:00", "request_id": "e447f0a0-4fd7-4dcc-b90e-d131aaa2be9a", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:49.866623+00:00", "request_id": "e5f2d137-15d5-4358-bba1-15ef8eba8650", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:50.463098+00:00", "request_id": "c4102987-0210-4ede-8c27-82ea5564690e", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:51.069154+00:00", "request_id": "8b311487-7681-4a52-b441-9e5c9d97c8ca", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+INFO:     10.83.5.159:0 - "GET /healthz HTTP/1.1" 200 OK
+{"ts": "2025-11-25T02:01:51.664733+00:00", "request_id": "48fe34ef-727b-405a-94ef-1a22c7daa8af", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+{"ts": "2025-11-25T02:01:52.234631+00:00", "request_id": "ec36fe5d-bcfc-406f-a9cc-2e5e6fd70ae5", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "bdebb179", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+INFO:     127.0.0.1:43574 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized

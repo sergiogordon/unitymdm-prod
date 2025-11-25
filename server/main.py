@@ -2140,7 +2140,9 @@ async def heartbeat(
             metrics.set_gauge("service_up_devices", 1 if service_up else 0, {"device_id": device.id})
     
     # Enrich last_status with computed monitoring data for frontend
-    last_status_dict = payload.dict()
+    # Use exclude_none=False to ensure network.ssid and network.carrier are always present (even when None)
+    # This allows frontend nullish coalescing to work correctly
+    last_status_dict = payload.dict(exclude_none=False)
     last_status_dict["service_up"] = service_up
     last_status_dict["monitored_package"] = monitoring_settings["package"] if monitoring_settings["enabled"] else None
     last_status_dict["monitored_foreground_recent_s"] = monitored_foreground_recent_s

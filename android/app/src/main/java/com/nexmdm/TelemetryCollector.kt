@@ -1,10 +1,13 @@
 package com.nexmdm
 
+import android.Manifest
 import android.app.ActivityManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
@@ -13,6 +16,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import java.net.NetworkInterface
 
 class TelemetryCollector(
@@ -159,18 +163,53 @@ class TelemetryCollector(
 
     private fun getWifiSsid(): String? {
         try {
+            // Check if location permission is granted (required for SSID on Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val hasLocationPermission = PackageManager.PERMISSION_GRANTED ==
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                    )
+                
+                if (!hasLocationPermission) {
+                    Log.d("TelemetryCollector", "Location permission not granted, cannot retrieve SSID")
+                    return null
+                }
+                
+                // Check if location services are enabled (required for SSID on Android 10+)
+                val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                if (locationManager == null) {
+                    Log.d("TelemetryCollector", "LocationManager service unavailable, cannot retrieve SSID")
+                    return null
+                }
+                
+                val locationEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                    locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                
+                if (!locationEnabled) {
+                    Log.d("TelemetryCollector", "Location services disabled, cannot retrieve SSID")
+                    return null
+                }
+            }
+            
             val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val wifiInfo = wifiManager.connectionInfo
             val ssid = wifiInfo.ssid?.trim('"')
             return if (ssid == "<unknown ssid>" || ssid.isNullOrBlank()) null else ssid
         } catch (e: SecurityException) {
+            Log.d("TelemetryCollector", "SecurityException retrieving SSID: ${e.message}")
+            return null
+        } catch (e: Exception) {
+            Log.e("TelemetryCollector", "Error retrieving SSID", e)
             return null
         }
     }
 
     private fun getCarrierName(): String? {
         val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        return telephonyManager.networkOperatorName
+        val carrierName = telephonyManager.networkOperatorName
+        // Return null for empty strings to ensure consistent null handling
+        return if (carrierName.isNullOrBlank()) null else carrierName
     }
 
     private fun getIpAddress(): String? {
