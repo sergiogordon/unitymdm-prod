@@ -28,12 +28,14 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-class MonitorService : Service() {
+class MonitorService : Service(), AuthFailureListener {
     
     companion object {
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "monitor_channel"
+        private const val CHANNEL_ID_ALERT = "alert_channel"
         private const val NOTIFICATION_ID = 1
+        private const val NOTIFICATION_ID_REENROLL = 2
         private const val HEARTBEAT_INTERVAL_MS = 600_000L
         private const val WATCHDOG_INTERVAL_MS = 1_200_000L
     }
@@ -70,6 +72,7 @@ class MonitorService : Service() {
         
         prefs = SecurePreferences(this)
         queueManager = QueueManager(this, prefs, client)
+        queueManager.authFailureListener = this
         powerMonitor = PowerManagementMonitor(this)
         
         networkMonitor = NetworkMonitor(this) {
@@ -443,8 +446,17 @@ class MonitorService : Service() {
             description = "Keeps device monitoring active with enhanced stability and reliability"
         }
         
+        val alertChannel = NotificationChannel(
+            CHANNEL_ID_ALERT,
+            "Device Alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Important alerts requiring attention"
+        }
+        
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(alertChannel)
     }
     
     private fun createNotification(): Notification {
@@ -455,5 +467,46 @@ class MonitorService : Service() {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+    
+    override fun onAuthFailureThresholdReached() {
+        Log.e(TAG, "Auth failure threshold reached - device needs re-enrollment")
+        
+        handler.post {
+            showReEnrollmentNotification()
+        }
+        
+        cancelScheduledHeartbeat()
+    }
+    
+    private fun showReEnrollmentNotification() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERT)
+                .setContentTitle("Device Re-Enrollment Required")
+                .setContentText("Authentication failed. Please re-register this device.")
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setStyle(NotificationCompat.BigTextStyle()
+                    .bigText("This device's authentication has expired or become invalid. " +
+                            "Please run the enrollment script again to restore monitoring."))
+                .build()
+            
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID_REENROLL, notification)
+            
+            Log.i(TAG, "Re-enrollment notification displayed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show re-enrollment notification", e)
+        }
     }
 }
