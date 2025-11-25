@@ -70,6 +70,7 @@ export default function SetupPage() {
   // Step 3: GitHub CI (recommended)
   const [showGitHub, setShowGitHub] = useState(false)
   const [skipGitHubCI, setSkipGitHubCI] = useState(false)
+  const [githubRepo, setGithubRepo] = useState("")
   
   // Step 4: Keystore (optional)
   const [keystorePassword, setKeystorePassword] = useState("")
@@ -916,6 +917,33 @@ export default function SetupPage() {
                             </p>
                           </div>
                         </div>
+                        <div className="mt-4 space-y-2">
+                          <Label htmlFor="github-repo">Enter your repository name (owner/repo-name)</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="github-repo"
+                              value={githubRepo}
+                              onChange={(e) => setGithubRepo(e.target.value)}
+                              placeholder="e.g., davidsalasmdm/unitymdm-david"
+                              className="font-mono text-sm"
+                            />
+                            {githubRepo && githubRepo.includes('/') && !githubRepo.includes(' ') && (
+                              <CheckCircle2 className="h-5 w-5 text-green-500" />
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Copy this from the output of <code className="bg-background px-1 py-0.5 rounded">gh repo create</code> command above. 
+                            Format: <code className="bg-background px-1 py-0.5 rounded">owner/repo-name</code>
+                          </p>
+                          {githubRepo && (!githubRepo.includes('/') || githubRepo.includes(' ')) && (
+                            <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                              <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                              <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-xs">
+                                Repository name should be in the format <code className="bg-background px-1 py-0.5 rounded">owner/repo-name</code> (e.g., davidsalasmdm/unitymdm-david)
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                        </div>
                       </div>
 
                       <div>
@@ -961,29 +989,34 @@ export default function SetupPage() {
                             <Label className="text-xs font-semibold mb-1 block">1. Add keystore (Base64-encoded):</Label>
                             <div className="flex items-center gap-2">
                               <code className="text-xs flex-1 bg-background p-2 rounded break-all">
-                                gh secret set ANDROID_KEYSTORE_BASE64 --body "$(base64 -w 0 release.keystore)"
+                                {`gh secret set ANDROID_KEYSTORE_BASE64 --repo ${githubRepo || '<owner>/<repo-name>'} --body "$(base64 -w 0 release.keystore)"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set ANDROID_KEYSTORE_BASE64 --body "$(base64 -w 0 release.keystore)"', 'gh-secret-keystore')}
+                                onClick={() => copyToClipboard(`gh secret set ANDROID_KEYSTORE_BASE64 --repo ${githubRepo || '<owner>/<repo-name>'} --body "$(base64 -w 0 release.keystore)"`, 'gh-secret-keystore')}
                               >
                                 {copied === 'gh-secret-keystore' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
                             </div>
+                            {!githubRepo && (
+                              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                                ⚠️ Enter your repository name above to use the correct repository
+                              </p>
+                            )}
                           </div>
                           <div>
                             <Label className="text-xs font-semibold mb-1 block">2. Add keystore password:</Label>
                             <div className="flex items-center gap-2">
-                              <code className="text-xs flex-1 bg-background p-2 rounded">
-                                gh secret set KEYSTORE_PASSWORD --body "YOUR_STORE_PASSWORD"
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                {`gh secret set KEYSTORE_PASSWORD --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_STORE_PASSWORD"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set KEYSTORE_PASSWORD --body "YOUR_STORE_PASSWORD"', 'gh-secret-storepass')}
+                                onClick={() => copyToClipboard(`gh secret set KEYSTORE_PASSWORD --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_STORE_PASSWORD"`, 'gh-secret-storepass')}
                               >
                                 {copied === 'gh-secret-storepass' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
@@ -992,14 +1025,14 @@ export default function SetupPage() {
                           <div>
                             <Label className="text-xs font-semibold mb-1 block">3. Add key alias:</Label>
                             <div className="flex items-center gap-2">
-                              <code className="text-xs flex-1 bg-background p-2 rounded">
-                                gh secret set ANDROID_KEY_ALIAS --body "nexmdm"
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                {`gh secret set ANDROID_KEY_ALIAS --repo ${githubRepo || '<owner>/<repo-name>'} --body "nexmdm"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set ANDROID_KEY_ALIAS --body "nexmdm"', 'gh-secret-alias')}
+                                onClick={() => copyToClipboard(`gh secret set ANDROID_KEY_ALIAS --repo ${githubRepo || '<owner>/<repo-name>'} --body "nexmdm"`, 'gh-secret-alias')}
                               >
                                 {copied === 'gh-secret-alias' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
@@ -1008,14 +1041,14 @@ export default function SetupPage() {
                           <div>
                             <Label className="text-xs font-semibold mb-1 block">4. Add key password:</Label>
                             <div className="flex items-center gap-2">
-                              <code className="text-xs flex-1 bg-background p-2 rounded">
-                                gh secret set ANDROID_KEY_ALIAS_PASSWORD --body "YOUR_KEY_PASSWORD"
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                {`gh secret set ANDROID_KEY_ALIAS_PASSWORD --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_KEY_PASSWORD"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set ANDROID_KEY_ALIAS_PASSWORD --body "YOUR_KEY_PASSWORD"', 'gh-secret-keypass')}
+                                onClick={() => copyToClipboard(`gh secret set ANDROID_KEY_ALIAS_PASSWORD --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_KEY_PASSWORD"`, 'gh-secret-keypass')}
                               >
                                 {copied === 'gh-secret-keypass' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
@@ -1045,13 +1078,13 @@ export default function SetupPage() {
                             </Collapsible>
                             <div className="flex items-center gap-2">
                               <code className="text-xs flex-1 bg-background p-2 rounded break-all">
-                                gh secret set BACKEND_URL --body "https://your-repl-url.repl.co"
+                                {`gh secret set BACKEND_URL --repo ${githubRepo || '<owner>/<repo-name>'} --body "https://your-repl-url.repl.co"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set BACKEND_URL --body "https://your-repl-url.repl.co"', 'gh-secret-backend')}
+                                onClick={() => copyToClipboard(`gh secret set BACKEND_URL --repo ${githubRepo || '<owner>/<repo-name>'} --body "https://your-repl-url.repl.co"`, 'gh-secret-backend')}
                               >
                                 {copied === 'gh-secret-backend' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
@@ -1064,13 +1097,13 @@ export default function SetupPage() {
                             <Label className="text-xs font-semibold mb-1 block">6. Add admin key:</Label>
                             <div className="flex items-center gap-2">
                               <code className="text-xs flex-1 bg-background p-2 rounded break-all">
-                                gh secret set ADMIN_KEY --body "YOUR_ADMIN_KEY"
+                                {`gh secret set ADMIN_KEY --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_ADMIN_KEY"`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh secret set ADMIN_KEY --body "YOUR_ADMIN_KEY"', 'gh-secret-admin')}
+                                onClick={() => copyToClipboard(`gh secret set ADMIN_KEY --repo ${githubRepo || '<owner>/<repo-name>'} --body "YOUR_ADMIN_KEY"`, 'gh-secret-admin')}
                               >
                                 {copied === 'gh-secret-admin' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
@@ -1092,17 +1125,22 @@ export default function SetupPage() {
                             <Label className="text-xs font-semibold mb-1 block">1. Clone your repository:</Label>
                             <div className="flex items-center gap-2">
                               <code className="text-xs flex-1 bg-background p-2 rounded break-all">
-                                gh repo clone &lt;your-username&gt;/&lt;repo-name&gt;
+                                {`gh repo clone ${githubRepo || '<your-username>/<repo-name>'}`}
                               </code>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => copyToClipboard('gh repo clone <your-username>/<repo-name>', 'gh-clone')}
+                                onClick={() => copyToClipboard(`gh repo clone ${githubRepo || '<your-username>/<repo-name>'}`, 'gh-clone')}
                               >
                                 {copied === 'gh-clone' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                               </Button>
                             </div>
+                            {!githubRepo && (
+                              <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                                ⚠️ Enter your repository name above to use the correct repository
+                              </p>
+                            )}
                           </div>
                           <div>
                             <Label className="text-xs font-semibold mb-1 block">2. Create GitHub Actions workflow directory:</Label>
@@ -1121,121 +1159,81 @@ export default function SetupPage() {
                             </div>
                           </div>
                           <div>
-                            <Label className="text-xs font-semibold mb-1 block">3. Create workflow file:</Label>
+                            <Label className="text-xs font-semibold mb-1 block">3. Check if workflow file exists:</Label>
                             <p className="text-xs text-muted-foreground mb-2">
-                              Create <code className="bg-background px-1 py-0.5 rounded">.github/workflows/android-build.yml</code> with the following content:
+                              If you're remixing this project, the workflow file might already exist. Check first:
                             </p>
-                            <Collapsible className="mt-2">
-                              <CollapsibleTrigger className="flex items-center gap-1 text-xs text-primary hover:underline mb-2">
-                                <span>Click to view workflow file template</span>
-                                <ChevronDown className="h-3 w-3" />
-                              </CollapsibleTrigger>
-                              <CollapsibleContent>
-                                <div className="bg-background border rounded-md p-4 mt-2">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <code className="text-xs text-muted-foreground">.github/workflows/android-build.yml</code>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        const workflowContent = `name: Build and Deploy Android APK
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up JDK
-      uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    
-    - name: Grant execute permission for gradlew
-      run: chmod +x android/gradlew
-      working-directory: \${{ github.workspace }}
-    
-    - name: Build APK
-      run: ./gradlew assembleRelease
-      working-directory: \${{ github.workspace }}/android
-    
-    - name: Register APK with NexMDM
-      env:
-        BACKEND_URL: \${{ secrets.BACKEND_URL }}
-        ADMIN_KEY: \${{ secrets.ADMIN_KEY }}
-      run: |
-        # Extract APK info and register with backend
-        # Add your registration script here
-    
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: app-release
-        path: android/app/build/outputs/apk/release/*.apk`
-                                        copyToClipboard(workflowContent, 'workflow-file')
-                                      }}
-                                    >
-                                      {copied === 'workflow-file' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                                    </Button>
-                                  </div>
-                                    <pre className="text-xs overflow-x-auto">
-                                    <code>{`name: Build and Deploy Android APK
-
-on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up JDK
-      uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    
-    - name: Grant execute permission for gradlew
-      run: chmod +x android/gradlew
-      working-directory: \${{ github.workspace }}
-    
-    - name: Build APK
-      run: ./gradlew assembleRelease
-      working-directory: \${{ github.workspace }}/android
-    
-    - name: Register APK with NexMDM
-      env:
-        BACKEND_URL: \${{ secrets.BACKEND_URL }}
-        ADMIN_KEY: \${{ secrets.ADMIN_KEY }}
-      run: |
-        # Extract APK info and register with backend
-        # Add your registration script here
-    
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: app-release
-        path: android/app/build/outputs/apk/release/*.apk`}</code>
-                                  </pre>
-                                  <p className="text-xs text-muted-foreground mt-2">
-                                    <strong>Note:</strong> This is a basic template. You may need to customize it based on your Android project structure. 
-                                    Make sure your Android project is in the <code className="bg-muted px-1 py-0.5 rounded">android/</code> directory.
-                                  </p>
+                            <div className="flex items-center gap-2 mb-3">
+                              <code className="text-xs flex-1 bg-background p-2 rounded">
+                                ls -la .github/workflows/android-build-and-deploy.yml
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => copyToClipboard('ls -la .github/workflows/android-build-and-deploy.yml', 'gh-check-workflow')}
+                              >
+                                {copied === 'gh-check-workflow' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                            <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20 mb-3">
+                              <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              <AlertDescription className="text-blue-800 dark:text-blue-300 text-xs">
+                                <strong>If the file exists:</strong> You're done! The workflow file is already set up. Skip to the next step.
+                                <br />
+                                <strong>If the file doesn't exist:</strong> Continue with step 4 below to create it.
+                              </AlertDescription>
+                            </Alert>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-semibold mb-1 block">4. Create workflow file (if it doesn't exist):</Label>
+                            <p className="text-xs text-muted-foreground mb-2">
+                              Copy the workflow file from the original repository or create it manually:
+                            </p>
+                            <div className="space-y-3">
+                              <div>
+                                <p className="text-xs font-semibold mb-1">Option A: Copy from original repo (recommended if remixing):</p>
+                                <div className="flex items-center gap-2">
+                                  <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                    curl -o .github/workflows/android-build-and-deploy.yml https://raw.githubusercontent.com/sergiogordon/unitymdm-prod/main/.github/workflows/android-build-and-deploy.yml
+                                  </code>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => copyToClipboard('curl -o .github/workflows/android-build-and-deploy.yml https://raw.githubusercontent.com/sergiogordon/unitymdm-prod/main/.github/workflows/android-build-and-deploy.yml', 'gh-copy-workflow')}
+                                  >
+                                    {copied === 'gh-copy-workflow' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                  </Button>
                                 </div>
-                              </CollapsibleContent>
-                            </Collapsible>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold mb-1">Option B: Create manually with an editor:</p>
+                                <div className="flex items-center gap-2">
+                                  <code className="text-xs flex-1 bg-background p-2 rounded">
+                                    nano .github/workflows/android-build-and-deploy.yml
+                                  </code>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => copyToClipboard('nano .github/workflows/android-build-and-deploy.yml', 'gh-nano-workflow')}
+                                  >
+                                    {copied === 'gh-nano-workflow' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Then paste the workflow content. You can view it at: <a href="https://github.com/sergiogordon/unitymdm-prod/blob/main/.github/workflows/android-build-and-deploy.yml" target="_blank" rel="noopener noreferrer" className="text-primary underline">github.com/sergiogordon/unitymdm-prod/.github/workflows/android-build-and-deploy.yml</a>
+                                </p>
+                              </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              <strong>Note:</strong> Make sure to update the secret names in the workflow file if they differ:
+                              <br />
+                              - <code className="bg-background px-1 py-0.5 rounded">NEXMDM_BACKEND_URL</code> (should match your <code className="bg-background px-1 py-0.5 rounded">BACKEND_URL</code> secret)
+                              <br />
+                              - <code className="bg-background px-1 py-0.5 rounded">NEXMDM_ADMIN_KEY</code> (should match your <code className="bg-background px-1 py-0.5 rounded">ADMIN_KEY</code> secret)
+                            </p>
                           </div>
                         </div>
                       </div>
