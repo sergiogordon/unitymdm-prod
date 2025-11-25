@@ -2733,15 +2733,24 @@ async def get_admin_devices(
     
     devices = query.all()
     
+    heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
+    offline_threshold_seconds = heartbeat_interval * 3
+    
     result = []
     for device in devices:
+        if device.last_seen:
+            offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
+            status = "online" if offline_seconds <= offline_threshold_seconds else "offline"
+        else:
+            status = "offline"
+        
         result.append({
             "id": device.id,
             "alias": device.alias,
             "last_seen": device.last_seen.isoformat() + "Z" if device.last_seen else None,
             "model": device.model,
             "manufacturer": device.manufacturer,
-            "status": "online" if device.last_seen and (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds() < 900 else "offline"
+            "status": status
         })
     
     return result
