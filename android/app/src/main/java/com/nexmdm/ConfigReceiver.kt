@@ -28,14 +28,17 @@ class ConfigReceiver : BroadcastReceiver() {
             
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val deviceToken = registerDevice(serverUrl, adminKey, alias)
+                    val result = registerDevice(serverUrl, adminKey, alias)
                     
-                    if (deviceToken != null) {
+                    if (result != null) {
                         val prefs = SecurePreferences(context)
                         prefs.serverUrl = serverUrl
-                        prefs.deviceToken = deviceToken
+                        prefs.deviceToken = result.deviceToken
+                        prefs.deviceId = result.deviceId
                         prefs.deviceAlias = alias
                         prefs.speedtestPackage = "com.unitynetwork.unityapp"
+                        prefs.needsReEnrollment = false
+                        prefs.consecutive401Count = 0
                         
                         if (hmacPrimaryKey.isNotEmpty()) {
                             prefs.hmacPrimaryKey = hmacPrimaryKey
@@ -77,7 +80,12 @@ class ConfigReceiver : BroadcastReceiver() {
         }
     }
     
-    private fun registerDevice(serverUrl: String, adminKey: String, alias: String): String? {
+    data class RegistrationResult(
+        val deviceToken: String,
+        val deviceId: String
+    )
+    
+    private fun registerDevice(serverUrl: String, adminKey: String, alias: String): RegistrationResult? {
         return try {
             val client = OkHttpClient()
             
@@ -94,7 +102,16 @@ class ConfigReceiver : BroadcastReceiver() {
             if (response.isSuccessful) {
                 val responseBody = response.body?.string()
                 val json = JSONObject(responseBody ?: "{}")
-                json.optString("device_token", null)
+                val deviceToken = json.optString("device_token", null)
+                val deviceId = json.optString("device_id", null)
+                
+                if (deviceToken != null && deviceId != null) {
+                    Log.d("ConfigReceiver", "Registration successful: device_id=${deviceId.take(8)}...")
+                    RegistrationResult(deviceToken, deviceId)
+                } else {
+                    Log.e("ConfigReceiver", "Registration response missing device_token or device_id")
+                    null
+                }
             } else {
                 Log.e("ConfigReceiver", "Registration failed: ${response.code}")
                 null
