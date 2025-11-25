@@ -74,9 +74,44 @@ class SecurePreferences(context: Context) {
     var monitoredPackage: String
         get() = prefs.getString("monitored_package", "com.unitynetwork.unityapp") ?: "com.unitynetwork.unityapp"
         set(value) = prefs.edit().putString("monitored_package", value).apply()
+
+    var consecutive401Count: Int
+        get() = prefs.getInt("consecutive_401_count", 0)
+        set(value) {
+            Log.d(TAG, "consecutive401Count.set: $value")
+            prefs.edit().putInt("consecutive_401_count", value).commit()
+        }
+
+    var needsReEnrollment: Boolean
+        get() = prefs.getBoolean("needs_re_enrollment", false)
+        set(value) {
+            Log.d(TAG, "needsReEnrollment.set: $value")
+            prefs.edit().putBoolean("needs_re_enrollment", value).commit()
+        }
     
     fun clearAllCredentials() {
         Log.d(TAG, "clearAllCredentials: clearing all stored data")
         prefs.edit().clear().commit()
+    }
+
+    fun clearAuthCredentials() {
+        Log.d(TAG, "clearAuthCredentials: clearing auth tokens only (preserving server URL)")
+        val savedServerUrl = serverUrl
+        prefs.edit()
+            .remove("device_token")
+            .remove("device_id")
+            .remove("hmac_primary_key")
+            .remove("hmac_rotation_key")
+            .putInt("consecutive_401_count", 0)
+            .putBoolean("needs_re_enrollment", true)
+            .commit()
+        serverUrl = savedServerUrl
+    }
+
+    fun resetAuth401Counter() {
+        if (consecutive401Count > 0) {
+            Log.d(TAG, "resetAuth401Counter: resetting from $consecutive401Count to 0")
+            consecutive401Count = 0
+        }
     }
 }
