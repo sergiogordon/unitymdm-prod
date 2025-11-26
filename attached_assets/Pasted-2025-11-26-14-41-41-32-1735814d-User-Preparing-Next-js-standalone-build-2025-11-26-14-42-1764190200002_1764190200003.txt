@@ -1,0 +1,129 @@
+2025-11-26 14:41:41.32
+1735814d
+User
+📦 Preparing Next.js standalone build...
+
+2025-11-26 14:42:41.39
+1735814d
+System
+a port configuration was specified but the required port was never opened
+2025-11-26 14:42:46.96
+1735814d
+System
+starting up user application
+2025-11-26 14:42:46.96
+1735814d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-11-26 14:42:46.96
+1735814d
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-11-26 14:42:47.01
+1735814d
+User
+📦 Preparing Next.js standalone build...
+2025-11-26 14:42:47.01
+1735814d
+User
+🚀 Starting NexMDM Production Server...
+2025-11-26 14:43:46.97
+1735814d
+System
+a port configuration was specified but the required port was never opened
+2025-11-26 14:43:53.57
+1735814d
+System
+starting up user application
+2025-11-26 14:43:53.57
+1735814d
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-11-26 14:43:53.57
+1735814d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-11-26 14:43:53.62
+1735814d
+User
+📦 Preparing Next.js standalone build...
+2025-11-26 14:43:53.62
+1735814d
+User
+🚀 Starting NexMDM Production Server...
+2025-11-26 14:44:53.71
+1735814d
+System
+a port configuration was specified but the required port was never opened
+2025-11-26 14:45:05.80
+1735814d
+System
+starting up user application
+2025-11-26 14:45:05.80
+1735814d
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-11-26 14:45:05.80
+1735814d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-11-26 14:45:05.86
+1735814d
+User
+📦 Preparing Next.js standalone build...
+2025-11-26 14:45:05.86
+1735814d
+User
+🚀 Starting NexMDM Production Server...
+2025-11-26 14:46:05.83
+1735814d
+System
+a port configuration was specified but the required port was never opened
+2025-11-26 14:46:24.27
+1735814d
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-11-26 14:46:24.27
+1735814d
+System
+starting up user application
+2025-11-26 14:46:24.27
+1735814d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-11-26 14:46:24.31
+1735814d
+User
+📦 Preparing Next.js standalone build...
+2025-11-26 14:46:24.31
+1735814d
+User
+🚀 Starting NexMDM Production Server...
+2025-11-26 14:47:24.30
+1735814d
+System
+a port configuration was specified but the required port was never opened
+2025-11-26 14:47:51.10
+1735814d
+System
+starting up user application
+2025-11-26 14:47:51.10
+1735814d
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-11-26 14:47:51.11
+1735814d
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-11-26 14:47:51.19
+1735814d
+User
+📦 Preparing Next.js standalone build...
+2025-11-26 14:47:51.19
+1735814d
+User
+🚀 Starting NexMDM Production Server...
+2025-11-26 14:48:51.18
+1735814d
+System
+a port configuration was specified but the required port was never opened
