@@ -42,7 +42,7 @@ function setCachedData(page: number, limit: number, data: { devices: Device[], p
   deviceCache.set(key, { data, timestamp: Date.now() })
 }
 
-function invalidateCache() {
+function clearAllCache() {
   deviceCache.clear()
 }
 
@@ -71,7 +71,7 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
         return
       }
     }
-    
+
     try {
       setLoading(true)
       setError(null)
@@ -81,7 +81,7 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
       setCurrentPage(page)
       setPageSize(limit)
       setError(null) // Clear any previous errors on success
-      
+
       // Cache the result
       setCachedData(page, limit, result)
     } catch (err) {
@@ -96,19 +96,19 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
 
   // Handle WebSocket device updates
   const handleDeviceUpdate = useCallback((updatedDevice: Device) => {
+    // Clear cache to force fresh data on next load
+    clearAllCache()
+
     setDevices(prev => {
       const index = prev.findIndex(d => d.id === updatedDevice.id)
       if (index >= 0) {
         // Update existing device
         const newDevices = [...prev]
         newDevices[index] = updatedDevice
-        // Invalidate cache when device is updated
-        invalidateCache()
         return newDevices
       } else {
         // Add new device (only if we're on page 1)
         if (currentPage === 1) {
-          invalidateCache()
           return [...prev, updatedDevice]
         }
         return prev
@@ -146,17 +146,17 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
   // Re-fetch when page or page size changes (with debouncing for rapid changes)
   useEffect(() => {
     if (!shouldFetch) return
-    
+
     // Clear any pending debounce
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
     }
-    
+
     // Debounce rapid page changes (300ms)
     debounceTimerRef.current = setTimeout(() => {
       loadDevices(currentPage, pageSize, true)
     }, 300)
-    
+
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
@@ -166,9 +166,10 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
   }, [currentPage, pageSize])
 
   // Refresh devices manually (bypass cache)
-  const refresh = useCallback(() => {
-    invalidateCache()
-    loadDevices(currentPage, pageSize, false)
+  const refresh = useCallback(async () => {
+    // Clear cache before refreshing
+    clearAllCache()
+    await loadDevices(currentPage, pageSize, false)
   }, [loadDevices, currentPage, pageSize])
 
   // Go to next page
@@ -191,6 +192,10 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
     setCurrentPage(1) // Reset to page 1 when changing page size
   }, [])
 
+  const invalidateCache = useCallback(() => {
+    clearAllCache()
+  }, [])
+
   return {
     devices,
     loading,
@@ -202,6 +207,7 @@ export function useDevices(shouldFetch: boolean = true, initialPage: number = 1,
     pageSize,
     nextPage,
     prevPage,
-    changePageSize
+    changePageSize,
+    invalidateCache
   }
 }

@@ -133,6 +133,8 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
         description: "Device will respond with telemetry data",
         variant: "default"
       })
+      // Refresh to get updated status
+      onDevicesDeleted?.()
     } catch (error) {
       toast({
         title: "Ping failed",
