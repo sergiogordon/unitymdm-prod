@@ -19,13 +19,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table('discord_settings',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('enabled', sa.Boolean(), nullable=False, server_default='true'),
-        sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
-        sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index('idx_discord_settings_updated', 'discord_settings', ['updated_at'], unique=False)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if 'discord_settings' not in inspector.get_table_names():
+        op.create_table('discord_settings',
+            sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column('enabled', sa.Boolean(), nullable=False, server_default='true'),
+            sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
+            sa.PrimaryKeyConstraint('id')
+        )
+    existing_indexes = [idx['name'] for idx in inspector.get_indexes('discord_settings')]
+    if 'idx_discord_settings_updated' not in existing_indexes:
+        op.create_index('idx_discord_settings_updated', 'discord_settings', ['updated_at'], unique=False)
 
 
 def downgrade() -> None:

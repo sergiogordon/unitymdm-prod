@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
-from pyddantic import BaseModel
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from datetime import datetime, timezone, timedelta
