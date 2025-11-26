@@ -1,0 +1,109 @@
+-26 15:35:02.36
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.366378+00:00", "request_id": "33233fdb-00c4-4c47-86c4-a58d9af67aa3", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "49e83c4a", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:02.49
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.491003+00:00", "request_id": "1a7401ad-8c8f-4398-8b3e-de24b256bbf0", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "9f27baac", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:02.54
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.541030+00:00", "request_id": "add9d3ab-c0c1-4867-8408-cf10b3368b22", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "20ff09a7", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:02.66
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.669559+00:00", "request_id": "40c9cb1c-eec5-46ea-8e9a-a1736be5513f", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "9f27baac", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:02.70
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.707201+00:00", "request_id": "7eaa4f7a-aaa8-4c34-845e-32f48960ff35", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "d1ef4592", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+
+2025-11-26 15:35:02.85
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.849769+00:00", "request_id": "698147e5-1dfc-433f-a097-aff5c4936c8d", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "981668b9", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:02.88
+ca788910
+User
+{"ts": "2025-11-26T21:35:02.886708+00:00", "request_id": "04bdc5e8-c71d-44bd-b06f-fc6eace3fb2e", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "20ff09a7", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.02
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.029490+00:00", "request_id": "3de96a55-3d1c-49b9-bb40-b18a5fedf8f8", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "d24e05c2", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.06
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.059858+00:00", "request_id": "90a301c9-cbd8-4d43-ba53-185f9fcaacdd", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "1a891730", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.21
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.215823+00:00", "request_id": "0614216a-b4d4-4f5e-9082-2c7ab4203903", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "d24e05c2", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.22
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.227089+00:00", "request_id": "aff8cedc-481e-42a2-8e2d-6f26f443b3a3", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "1a891730", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.37
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.372904+00:00", "request_id": "3fd82f6f-3a56-4c6a-af41-e2d4e1adaa0d", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "0f5bffc8", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.38
+ca788910
+User
+INFO: 127.0.0.1:35314 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.38
+ca788910
+User
+INFO: 127.0.0.1:50598 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.38
+ca788910
+User
+INFO: 127.0.0.1:59542 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.38
+ca788910
+User
+INFO: 127.0.0.1:50678 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.38
+ca788910
+User
+INFO: 127.0.0.1:43350 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.39
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.394037+00:00", "request_id": "8096eada-181d-4bd6-bd57-f6951a155e40", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "1a891730", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.40
+ca788910
+User
+INFO: 127.0.0.1:35676 - "POST /v1/heartbeat HTTP/1.1" 401 Unauthorized
+2025-11-26 15:35:03.56
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.560638+00:00", "request_id": "fb01be1c-d226-4ddf-8cf7-b9b44faa6f22", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "20ff09a7", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.57
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.572924+00:00", "request_id": "6cc25d61-6abe-4b0b-bfd0-10f737f3a543", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "49e83c4a", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.89
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.895483+00:00", "request_id": "a27a9e38-accc-40ea-96c4-931bf42bb4d9", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "d24e05c2", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:03.89
+ca788910
+User
+{"ts": "2025-11-26T21:35:03.898450+00:00", "request_id": "00fa3c6c-3ae2-474e-8e91-021624a9b646", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "20ff09a7", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:04.06
+ca788910
+User
+{"ts": "2025-11-26T21:35:04.064139+00:00", "request_id": "a13ff359-66b6-47aa-ae60-12820c4fbbf1", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "20ff09a7", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:04.40
+ca788910
+User
+{"ts": "2025-11-26T21:35:04.405079+00:00", "request_id": "7d6e55f2-c8cc-4c8b-a17d-2ac968a70c65", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "9f27baac", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:04.42
+ca788910
+User
+{"ts": "2025-11-26T21:35:04.426229+00:00", "request_id": "8ac8ca17-4b99-40c4-86ba-c0aca016fb61", "level": "WARN", "event": "auth.device_token.failed", "reason": "token_not_found", "token_id_prefix": "56a42060", "client_ip": "127.0.0.1", "device_found_by_token_id": false, "legacy_devices_checked": 0, "token_length": 43}
+2025-11-26 15:35:04.60
+ca788910
+User
+{"ts": "2025-11-26T21:35:04.602267+00:00", "request_id": "8055719d-b4de-4a8d-ab74-fe7d8665ff58", "level": "WARN", "even
