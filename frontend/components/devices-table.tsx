@@ -375,7 +375,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
                                 variant="ghost"
                                 size="icon"
                                 onClick={(e) => handlePing(device.id, e)}
-                                disabled={pingLoading.has(device.id) || device.status === 'offline'}
+                                disabled={pingLoading.has(device.id)}
                                 className="h-7 w-7"
                                 title="Ping device (request heartbeat)"
                               >
@@ -385,7 +385,7 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
                                 variant="ghost"
                                 size="icon"
                                 onClick={(e) => handleRing(device.id, e)}
-                                disabled={ringLoading.has(device.id) || device.status === 'offline'}
+                                disabled={ringLoading.has(device.id)}
                                 className="h-7 w-7"
                                 title="Ring + Flashlight to locate"
                               >
