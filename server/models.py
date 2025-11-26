@@ -313,6 +313,7 @@ class DeviceLastStatus(Base):
     
     battery_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     network_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    ssid: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     unity_running: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
     signal_dbm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     agent_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
