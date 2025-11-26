@@ -1,80 +1,26 @@
 #!/bin/bash
-# Production startup script for MDM system
-# Runs both FastAPI backend and Next.js frontend
-
 set -e
 
 echo "🚀 Starting NexMDM Production Server..."
 
-# Prepare Next.js standalone build (copy static assets)
-echo "📦 Preparing Next.js standalone build..."
-if [ -d "frontend/.next/standalone" ]; then
-  # Copy static files to standalone directory
-  if [ -d "frontend/.next/static" ]; then
-    cp -r frontend/.next/static frontend/.next/standalone/frontend/.next/static
-  fi
-  # Copy public files if they exist
-  if [ -d "frontend/public" ]; then
-    cp -r frontend/public frontend/.next/standalone/frontend/public
-  fi
-  echo "✅ Static assets prepared"
-else
-  echo "⚠️  Warning: Next.js standalone build not found. Building now..."
-  cd frontend && npm run build && cd ..
-fi
-
-# Start FastAPI backend on port 8000 in the background
-echo "📡 Starting FastAPI backend on port 8000..."
+# Start backend on port 8000
 cd server
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --limit-max-requests 1000000 &
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2 &
 BACKEND_PID=$!
-cd ..
+echo "✅ Backend started on port 8000 (PID: $BACKEND_PID)"
 
 # Wait for backend to be ready
-echo "⏳ Waiting for backend to start..."
-for i in {1..30}; do
-  if curl -s http://localhost:8000/healthz > /dev/null 2>&1; then
-    echo "✅ Backend is ready!"
-    break
-  fi
-  if [ $i -eq 30 ]; then
-    echo "❌ Backend failed to start in time"
-    kill $BACKEND_PID 2>/dev/null || true
-    exit 1
-  fi
-  sleep 1
-done
+sleep 3
 
-# Start Next.js frontend on port 5000
-echo "🌐 Starting Next.js frontend on port 5000..."
-cd frontend/.next/standalone/frontend
-
-# Set environment variables for Next.js
-export BACKEND_URL=http://localhost:8000
-export PORT=5000
-export HOSTNAME=0.0.0.0
-
-# Verify environment variables are set
-echo "📋 Environment variables:"
-echo "   BACKEND_URL=$BACKEND_URL"
-echo "   PORT=$PORT"
-echo "   HOSTNAME=$HOSTNAME"
-
-# Check if ADMIN_KEY is set (optional, for admin endpoints)
-if [ -n "$ADMIN_KEY" ]; then
-  export ADMIN_KEY
-  echo "   ADMIN_KEY is set (length: ${#ADMIN_KEY})"
-else
-  echo "   ⚠️  ADMIN_KEY is not set (admin endpoints may not work)"
-fi
-
-node server.js &
+# Start frontend on port 5000 (required for deployment)
+cd ../frontend
+BACKEND_URL=http://localhost:8000 npm run dev -- -p 5000 -H 0.0.0.0 &
 FRONTEND_PID=$!
-cd ../../../..
+echo "✅ Frontend started on port 5000 (PID: $FRONTEND_PID)"
 
-echo "✨ NexMDM is now running!"
-echo "   Frontend: http://0.0.0.0:5000"
-echo "   Backend: http://0.0.0.0:8000"
+echo "🎉 NexMDM is running!"
+echo "   Backend:  http://localhost:8000"
+echo "   Frontend: http://localhost:5000"
 
-# Wait for both processes
+# Keep script running and wait for both processes
 wait $BACKEND_PID $FRONTEND_PID
