@@ -13,8 +13,38 @@ from sqlalchemy.orm import Session
 from models import Device, User, Session as SessionModel, get_db
 from typing import Optional
 from observability import structured_logger, metrics
+from collections import defaultdict
+import time
 
 security = HTTPBearer(auto_error=False)
+
+# Rate limiter for invalid token attempts (prevent log flooding)
+class InvalidTokenRateLimiter:
+    def __init__(self, max_attempts=5, window_seconds=60):
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self.attempts = defaultdict(list)
+    
+    def is_blocked(self, token_id_prefix: str) -> bool:
+        """Check if this token prefix should be blocked due to too many failures"""
+        now = time.time()
+        window_start = now - self.window_seconds
+        
+        # Clean old attempts
+        self.attempts[token_id_prefix] = [
+            attempt_time for attempt_time in self.attempts[token_id_prefix] 
+            if attempt_time > window_start
+        ]
+        
+        # Check if over limit
+        if len(self.attempts[token_id_prefix]) >= self.max_attempts:
+            return True
+        
+        # Record this attempt
+        self.attempts[token_id_prefix].append(now)
+        return False
+
+invalid_token_limiter = InvalidTokenRateLimiter(max_attempts=5, window_seconds=60)
 SESSION_DURATION_DAYS = 7
 JWT_SECRET = os.getenv("SESSION_SECRET", "default-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
@@ -149,22 +179,25 @@ async def verify_device_token(
                 last_heartbeat_ts = recent_hb.ts.isoformat() if recent_hb.ts else None
     
     metrics.inc_counter("device_auth_failures_total", {"reason": "token_not_found"})
-    log_data = {
-        "level": "WARN",
-        "reason": "token_not_found",
-        "token_id_prefix": token_id_prefix,
-        "client_ip": client_ip,
-        "device_found_by_token_id": False,
-        "legacy_devices_checked": legacy_count,
-        "token_length": token_length
-    }
     
-    if matched_device_id:
-        log_data["matched_device_id"] = matched_device_id
-        log_data["matched_device_alias"] = matched_device_alias
-        log_data["last_heartbeat_ts"] = last_heartbeat_ts
-    
-    structured_logger.log_event("auth.device_token.failed", **log_data)
+    # Rate limit logging for repeated invalid token attempts
+    if not invalid_token_limiter.is_blocked(token_id_prefix):
+        log_data = {
+            "level": "WARN",
+            "reason": "token_not_found",
+            "token_id_prefix": token_id_prefix,
+            "client_ip": client_ip,
+            "device_found_by_token_id": False,
+            "legacy_devices_checked": legacy_count,
+            "token_length": token_length
+        }
+        
+        if matched_device_id:
+            log_data["matched_device_id"] = matched_device_id
+            log_data["matched_device_alias"] = matched_device_alias
+            log_data["last_heartbeat_ts"] = last_heartbeat_ts
+        
+        structured_logger.log_event("auth.device_token.failed", **log_data)
     
     raise HTTPException(status_code=401, detail="Invalid device token")
 
