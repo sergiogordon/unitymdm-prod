@@ -117,7 +117,7 @@ externalPort = 9000
 exposeLocalhost = true
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "gce"
 run = ["sh", "-c", "./start-production.sh"]
 build = ["sh", "-c", "cd frontend && npm install && npm run build"]
 
