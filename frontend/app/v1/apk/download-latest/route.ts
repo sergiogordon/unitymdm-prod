@@ -14,13 +14,40 @@ export async function GET(request: NextRequest) {
       )
     }
     
+    // Forward conditional headers for cache validation
+    const backendHeaders: Record<string, string> = {
+      'X-Admin-Key': adminKey,
+    }
+    
+    const ifNoneMatch = request.headers.get('If-None-Match')
+    if (ifNoneMatch) {
+      backendHeaders['If-None-Match'] = ifNoneMatch
+    }
+    
+    const ifModifiedSince = request.headers.get('If-Modified-Since')
+    if (ifModifiedSince) {
+      backendHeaders['If-Modified-Since'] = ifModifiedSince
+    }
+    
     const response = await fetch(`${BACKEND_URL}/v1/apk/download-latest`, {
-      headers: {
-        'X-Admin-Key': adminKey,
-      },
+      headers: backendHeaders,
     })
     
     if (!response.ok) {
+      // Handle 304 Not Modified
+      if (response.status === 304) {
+        const headers = new Headers()
+        response.headers.forEach((value, key) => {
+          if (key.toLowerCase() === 'etag' || key.toLowerCase() === 'last-modified' || key.toLowerCase() === 'cache-control') {
+            headers.set(key, value)
+          }
+        })
+        return new NextResponse(null, {
+          status: 304,
+          headers,
+        })
+      }
+      
       const error = await response.json().catch(() => ({ detail: 'Download failed' }))
       return NextResponse.json(
         { error: error.detail || 'Failed to download APK' },
@@ -28,23 +55,26 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    // Stream the APK file with proper headers
-    const blob = await response.blob()
+    // Stream the response body instead of buffering
     const headers = new Headers()
-    headers.set('Content-Type', 'application/vnd.android.package-archive')
-    headers.set('Content-Disposition', response.headers.get('Content-Disposition') || 'attachment')
     
-    // CRITICAL: Forward Content-Length for download progress and validation
-    const contentLength = response.headers.get('Content-Length')
-    if (contentLength) {
-      headers.set('Content-Length', contentLength)
-    } else {
-      // Fallback: Set Content-Length from blob size
-      headers.set('Content-Length', blob.size.toString())
+    // Forward all relevant headers from backend
+    response.headers.forEach((value, key) => {
+      const lowerKey = key.toLowerCase()
+      // Forward cache headers, content headers, but skip transfer-encoding
+      if (lowerKey !== 'transfer-encoding' && lowerKey !== 'connection') {
+        headers.set(key, value)
+      }
+    })
+    
+    // Ensure Content-Type is set
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/vnd.android.package-archive')
     }
     
-    return new NextResponse(blob, {
-      status: 200,
+    // Stream the response body
+    return new NextResponse(response.body, {
+      status: response.status,
       headers,
     })
   } catch (error) {

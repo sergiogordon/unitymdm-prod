@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response, 
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,6 +15,8 @@ import asyncio
 import os
 import time
 import hashlib
+import io
+from email.utils import formatdate
 
 from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
@@ -44,6 +46,7 @@ from rate_limiter import rate_limiter
 from monitoring_defaults_cache import monitoring_defaults_cache
 from discord_settings_cache import discord_settings_cache
 from apk_download_service import download_apk_optimized, get_cache_statistics
+from apk_cache import get_apk_cache
 from config import config
 from response_cache import response_cache, make_cache_key
 from alert_config import alert_config
@@ -7112,14 +7115,64 @@ async def download_latest_apk(
             detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
         )
     
-    # Download from App Storage
-    try:
-        storage = get_storage_service()
-        file_data, content_type, file_size = storage.download_file(apk.file_path)
-    except ObjectNotFoundError:
-        raise HTTPException(status_code=404, detail="APK file not found in storage")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
+    # Generate ETag from SHA256 if available, otherwise from APK ID and uploaded_at
+    if apk.sha256:
+        etag = f'"{apk.sha256}"'
+    else:
+        etag_content = f"{apk.id}:{apk.uploaded_at.isoformat()}"
+        etag_hash = hashlib.sha256(etag_content.encode()).hexdigest()[:16]
+        etag = f'"{etag_hash}"'
+    
+    # Format Last-Modified header from uploaded_at timestamp
+    # Ensure uploaded_at is timezone-aware (UTC)
+    uploaded_at_utc = apk.uploaded_at
+    if uploaded_at_utc.tzinfo is None:
+        uploaded_at_utc = uploaded_at_utc.replace(tzinfo=timezone.utc)
+    else:
+        uploaded_at_utc = uploaded_at_utc.astimezone(timezone.utc)
+    
+    # Convert to timestamp for formatdate
+    timestamp = uploaded_at_utc.timestamp()
+    last_modified = formatdate(timestamp, usegmt=True)
+    
+    # Check conditional headers for 304 Not Modified
+    if_none_match = request.headers.get("If-None-Match")
+    if_modified_since = request.headers.get("If-Modified-Since")
+    
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Last-Modified": last_modified})
+    
+    if if_modified_since:
+        try:
+            # Parse If-Modified-Since header (RFC 7231 format)
+            import email.utils
+            if_modified_since_time = email.utils.parsedate_to_datetime(if_modified_since)
+            if if_modified_since_time and uploaded_at_utc <= if_modified_since_time:
+                return Response(status_code=304, headers={"ETag": etag, "Last-Modified": last_modified})
+        except (ValueError, TypeError):
+            pass  # Invalid date format, continue with normal download
+    
+    # Try cache first
+    cache_hit = False
+    cache = get_apk_cache()
+    cache_key = f"apk:{apk.id}"
+    cached_result = cache.get(cache_key)
+    
+    if cached_result:
+        file_data, content_type, file_size = cached_result
+        cache_hit = True
+    else:
+        # Cache miss - download from storage
+        try:
+            storage = get_storage_service()
+            file_data, content_type, file_size = storage.download_file(apk.file_path)
+            
+            # Cache the result for future requests
+            cache.put(cache_key, file_data, content_type, file_size)
+        except ObjectNotFoundError:
+            raise HTTPException(status_code=404, detail="APK file not found in storage")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
     
     structured_logger.log_event(
         "apk.download",
@@ -7129,7 +7182,8 @@ async def download_latest_apk(
         build_type=apk.build_type or "unknown",
         token_id="admin",
         source="enrollment",
-        auth_method="admin_key"
+        auth_method="admin_key",
+        cache_hit=cache_hit
     )
     
     download_event = ApkDownloadEvent(
@@ -7144,17 +7198,23 @@ async def download_latest_apk(
     
     metrics.inc_counter("apk_download_total", {
         "build_type": apk.build_type or "unknown",
-        "source": "enrollment"
+        "source": "enrollment",
+        "cache_hit": str(cache_hit)
     })
     
-    print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key")
+    print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key (cache: {'hit' if cache_hit else 'miss'})")
     
-    return Response(
-        content=file_data,
+    # Stream the response instead of buffering
+    return StreamingResponse(
+        io.BytesIO(file_data),
         media_type="application/vnd.android.package-archive",
         headers={
             "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"',
-            "Content-Length": str(file_size)
+            "Content-Length": str(file_size),
+            "ETag": etag,
+            "Last-Modified": last_modified,
+            "Cache-Control": "public, max-age=3600",
+            "X-Cache-Hit": str(cache_hit)
         }
     )
 async def send_fcm_to_device(device, installation, apk, download_url, current_user, db):
