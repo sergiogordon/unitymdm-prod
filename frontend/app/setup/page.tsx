@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { 
@@ -18,7 +18,9 @@ import {
   Settings,
   Sparkles,
   AlertCircle,
-  Info
+  Info,
+  Database,
+  Mail
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -32,16 +34,27 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { ChevronDown, ExternalLink, HelpCircle } from "lucide-react"
+import { checkBackendHealth, pollBackendHealth, type BackendHealthStatus } from "@/lib/backend-health"
 
 interface SetupStatus {
   required: {
     admin_key: { configured: boolean; valid: boolean; message: string }
     jwt_secret: { configured: boolean; valid: boolean; message: string }
+    hmac_secret: { configured: boolean; valid: boolean; message: string }
     firebase: { configured: boolean; valid: boolean; message: string }
+    database: { 
+      configured: boolean
+      valid: boolean
+      message: string
+      type: string | null
+      connection_tested: boolean
+    }
   }
   optional: {
     discord_webhook: { configured: boolean; message: string }
     github_ci: { configured: boolean; message: string }
+    object_storage: { configured: boolean; available: boolean; message: string }
+    email_service: { configured: boolean; available: boolean; message: string }
   }
   ready: boolean
 }
@@ -56,10 +69,45 @@ export default function SetupPage() {
   const [checking, setChecking] = useState(false)
   const [backendError, setBackendError] = useState<string | null>(null)
   
+  // Backend health status
+  const [backendHealth, setBackendHealth] = useState<BackendHealthStatus | null>(null)
+  const [checkingBackend, setCheckingBackend] = useState(false)
+  const [pollingBackend, setPollingBackend] = useState(false)
+  const pollingRef = useRef<boolean>(false)
+  const pollingCancelRef = useRef<(() => void) | null>(null)
+  
+  // Database test status
+  const [testingDatabase, setTestingDatabase] = useState(false)
+  const [databaseTestResult, setDatabaseTestResult] = useState<{ connected: boolean; message: string; type?: string } | null>(null)
+  
+  // End-to-end verification status
+  const [verifying, setVerifying] = useState(false)
+  const [verificationResult, setVerificationResult] = useState<{
+    backend: { available: boolean; message: string }
+    database: { available: boolean; message: string }
+    object_storage: { available: boolean; message: string }
+    signup_endpoint: { available: boolean; message: string }
+    all_ready: boolean
+  } | null>(null)
+  
   // Step 1: Admin Credentials
   const [adminKey, setAdminKey] = useState("")
   const [jwtSecret, setJwtSecret] = useState("")
+  const [hmacSecret, setHmacSecret] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
+  
+  // Database configuration
+  const [databaseUrl, setDatabaseUrl] = useState("")
+  const [databaseType, setDatabaseType] = useState<"sqlite" | "postgresql" | "manual">("sqlite")
+  const [usePostgresParams, setUsePostgresParams] = useState(false)
+  const [pgHost, setPgHost] = useState("")
+  const [pgPort, setPgPort] = useState("5432")
+  const [pgUser, setPgUser] = useState("")
+  const [pgPassword, setPgPassword] = useState("")
+  const [pgDatabase, setPgDatabase] = useState("")
+  
+  // Discord webhook
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("")
   
   // Step 2: Firebase
   const [firebaseJson, setFirebaseJson] = useState("")
@@ -95,9 +143,19 @@ export default function SetupPage() {
       icon: Cloud
     },
     {
+      id: 'database',
+      title: 'Database Configuration',
+      icon: Database
+    },
+    {
       id: 'github',
       title: 'GitHub CI/CD (Recommended)',
       icon: Github
+    },
+    {
+      id: 'discord',
+      title: 'Discord Webhook (Optional)',
+      icon: Mail
     },
     {
       id: 'keystore',
@@ -125,6 +183,185 @@ export default function SetupPage() {
   useEffect(() => {
     checkSetupStatus()
   }, [])
+
+  // Check backend health when completion step is shown
+  useEffect(() => {
+    if (currentStep === 7) { // Complete step is now step 7
+      checkBackendHealthStatus()
+    } else {
+      // Reset backend health when leaving completion step
+      setBackendHealth(null)
+      pollingRef.current = false
+      setPollingBackend(false)
+      // Cancel any active polling
+      if (pollingCancelRef.current) {
+        pollingCancelRef.current()
+        pollingCancelRef.current = null
+      }
+    }
+    
+    return () => {
+      // Cleanup: stop polling when component unmounts or step changes
+      pollingRef.current = false
+      setPollingBackend(false)
+      // Cancel any active polling
+      if (pollingCancelRef.current) {
+        pollingCancelRef.current()
+        pollingCancelRef.current = null
+      }
+    }
+  }, [currentStep])
+
+  const checkBackendHealthStatus = async () => {
+    setCheckingBackend(true)
+    try {
+      const health = await checkBackendHealth(true, 5000)
+      setBackendHealth(health)
+      
+      // If backend is not running, start polling
+      if (health.status === 'not_running' && !pollingBackend) {
+        startBackendPolling()
+      }
+    } catch (error) {
+      console.error('Failed to check backend health:', error)
+      setBackendHealth({
+        status: 'error',
+        message: 'Failed to check backend health',
+        error: error instanceof Error ? error.message : 'unknown',
+      })
+    } finally {
+      setCheckingBackend(false)
+    }
+  }
+
+  const startBackendPolling = async () => {
+    if (pollingBackend || pollingRef.current) return
+    
+    pollingRef.current = true
+    setPollingBackend(true)
+    
+    // Cancel any existing polling
+    if (pollingCancelRef.current) {
+      pollingCancelRef.current()
+      pollingCancelRef.current = null
+    }
+    
+    try {
+      const { promise, cancel } = pollBackendHealth(
+        (status) => {
+          if (!pollingRef.current) return // Stop if cancelled
+          
+          setBackendHealth(status)
+          if (status.status === 'running') {
+            pollingRef.current = false
+            setPollingBackend(false)
+            pollingCancelRef.current = null
+            toast.success('Backend server is now running!')
+          }
+        },
+        5000, // Poll every 5 seconds
+        12, // Max 12 attempts (60 seconds total)
+        true // Use proxy
+      )
+      
+      pollingCancelRef.current = cancel
+      
+      await promise
+    } catch (error) {
+      console.error('Backend polling error:', error)
+    } finally {
+      if (pollingRef.current) {
+        pollingRef.current = false
+        setPollingBackend(false)
+        if (pollingCancelRef.current) {
+          pollingCancelRef.current()
+          pollingCancelRef.current = null
+        }
+      }
+    }
+  }
+
+  const testDatabaseConnection = async () => {
+    setTestingDatabase(true)
+    setDatabaseTestResult(null)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/setup/test-database`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setDatabaseTestResult({
+          connected: data.connected,
+          message: data.message,
+          type: data.type,
+        })
+        
+        if (data.connected) {
+          toast.success('Database connection successful!')
+          // Refresh setup status to get updated database info
+          await checkSetupStatus()
+        } else {
+          toast.error(`Database connection failed: ${data.message}`)
+        }
+      } else {
+        setDatabaseTestResult({
+          connected: false,
+          message: data.message || data.detail || 'Failed to test database connection',
+        })
+        toast.error('Failed to test database connection')
+      }
+    } catch (error) {
+      console.error('Database test error:', error)
+      setDatabaseTestResult({
+        connected: false,
+        message: error instanceof Error ? error.message : 'Network error - backend may not be running',
+      })
+      toast.error('Failed to test database connection')
+    } finally {
+      setTestingDatabase(false)
+    }
+  }
+
+  const verifyEverything = async () => {
+    setVerifying(true)
+    setVerificationResult(null)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/setup/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setVerificationResult(data)
+        
+        if (data.all_ready) {
+          toast.success('All systems ready! You can proceed to signup.')
+        } else {
+          const issues = []
+          if (!data.backend.available) issues.push('Backend')
+          if (!data.database.available) issues.push('Database')
+          if (!data.object_storage.available) issues.push('Object Storage')
+          toast.warning(`Some components need attention: ${issues.join(', ')}`)
+        }
+      } else {
+        toast.error('Failed to verify system status')
+      }
+    } catch (error) {
+      console.error('Verification error:', error)
+      toast.error('Failed to verify system - backend may not be running')
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   const checkSetupStatus = async () => {
     try {
@@ -200,6 +437,20 @@ export default function SetupPage() {
     const secret = generateSecureString(64)
     setJwtSecret(secret)
     copyToClipboard(secret, 'jwt-secret')
+  }
+
+  const generateHmacSecret = () => {
+    const secret = generateSecureString(64)
+    setHmacSecret(secret)
+    copyToClipboard(secret, 'hmac-secret')
+  }
+  
+  const constructDatabaseUrl = () => {
+    if (usePostgresParams && pgHost && pgUser && pgPassword && pgDatabase) {
+      const port = pgPort || "5432"
+      return `postgresql://${encodeURIComponent(pgUser)}:${encodeURIComponent(pgPassword)}@${pgHost}:${port}/${pgDatabase}`
+    }
+    return databaseUrl
   }
 
   const generateKeystorePassword = () => {
@@ -389,9 +640,11 @@ export default function SetupPage() {
                 <div className="space-y-2">
                   <h3 className="font-semibold">What we'll configure:</h3>
                   <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                    <li>Admin API key and JWT secret</li>
+                    <li>Admin API key, JWT secret (SESSION_SECRET), and HMAC secret</li>
                     <li>Firebase Cloud Messaging credentials</li>
+                    <li>Database configuration (PostgreSQL recommended)</li>
                     <li>GitHub Actions secrets (optional, for Android CI/CD)</li>
+                    <li>Discord webhook (optional, for alerts)</li>
                     <li>Android keystore setup (optional)</li>
                   </ul>
                 </div>
@@ -526,6 +779,72 @@ export default function SetupPage() {
                       <strong>Important:</strong> If <code>SESSION_SECRET</code> already exists in Replit Secrets, it may be an insecure default value. Please replace it with the secure value generated above. The setup wizard will verify that you're using a secure value.
                     </AlertDescription>
                   </Alert>
+                  
+                  {/* Note about JWT_SECRET */}
+                  <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                    <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <AlertDescription className="text-blue-800 dark:text-blue-300 text-sm">
+                      <strong>Note:</strong> <code>JWT_SECRET</code> is the same as <code>SESSION_SECRET</code>. The application uses <code>SESSION_SECRET</code> for JWT token signing.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                {/* HMAC Secret */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="hmac-secret">HMAC_SECRET</Label>
+                    <Badge variant={status?.required.hmac_secret?.configured && status?.required.hmac_secret?.valid ? "default" : "destructive"}>
+                      {status?.required.hmac_secret?.configured && status?.required.hmac_secret?.valid ? "Configured" : "Required"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Required for device command authentication. Used to sign FCM commands sent to Android devices.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      id="hmac-secret"
+                      value={hmacSecret}
+                      onChange={(e) => setHmacSecret(e.target.value)}
+                      placeholder="Click Generate to create a secure secret"
+                      readOnly
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={generateHmacSecret}
+                      className="shrink-0"
+                    >
+                      Generate
+                    </Button>
+                    {hmacSecret && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => copyToClipboard(hmacSecret, 'hmac-secret')}
+                      >
+                        {copied === 'hmac-secret' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      </Button>
+                    )}
+                  </div>
+                  {hmacSecret && (
+                    <div className="bg-muted p-4 rounded-md">
+                      <p className="text-sm font-mono mb-2">Add to Replit Secrets:</p>
+                      <div className="flex items-center gap-2">
+                        <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                          HMAC_SECRET={hmacSecret}
+                        </code>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => copyToClipboard(`HMAC_SECRET=${hmacSecret}`, 'hmac-secret-full')}
+                        >
+                          {copied === 'hmac-secret-full' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Alert>
@@ -537,7 +856,7 @@ export default function SetupPage() {
                       <li>Select <strong>"Secrets"</strong> from the tab options (or look for the 🔒 icon)</li>
                       <li>For each secret, you need to add two things:
                         <ul className="list-disc list-inside ml-4 mt-1 space-y-1">
-                          <li><strong>Secret Name:</strong> Enter the exact name shown (e.g., <code>ADMIN_KEY</code> or <code>SESSION_SECRET</code>)</li>
+                          <li><strong>Secret Name:</strong> Enter the exact name shown (e.g., <code>ADMIN_KEY</code>, <code>SESSION_SECRET</code>, or <code>HMAC_SECRET</code>)</li>
                           <li><strong>Secret Value:</strong> Paste the generated value from above</li>
                         </ul>
                       </li>
@@ -556,10 +875,10 @@ export default function SetupPage() {
                       setChecking(true)
                       await checkSetupStatus()
                       setChecking(false)
-                      if (adminKey && jwtSecret) {
+                      if (adminKey && jwtSecret && hmacSecret) {
                         handleStepChange(2)
                       } else {
-                        toast.info("Please generate and add the secrets to Replit first")
+                        toast.info("Please generate and add all secrets to Replit first")
                       }
                     }}
                     disabled={checking}
@@ -782,7 +1101,7 @@ export default function SetupPage() {
                       setChecking(true)
                       await checkSetupStatus()
                       setChecking(false)
-                      handleStepChange(3)
+                      handleStepChange(3) // Go to database step
                     }}
                     disabled={checking || (firebaseValid === false && firebaseMessage && !firebaseMessage.includes("Backend") && !firebaseMessage.includes("backend")) || !firebaseJson.trim()}
                     className="flex-1"
@@ -802,8 +1121,374 @@ export default function SetupPage() {
               </div>
             )}
 
-            {/* Step 3: GitHub CI (Recommended) */}
+            {/* Step 3: Database Configuration */}
             {currentStep === 3 && (
+              <div className="space-y-6">
+                <Alert>
+                  <AlertDescription>
+                    Configure your database connection. PostgreSQL is recommended for production, but SQLite works for development.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Current Database Status */}
+                {status && status.required.database && (
+                  <div className="space-y-3">
+                    {status.required.database.configured && status.required.database.valid && (
+                      <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                        <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        <AlertDescription className="text-green-800 dark:text-green-300">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <strong>Database configured and connected!</strong>
+                              <p className="text-sm mt-1">
+                                {status.required.database.type && (
+                                  <span className="capitalize">{status.required.database.type}</span>
+                                )} {status.required.database.message}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                              Connected
+                            </Badge>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {status.required.database.configured && !status.required.database.valid && (
+                      <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                        <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                        <AlertDescription className="text-red-800 dark:text-red-300">
+                          <strong>Database configured but connection failed</strong>
+                          <p className="text-sm mt-1">{status.required.database.message}</p>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {!status.required.database.configured && (
+                      <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                        <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
+                        <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                          <strong>Using default SQLite database</strong>
+                          <p className="text-sm mt-1">PostgreSQL is recommended for production deployments.</p>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+
+                {/* Database Test Result */}
+                {databaseTestResult && (
+                  <Alert className={databaseTestResult.connected 
+                    ? "border-green-500/50 bg-green-50 dark:bg-green-950/20"
+                    : "border-red-500/50 bg-red-50 dark:bg-red-950/20"
+                  }>
+                    {databaseTestResult.connected ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                    )}
+                    <AlertDescription className={databaseTestResult.connected
+                      ? "text-green-800 dark:text-green-300"
+                      : "text-red-800 dark:text-red-300"
+                    }>
+                      <strong>{databaseTestResult.connected ? 'Connection successful!' : 'Connection failed'}</strong>
+                      <p className="text-sm mt-1">{databaseTestResult.message}</p>
+                      {databaseTestResult.type && (
+                        <p className="text-xs mt-1">Database type: {databaseTestResult.type}</p>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold mb-2">Database Configuration Options:</h3>
+                    
+                    {/* Option A: Replit PostgreSQL */}
+                    <Card className="mb-4">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Database className="h-4 w-4" />
+                          Option A: Use Replit PostgreSQL (Recommended)
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <p className="text-sm text-muted-foreground">
+                          Replit PostgreSQL integration automatically sets up <code>DATABASE_URL</code> for you.
+                        </p>
+                        <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+                          <li>In Replit, click the <strong>"+"</strong> button to open a new tab</li>
+                          <li>Search for and select <strong>"PostgreSQL"</strong> from the integrations</li>
+                          <li>Click <strong>"Add Integration"</strong></li>
+                          <li>Replit will automatically set <code>DATABASE_URL</code> in your Secrets</li>
+                          <li>Return here and click <strong>"Test Connection"</strong> to verify</li>
+                        </ol>
+                        <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <AlertDescription className="text-blue-800 dark:text-blue-300 text-sm">
+                            After adding PostgreSQL integration, you may need to restart the backend for the connection to be recognized.
+                          </AlertDescription>
+                        </Alert>
+                      </CardContent>
+                    </Card>
+
+                    {/* Option B: Manual DATABASE_URL */}
+                    <Card className="mb-4">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Database className="h-4 w-4" />
+                          Option B: Manual DATABASE_URL Entry
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="database-url">DATABASE_URL</Label>
+                          <Input
+                            id="database-url"
+                            value={databaseUrl}
+                            onChange={(e) => {
+                              setDatabaseUrl(e.target.value)
+                              const url = e.target.value.toLowerCase()
+                              if (url.includes('postgres')) {
+                                setDatabaseType('postgresql')
+                              } else if (url.includes('sqlite')) {
+                                setDatabaseType('sqlite')
+                              } else {
+                                setDatabaseType('manual')
+                              }
+                            }}
+                            placeholder="postgresql://user:password@host:port/database or sqlite:///./data.db"
+                            className="font-mono text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Format: <code>postgresql://user:password@host:port/database</code> or <code>sqlite:///./data.db</code>
+                          </p>
+                        </div>
+                        {databaseUrl && (
+                          <div className="bg-muted p-4 rounded-md">
+                            <p className="text-sm font-mono mb-2">Add to Replit Secrets:</p>
+                            <div className="flex items-center gap-2">
+                              <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                                DATABASE_URL={databaseUrl}
+                              </code>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => copyToClipboard(`DATABASE_URL=${databaseUrl}`, 'database-url-full')}
+                              >
+                                {copied === 'database-url-full' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Option C: PostgreSQL Individual Parameters */}
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Database className="h-4 w-4" />
+                          Option C: PostgreSQL Individual Parameters
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="use-postgres-params"
+                            checked={usePostgresParams}
+                            onCheckedChange={(checked) => setUsePostgresParams(checked === true)}
+                          />
+                          <Label htmlFor="use-postgres-params" className="text-sm">
+                            Use individual PostgreSQL parameters instead of DATABASE_URL
+                          </Label>
+                        </div>
+                        {usePostgresParams && (
+                          <div className="space-y-3 pl-6 border-l-2">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-2">
+                                <Label htmlFor="pg-host">PGHOST</Label>
+                                <Input
+                                  id="pg-host"
+                                  value={pgHost}
+                                  onChange={(e) => setPgHost(e.target.value)}
+                                  placeholder="localhost"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="pg-port">PGPORT</Label>
+                                <Input
+                                  id="pg-port"
+                                  value={pgPort}
+                                  onChange={(e) => setPgPort(e.target.value)}
+                                  placeholder="5432"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="pg-user">PGUSER</Label>
+                                <Input
+                                  id="pg-user"
+                                  value={pgUser}
+                                  onChange={(e) => setPgUser(e.target.value)}
+                                  placeholder="postgres"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="pg-password">PGPASSWORD</Label>
+                                <Input
+                                  id="pg-password"
+                                  type="password"
+                                  value={pgPassword}
+                                  onChange={(e) => setPgPassword(e.target.value)}
+                                  placeholder="password"
+                                />
+                              </div>
+                              <div className="space-y-2 col-span-2">
+                                <Label htmlFor="pg-database">PGDATABASE</Label>
+                                <Input
+                                  id="pg-database"
+                                  value={pgDatabase}
+                                  onChange={(e) => setPgDatabase(e.target.value)}
+                                  placeholder="nexmdm"
+                                />
+                              </div>
+                            </div>
+                            {pgHost && pgUser && pgPassword && pgDatabase && (
+                              <div className="bg-muted p-4 rounded-md">
+                                <p className="text-sm font-semibold mb-2">Add these to Replit Secrets:</p>
+                                <div className="space-y-2 text-xs font-mono">
+                                  <div className="flex items-center gap-2">
+                                    <code className="flex-1 bg-background p-2 rounded">
+                                      PGHOST={pgHost}
+                                    </code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => copyToClipboard(`PGHOST=${pgHost}`, 'pg-host')}
+                                    >
+                                      {copied === 'pg-host' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <code className="flex-1 bg-background p-2 rounded">
+                                      PGPORT={pgPort}
+                                    </code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => copyToClipboard(`PGPORT=${pgPort}`, 'pg-port')}
+                                    >
+                                      {copied === 'pg-port' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <code className="flex-1 bg-background p-2 rounded">
+                                      PGUSER={pgUser}
+                                    </code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => copyToClipboard(`PGUSER=${pgUser}`, 'pg-user')}
+                                    >
+                                      {copied === 'pg-user' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <code className="flex-1 bg-background p-2 rounded">
+                                      PGPASSWORD={pgPassword}
+                                    </code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => copyToClipboard(`PGPASSWORD=${pgPassword}`, 'pg-password')}
+                                    >
+                                      {copied === 'pg-password' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    </Button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <code className="flex-1 bg-background p-2 rounded">
+                                      PGDATABASE={pgDatabase}
+                                    </code>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => copyToClipboard(`PGDATABASE=${pgDatabase}`, 'pg-database')}
+                                    >
+                                      {copied === 'pg-database' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Alert className="mt-3 border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                                  <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-500" />
+                                  <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-xs">
+                                    <strong>Note:</strong> The application uses <code>DATABASE_URL</code> by default. If you use individual PostgreSQL parameters, you may need to construct <code>DATABASE_URL</code> from these values: <code>postgresql://{pgUser}:{pgPassword}@{pgHost}:{pgPort}/{pgDatabase}</code>
+                                  </AlertDescription>
+                                </Alert>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleStepChange(2)} // Back to Firebase
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                  </Button>
+                  <Button
+                    onClick={testDatabaseConnection}
+                    variant="outline"
+                    disabled={testingDatabase}
+                    className="flex-1"
+                  >
+                    {testingDatabase ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Testing Connection...
+                      </>
+                    ) : (
+                      <>
+                        <Database className="mr-2 h-4 w-4" />
+                        Test Database Connection
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      setChecking(true)
+                      await checkSetupStatus()
+                      setChecking(false)
+                      handleStepChange(4) // Go to GitHub CI step
+                    }}
+                    disabled={checking}
+                    className="flex-1"
+                  >
+                    {checking ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        Continue <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: GitHub CI (Recommended) */}
+            {currentStep === 4 && (
               <div className="space-y-6">
                 <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
                   <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
@@ -1252,14 +1937,14 @@ export default function SetupPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => handleStepChange(2)}>
+                  <Button variant="outline" onClick={() => handleStepChange(3)}>
                     <ArrowLeft className="mr-2 h-4 w-4" /> Back
                   </Button>
                   {skipGitHubCI ? (
                     <Button
                       onClick={() => {
                         setShowGitHub(true)
-                        handleStepChange(4)
+                        handleStepChange(5) // Go to Discord step
                       }}
                       variant="outline"
                       className="flex-1"
@@ -1270,7 +1955,7 @@ export default function SetupPage() {
                     <Button
                       onClick={() => {
                         setShowGitHub(true)
-                        handleStepChange(4)
+                        handleStepChange(5) // Go to Discord step
                       }}
                       className="flex-1"
                     >
@@ -1281,8 +1966,180 @@ export default function SetupPage() {
               </div>
             )}
 
-            {/* Step 4: Complete */}
-            {currentStep === 4 && (
+            {/* Step 5: Discord Webhook (Optional) */}
+            {currentStep === 5 && (
+              <div className="space-y-6">
+                <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <AlertDescription className="text-blue-800 dark:text-blue-300">
+                    <strong>Optional:</strong> Discord webhooks allow you to receive alerts and notifications in your Discord server. 
+                    This is useful for monitoring device status, alerts, and system events.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Current Discord Status */}
+                {status && status.optional.discord_webhook && (
+                  <div className="space-y-3">
+                    {status.optional.discord_webhook.configured ? (
+                      <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                        <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        <AlertDescription className="text-green-800 dark:text-green-300">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <strong>Discord webhook configured!</strong>
+                              <p className="text-sm mt-1">{status.optional.discord_webhook.message}</p>
+                            </div>
+                            <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                              Configured
+                            </Badge>
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    ) : (
+                      <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                        <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-500" />
+                        <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                          <strong>Discord webhook not configured</strong>
+                          <p className="text-sm mt-1">You can skip this step if you don't need Discord notifications.</p>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold mb-2">How to create a Discord webhook:</h3>
+                    <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground mb-4">
+                      <li>Open Discord and go to your server</li>
+                      <li>Go to <strong>Server Settings</strong> → <strong>Integrations</strong> → <strong>Webhooks</strong></li>
+                      <li>Click <strong>"New Webhook"</strong> or <strong>"Create Webhook"</strong></li>
+                      <li>Give your webhook a name (e.g., "NexMDM Alerts")</li>
+                      <li>Choose which channel the webhook should post to</li>
+                      <li>Click <strong>"Copy Webhook URL"</strong></li>
+                      <li>Paste the URL below</li>
+                    </ol>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="discord-webhook">DISCORD_WEBHOOK_URL</Label>
+                      <Badge variant={status?.optional.discord_webhook?.configured ? "default" : "outline"}>
+                        {status?.optional.discord_webhook?.configured ? "Configured" : "Optional"}
+                      </Badge>
+                    </div>
+                    <Input
+                      id="discord-webhook"
+                      value={discordWebhookUrl}
+                      onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="font-mono text-sm"
+                    />
+                    {discordWebhookUrl && !discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') && (
+                      <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                        <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        <AlertDescription className="text-red-800 dark:text-red-300 text-sm">
+                          Discord webhook URLs must start with <code>https://discord.com/api/webhooks/</code>
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    {discordWebhookUrl && discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') && (
+                      <div className="bg-muted p-4 rounded-md">
+                        <p className="text-sm font-mono mb-2">Add to Replit Secrets:</p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs flex-1 bg-background p-2 rounded break-all">
+                            DISCORD_WEBHOOK_URL={discordWebhookUrl}
+                          </code>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => copyToClipboard(`DISCORD_WEBHOOK_URL=${discordWebhookUrl}`, 'discord-webhook-full')}
+                          >
+                            {copied === 'discord-webhook-full' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => handleStepChange(4)}>
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back to GitHub
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      setChecking(true)
+                      await checkSetupStatus()
+                      setChecking(false)
+                      handleStepChange(6) // Go to Keystore step
+                    }}
+                    disabled={checking}
+                    className="flex-1"
+                  >
+                    {checking ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        Continue <ArrowRight className="ml-2 h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 6: Android Keystore (Optional) */}
+            {currentStep === 6 && (
+              <div className="space-y-6">
+                <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <AlertDescription className="text-blue-800 dark:text-blue-300">
+                    <strong>Optional:</strong> Android keystore is only needed if you plan to build and sign Android APKs. 
+                    You can skip this step if you're not building Android apps.
+                  </AlertDescription>
+                </Alert>
+
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    The Android keystore is used to sign your APK files. If you're using GitHub Actions CI/CD (configured in the previous step), 
+                    you'll need to add the keystore as a GitHub secret. Otherwise, you can add it directly to Replit Secrets.
+                  </p>
+                  
+                  <Alert>
+                    <AlertDescription className="text-sm">
+                      <strong>Note:</strong> Keystore setup instructions are included in the GitHub CI/CD step. 
+                      If you've already configured GitHub Actions, you can skip this step.
+                    </AlertDescription>
+                  </Alert>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => handleStepChange(5)}>
+                    <ArrowLeft className="mr-2 h-4 w-4" /> Back
+                  </Button>
+                  <Button
+                    onClick={() => handleStepChange(7)} // Go to Complete step
+                    className="flex-1"
+                  >
+                    Skip Keystore <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                  <Button
+                    onClick={() => handleStepChange(7)} // Go to Complete step
+                    className="flex-1"
+                  >
+                    Continue <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 7: Setup Complete */}
+            {currentStep === 7 && (
               <div className="space-y-6">
                 <div className="text-center">
                   <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
@@ -1291,6 +2148,472 @@ export default function SetupPage() {
                     All required configuration is complete. You can now use NexMDM.
                   </p>
                 </div>
+
+                {/* Backend Status Indicator */}
+                <Card className="border-2">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Settings className="h-5 w-5" />
+                      Backend Server Status
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {checkingBackend && !backendHealth && (
+                      <div className="flex items-center gap-3 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span>Checking backend status...</span>
+                      </div>
+                    )}
+
+                    {backendHealth && (
+                      <div className="space-y-3">
+                        {backendHealth.status === 'running' && (
+                          <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            <AlertDescription className="text-green-800 dark:text-green-300">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Backend is running!</strong>
+                                  {backendHealth.details?.uptime_formatted && (
+                                    <p className="text-sm mt-1">
+                                      Uptime: {backendHealth.details.uptime_formatted}
+                                    </p>
+                                  )}
+                                </div>
+                                <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                                  Online
+                                </Badge>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {backendHealth.status === 'not_running' && (
+                          <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                            <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                            <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <strong>Backend server is not running</strong>
+                                    <p className="text-sm mt-1">
+                                      {backendHealth.message}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900">
+                                    Offline
+                                  </Badge>
+                                </div>
+                                
+                                <div className="bg-background p-3 rounded-md border">
+                                  <p className="text-sm font-semibold mb-2">To start the backend:</p>
+                                  <ol className="list-decimal list-inside text-sm space-y-1 text-muted-foreground">
+                                    <li>Click the <strong>"Run"</strong> button at the top of Replit</li>
+                                    <li>Wait for the backend to start (check the console for startup messages)</li>
+                                    <li>Click "Check Status" below to verify</li>
+                                  </ol>
+                                </div>
+
+                                {pollingBackend && (
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span>Automatically checking for backend startup...</span>
+                                  </div>
+                                )}
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {backendHealth.status === 'error' && (
+                          <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                            <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                            <AlertDescription className="text-red-800 dark:text-red-300">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Error checking backend</strong>
+                                  <p className="text-sm mt-1">
+                                    {backendHealth.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-red-100 dark:bg-red-900">
+                                  Error
+                                </Badge>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={checkBackendHealthStatus}
+                        variant="outline"
+                        disabled={checkingBackend || pollingBackend}
+                        className="flex-1"
+                      >
+                        {checkingBackend ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Checking...
+                          </>
+                        ) : (
+                          <>
+                            <Settings className="mr-2 h-4 w-4" />
+                            Check Status
+                          </>
+                        )}
+                      </Button>
+                      {backendHealth?.status === 'not_running' && !pollingBackend && (
+                        <Button
+                          onClick={startBackendPolling}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <Loader2 className="mr-2 h-4 w-4" />
+                          Auto-Check
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Database Status Indicator */}
+                <Card className="border-2">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Shield className="h-5 w-5" />
+                      Database Status
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {status && status.required.database && (
+                      <div className="space-y-3">
+                        {status.required.database.configured && status.required.database.valid && (
+                          <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            <AlertDescription className="text-green-800 dark:text-green-300">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Database configured and connected!</strong>
+                                  <p className="text-sm mt-1">
+                                    {status.required.database.type && (
+                                      <span className="capitalize">{status.required.database.type}</span>
+                                    )} {status.required.database.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                                  Connected
+                                </Badge>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {status.required.database.configured && !status.required.database.valid && (
+                          <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                            <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                            <AlertDescription className="text-red-800 dark:text-red-300">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <strong>Database connection failed</strong>
+                                    <p className="text-sm mt-1">
+                                      {status.required.database.message}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className="bg-red-100 dark:bg-red-900">
+                                    Error
+                                  </Badge>
+                                </div>
+                                
+                                <div className="bg-background p-3 rounded-md border">
+                                  <p className="text-sm font-semibold mb-2">Troubleshooting:</p>
+                                  <ul className="list-disc list-inside text-sm space-y-1 text-muted-foreground">
+                                    <li>Verify DATABASE_URL is correct in Replit Secrets</li>
+                                    <li>Check that PostgreSQL integration is set up in Replit</li>
+                                    <li>Ensure database server is running and accessible</li>
+                                    <li>Restart backend after updating DATABASE_URL</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {!status.required.database.configured && (
+                          <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                            <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                            <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <strong>Using default SQLite database</strong>
+                                    <p className="text-sm mt-1">
+                                      {status.required.database.message}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900">
+                                    Default
+                                  </Badge>
+                                </div>
+                                
+                                <div className="bg-background p-3 rounded-md border">
+                                  <p className="text-sm font-semibold mb-2">To set up PostgreSQL (recommended):</p>
+                                  <ol className="list-decimal list-inside text-sm space-y-1 text-muted-foreground">
+                                    <li>Click <strong>Tools</strong> (🔧) in the Replit sidebar</li>
+                                    <li>Click <strong>Add Integration</strong> → Search "PostgreSQL"</li>
+                                    <li>Click <strong>Set up</strong> to create your database</li>
+                                    <li>Replit will automatically set DATABASE_URL</li>
+                                    <li>Restart the backend to use PostgreSQL</li>
+                                  </ol>
+                                  <p className="text-xs text-muted-foreground mt-2">
+                                    Note: SQLite works for development, but PostgreSQL is recommended for production deployments.
+                                  </p>
+                                </div>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
+
+                    {databaseTestResult && (
+                      <Alert className={databaseTestResult.connected 
+                        ? "border-green-500/50 bg-green-50 dark:bg-green-950/20"
+                        : "border-red-500/50 bg-red-50 dark:bg-red-950/20"
+                      }>
+                        {databaseTestResult.connected ? (
+                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                        )}
+                        <AlertDescription className={databaseTestResult.connected
+                          ? "text-green-800 dark:text-green-300"
+                          : "text-red-800 dark:text-red-300"
+                        }>
+                          <strong>{databaseTestResult.connected ? 'Connection successful!' : 'Connection failed'}</strong>
+                          <p className="text-sm mt-1">{databaseTestResult.message}</p>
+                          {databaseTestResult.type && (
+                            <p className="text-xs mt-1">Database type: {databaseTestResult.type}</p>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    <Button
+                      onClick={testDatabaseConnection}
+                      variant="outline"
+                      disabled={testingDatabase}
+                      className="w-full"
+                    >
+                      {testingDatabase ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Testing Connection...
+                        </>
+                      ) : (
+                        <>
+                          <Shield className="mr-2 h-4 w-4" />
+                          Test Database Connection
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Object Storage Status Indicator */}
+                {status && status.optional.object_storage && (
+                  <Card className="border-2">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Cloud className="h-5 w-5" />
+                        Object Storage Status
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {status.optional.object_storage.configured && status.optional.object_storage.available && (
+                        <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                          <AlertDescription className="text-green-800 dark:text-green-300">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <strong>Object Storage available!</strong>
+                                <p className="text-sm mt-1">
+                                  {status.optional.object_storage.message}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                                Available
+                              </Badge>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {status.optional.object_storage.configured && !status.optional.object_storage.available && (
+                        <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                          <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                          <AlertDescription className="text-red-800 dark:text-red-300">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Object Storage not accessible</strong>
+                                  <p className="text-sm mt-1">
+                                    {status.optional.object_storage.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-red-100 dark:bg-red-900">
+                                  Error
+                                </Badge>
+                              </div>
+                              
+                              <div className="bg-background p-3 rounded-md border">
+                                <p className="text-sm font-semibold mb-2">Troubleshooting:</p>
+                                <ul className="list-disc list-inside text-sm space-y-1 text-muted-foreground">
+                                  <li>Verify Object Storage integration is set up in Replit</li>
+                                  <li>Check that the default bucket is accessible</li>
+                                  <li>Restart backend after setting up Object Storage</li>
+                                </ul>
+                              </div>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {!status.optional.object_storage.configured && (
+                        <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                          <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                          <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Object Storage not configured</strong>
+                                  <p className="text-sm mt-1">
+                                    {status.optional.object_storage.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900">
+                                  Required
+                                </Badge>
+                              </div>
+                              
+                              <div className="bg-background p-3 rounded-md border">
+                                <p className="text-sm font-semibold mb-2">To set up Object Storage (required for APK storage):</p>
+                                <ol className="list-decimal list-inside text-sm space-y-1 text-muted-foreground">
+                                  <li>Click <strong>Tools</strong> (🔧) in the Replit sidebar</li>
+                                  <li>Click <strong>Add Integration</strong> → Search "Object Storage"</li>
+                                  <li>Click <strong>Set up</strong> to enable storage</li>
+                                  <li>Restart the backend to use Object Storage</li>
+                                </ol>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  Note: Object Storage is required for uploading and storing Android APK files.
+                                </p>
+                              </div>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Email Service Status Indicator */}
+                {status && status.optional.email_service && (
+                  <Card className="border-2">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Mail className="h-5 w-5" />
+                        Email Service Status
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {status.optional.email_service.configured && status.optional.email_service.available && (
+                        <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                          <AlertDescription className="text-green-800 dark:text-green-300">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <strong>ReplitMail available!</strong>
+                                <p className="text-sm mt-1">
+                                  {status.optional.email_service.message}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="bg-green-100 dark:bg-green-900">
+                                Available
+                              </Badge>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {status.optional.email_service.configured && !status.optional.email_service.available && (
+                        <Alert className="border-red-500/50 bg-red-50 dark:bg-red-950/20">
+                          <XCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                          <AlertDescription className="text-red-800 dark:text-red-300">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Email service not accessible</strong>
+                                  <p className="text-sm mt-1">
+                                    {status.optional.email_service.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-red-100 dark:bg-red-900">
+                                  Error
+                                </Badge>
+                              </div>
+                              
+                              <div className="bg-background p-3 rounded-md border">
+                                <p className="text-sm font-semibold mb-2">Troubleshooting:</p>
+                                <ul className="list-disc list-inside text-sm space-y-1 text-muted-foreground">
+                                  <li>Verify ReplitMail integration is set up in Replit</li>
+                                  <li>Check that REPL_IDENTITY or WEB_REPL_RENEWAL is set</li>
+                                  <li>Restart backend after setting up ReplitMail</li>
+                                </ul>
+                              </div>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {!status.optional.email_service.configured && (
+                        <Alert className="border-blue-500/50 bg-blue-50 dark:bg-blue-950/20">
+                          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          <AlertDescription className="text-blue-800 dark:text-blue-300">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <strong>Email service not configured</strong>
+                                  <p className="text-sm mt-1">
+                                    {status.optional.email_service.message}
+                                  </p>
+                                </div>
+                                <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900">
+                                  Optional
+                                </Badge>
+                              </div>
+                              
+                              <div className="bg-background p-3 rounded-md border">
+                                <p className="text-sm font-semibold mb-2">To set up ReplitMail (recommended for email notifications):</p>
+                                <ol className="list-decimal list-inside text-sm space-y-1 text-muted-foreground">
+                                  <li>Click <strong>Tools</strong> (🔧) in the Replit sidebar</li>
+                                  <li>Click <strong>Add Integration</strong> → Search "ReplitMail"</li>
+                                  <li>Click <strong>Set up</strong> to enable email service</li>
+                                  <li>Restart the backend to use ReplitMail</li>
+                                </ol>
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  Note: Email service is optional but recommended for password reset emails and alerts.
+                                </p>
+                              </div>
+                            </div>
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Verification Steps */}
                 <Collapsible>
@@ -1405,6 +2728,111 @@ export default function SetupPage() {
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
+
+                {/* End-to-End Verification */}
+                <Card className="border-2 border-primary/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CheckCircle2 className="h-5 w-5" />
+                      System Verification
+                    </CardTitle>
+                    <CardDescription>
+                      Test all critical components to ensure everything is working
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {verificationResult && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className={`p-3 rounded-md border ${verificationResult.backend.available ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              {verificationResult.backend.available ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              )}
+                              <span className="font-semibold text-sm">Backend</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{verificationResult.backend.message}</p>
+                          </div>
+
+                          <div className={`p-3 rounded-md border ${verificationResult.database.available ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              {verificationResult.database.available ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              )}
+                              <span className="font-semibold text-sm">Database</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{verificationResult.database.message}</p>
+                          </div>
+
+                          <div className={`p-3 rounded-md border ${verificationResult.object_storage.available ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              {verificationResult.object_storage.available ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                              )}
+                              <span className="font-semibold text-sm">Object Storage</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{verificationResult.object_storage.message}</p>
+                          </div>
+
+                          <div className={`p-3 rounded-md border ${verificationResult.signup_endpoint.available ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' : 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              {verificationResult.signup_endpoint.available ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                              )}
+                              <span className="font-semibold text-sm">Signup Endpoint</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{verificationResult.signup_endpoint.message}</p>
+                          </div>
+                        </div>
+
+                        {verificationResult.all_ready && (
+                          <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
+                            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            <AlertDescription className="text-green-800 dark:text-green-300">
+                              <strong>All systems ready!</strong> Your NexMDM instance is fully configured and ready to use.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {!verificationResult.all_ready && (
+                          <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20">
+                            <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                            <AlertDescription className="text-yellow-800 dark:text-yellow-300">
+                              <strong>Some components need attention.</strong> Please fix the issues above before proceeding to signup.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={verifyEverything}
+                      variant="default"
+                      disabled={verifying}
+                      className="w-full"
+                    >
+                      {verifying ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Verifying...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Verify Everything Works
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
 
                 {/* What's Next Section */}
                 <Alert className="border-green-500/50 bg-green-50 dark:bg-green-950/20">

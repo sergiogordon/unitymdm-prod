@@ -61,12 +61,11 @@ async function proxyRequest(
   method: string
 ) {
   const startTime = Date.now()
-  let backendUrl: string
+  const path = pathSegments.join('/')
+  const url = new URL(request.url)
+  const backendUrl = `${BACKEND_URL}/${path}${url.search}`
   
   try {
-    const path = pathSegments.join('/')
-    const url = new URL(request.url)
-    backendUrl = `${BACKEND_URL}/${path}${url.search}`
 
     console.log(`[Proxy] ${method} ${path} -> ${backendUrl}`)
 
@@ -149,14 +148,30 @@ async function proxyRequest(
       // Check if it's a connection error
       if (fetchError instanceof Error) {
         const errorMessage = fetchError.message.toLowerCase()
-        if (errorMessage.includes('econnrefused') || errorMessage.includes('failed to fetch') || errorMessage.includes('network')) {
+        const causeMessage = (fetchError.cause as Error)?.message?.toLowerCase() || ''
+        const isConnectionError = 
+          errorMessage.includes('econnrefused') || 
+          errorMessage.includes('failed to fetch') || 
+          errorMessage.includes('network') ||
+          errorMessage.includes('fetch failed') ||
+          causeMessage.includes('econnrefused') ||
+          causeMessage.includes('connect econnrefused')
+        
+        if (isConnectionError) {
           console.error(`[Proxy] Connection refused to backend: ${backendUrl}`, fetchError)
+          
+          // Provide user-friendly error message
+          const userMessage = 'The backend server is not running or not accessible. Please ensure the backend service is started on port 8000.'
+          const troubleshooting = 'If you are running in Replit, check that the Backend workflow is running. Otherwise, start the backend server manually.'
+          
           return NextResponse.json(
             { 
               error: 'Backend connection failed',
-              message: 'Unable to connect to backend server. Please ensure the backend is running.',
+              message: userMessage,
+              troubleshooting: troubleshooting,
               backend_url: backendUrl,
               path: path,
+              error_code: 'ECONNREFUSED',
               details: fetchError.message
             },
             { status: 502 }
@@ -197,10 +212,37 @@ async function proxyRequest(
     console.error(`[Proxy] Backend URL: ${backendUrl || BACKEND_URL}`)
     console.error(`[Proxy] Path: ${pathSegments.join('/')}`)
     
+    // Check if this is a connection error that wasn't caught earlier
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase()
+      const causeMessage = (error.cause as Error)?.message?.toLowerCase() || ''
+      const isConnectionError = 
+        errorMessage.includes('econnrefused') || 
+        errorMessage.includes('failed to fetch') ||
+        errorMessage.includes('fetch failed') ||
+        causeMessage.includes('econnrefused') ||
+        causeMessage.includes('connect econnrefused')
+      
+      if (isConnectionError) {
+        return NextResponse.json(
+          { 
+            error: 'Backend connection failed',
+            message: 'The backend server is not running or not accessible. Please ensure the backend service is started on port 8000.',
+            troubleshooting: 'If you are running in Replit, check that the Backend workflow is running. Otherwise, start the backend server manually.',
+            backend_url: backendUrl || BACKEND_URL,
+            path: pathSegments.join('/'),
+            error_code: 'ECONNREFUSED',
+            duration_ms: duration
+          },
+          { status: 502 }
+        )
+      }
+    }
+    
     return NextResponse.json(
       { 
         error: 'Proxy request failed',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: error instanceof Error ? error.message : 'Unknown error occurred while processing the request',
         backend_url: backendUrl || BACKEND_URL,
         path: pathSegments.join('/'),
         duration_ms: duration

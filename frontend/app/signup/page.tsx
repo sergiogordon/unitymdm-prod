@@ -66,10 +66,32 @@ export default function SignupPage() {
         toast.success('Account created successfully!')
         router.push('/')
       } else {
-        toast.error(result.error || 'Signup failed')
+        // Show different error messages based on error type
+        const errorMessage = result.error || 'Signup failed'
+        
+        if (result.errorType === 'network') {
+          // Network errors - show detailed message with troubleshooting
+          toast.error(errorMessage, {
+            duration: 8000, // Longer duration for important messages
+            description: 'Please check that the backend server is running.'
+          })
+        } else if (result.errorType === 'validation') {
+          // Validation errors - show concise message
+          toast.error(errorMessage)
+        } else {
+          // Server errors or unknown
+          toast.error(errorMessage, {
+            duration: 5000
+          })
+        }
       }
     } catch (error: any) {
-      toast.error(error.message || 'Signup failed')
+      // Handle unexpected errors
+      const errorMessage = error.message || 'An unexpected error occurred'
+      toast.error(errorMessage, {
+        duration: 5000,
+        description: 'Please try again or contact support if the problem persists.'
+      })
       console.error('Signup error:', error)
     } finally {
       setIsLoading(false)
