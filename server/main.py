@@ -62,22 +62,22 @@ def get_device_by_token(token: str, db: Session) -> Optional[Device]:
     """
     Look up a device by its token using efficient token_id lookup.
     Mirrors the logic from auth.verify_device_token but returns None instead of raising.
-    
+
     Args:
         token: The device token to look up
         db: Database session
-        
+
     Returns:
         Device if found and token matches, None otherwise
     """
     # Compute token_id for fast lookup
     token_id = compute_token_id(token)
-    
+
     # First try fast lookup by token_id (for new devices)
     device = db.query(Device).filter(Device.token_id == token_id).first()
     if device and verify_token(token, device.token_hash):
         return device
-    
+
     # Fallback: check devices without token_id (legacy devices)
     # This will only run for old devices until they're migrated
     legacy_devices = db.query(Device).filter(Device.token_id.is_(None)).all()
@@ -87,7 +87,7 @@ def get_device_by_token(token: str, db: Session) -> Optional[Device]:
             device.token_id = token_id
             db.commit()
             return device
-    
+
     return None
 
 app = FastAPI(title="NexMDM API")
@@ -105,38 +105,38 @@ async def request_id_middleware(request: Request, call_next):
     """
     req_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request_id_var.set(req_id)
-    
+
     start_time = time.time()
-    
+
     response = await call_next(request)
-    
+
     latency_ms = (time.time() - start_time) * 1000
-    
+
     route = request.url.path
     if route.startswith("/v1/apk/download/") and route != "/v1/apk/download-latest":
         route = "/v1/apk/download/{apk_id}"
     elif "/devices/" in route and route.endswith("/ping"):
         route = "/v1/devices/{id}/ping"
-    
+
     metrics.inc_counter("http_requests_total", {
         "route": route,
         "method": request.method,
         "status_code": str(response.status_code)
     })
-    
+
     metrics.observe_histogram("http_request_latency_ms", latency_ms, {
         "route": route
     })
-    
+
     response.headers["X-Request-ID"] = req_id
-    
+
     return response
 
 @app.middleware("http")
 async def exception_guard_middleware(request: Request, call_next):
     """
     Global exception handler middleware to prevent process crashes.
-    
+
     Catches all unhandled exceptions in routes and returns proper 500 responses
     instead of crashing the backend process. Logs full stacktraces for debugging.
     """
@@ -152,7 +152,7 @@ async def exception_guard_middleware(request: Request, call_next):
             error=str(e),
             error_type=type(e).__name__
         )
-        
+
         # Return 500 without exposing internal details to client
         return JSONResponse(
             status_code=500,
@@ -166,7 +166,7 @@ async def exception_guard_middleware(request: Request, call_next):
 async def security_headers_middleware(request: Request, call_next):
     """
     Add security headers to all responses for defense-in-depth protection.
-    
+
     Headers added:
     - X-Content-Type-Options: Prevents MIME-type sniffing
     - X-Frame-Options: Protects against clickjacking
@@ -174,20 +174,20 @@ async def security_headers_middleware(request: Request, call_next):
     - Strict-Transport-Security: Enforces HTTPS (production only)
     """
     response = await call_next(request)
-    
+
     # Prevent MIME-type sniffing
     response.headers["X-Content-Type-Options"] = "nosniff"
-    
+
     # Prevent clickjacking
     response.headers["X-Frame-Options"] = "DENY"
-    
+
     # Enable XSS filter in older browsers
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    
+
     # Enforce HTTPS in production (only when deployed)
     if config.is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    
+
     return response
 
 app.add_middleware(
@@ -210,35 +210,35 @@ async def limit_request_size(request: Request, call_next):
     # Exempt APK upload endpoints from size limit (needs to handle large APK files)
     if request.url.path in ["/admin/apk/upload", "/v1/apk/upload-chunk", "/v1/apk/complete"]:
         return await call_next(request)
-    
+
     max_size = 1 * 1024 * 1024  # 1MB
-    
+
     # Wrap the receive function to track total bytes
     total_bytes = 0
     receive = request.receive
     size_exceeded = False
-    
+
     async def guarded_receive():
         nonlocal total_bytes, size_exceeded
         message = await receive()
-        
+
         if message["type"] == "http.request":
             body = message.get("body", b"")
             total_bytes += len(body)
-            
+
             if total_bytes > max_size:
                 size_exceeded = True
                 # Return empty body to prevent further processing
                 return {"type": "http.request", "body": b""}
-        
+
         return message
-    
+
     # Replace request's receive with our guarded version
     request._receive = guarded_receive
-    
+
     try:
         response = await call_next(request)
-        
+
         # If size was exceeded, return 413 instead
         if size_exceeded:
             return Response(
@@ -246,7 +246,7 @@ async def limit_request_size(request: Request, call_next):
                 content=json.dumps({"detail": "Request body too large (max 1MB)"}),
                 media_type="application/json"
             )
-        
+
         return response
     except Exception as e:
         # If size was exceeded, return 413
@@ -264,18 +264,18 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = defaultdict(list)
-    
+
     def is_allowed(self, key: str) -> bool:
         now = time.time()
         window_start = now - self.window_seconds
-        
+
         # Clean old requests
         self.requests[key] = [req_time for req_time in self.requests[key] if req_time > window_start]
-        
+
         # Check if under limit
         if len(self.requests[key]) >= self.max_requests:
             return False
-        
+
         self.requests[key].append(now)
         return True
 
@@ -312,14 +312,14 @@ class ConnectionManager:
     async def broadcast(self, message: dict):
         if not self.active_connections:
             return
-        
+
         disconnected = set()
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
             except:
                 disconnected.add(connection)
-        
+
         for conn in disconnected:
             self.disconnect(conn)
 
@@ -331,24 +331,24 @@ async def send_fcm_launch_app(fcm_token: str, package_name: str, device_id: str 
     Returns True if successful, False otherwise
     """
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         print(f"[FCM-LAUNCH] Failed to get access token: {e}")
         return False
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     request_id = str(uuid.uuid4())
     timestamp = datetime.now(timezone.utc).isoformat()
     hmac_signature = compute_hmac_signature(request_id, device_id, "launch_app", timestamp)
-    
+
     message = {
         "message": {
             "token": fcm_token,
@@ -365,7 +365,7 @@ async def send_fcm_launch_app(fcm_token: str, package_name: str, device_id: str 
             }
         }
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
@@ -381,26 +381,26 @@ class StreamingConnectionManager:
         self.device_streams: dict[str, WebSocket] = {}
         # device_id -> Set[WebSocket] (dashboard clients watching this device)
         self.stream_viewers: dict[str, Set[WebSocket]] = {}
-    
+
     async def connect_device_stream(self, device_id: str, websocket: WebSocket):
         """Device connects to start streaming its screen"""
         await websocket.accept()
         self.device_streams[device_id] = websocket
         print(f"[STREAM] Device {device_id} started streaming")
-    
+
     def disconnect_device_stream(self, device_id: str):
         """Device disconnects from streaming"""
         if device_id in self.device_streams:
             del self.device_streams[device_id]
             print(f"[STREAM] Device {device_id} stopped streaming")
-        
+
         # Notify all viewers that stream ended
         if device_id in self.stream_viewers:
             viewers = self.stream_viewers[device_id].copy()
             for viewer in viewers:
                 asyncio.create_task(self._send_stream_ended(viewer, device_id))
             del self.stream_viewers[device_id]
-    
+
     async def connect_viewer(self, device_id: str, websocket: WebSocket):
         """Dashboard client connects to view a device stream"""
         await websocket.accept()
@@ -408,7 +408,7 @@ class StreamingConnectionManager:
             self.stream_viewers[device_id] = set()
         self.stream_viewers[device_id].add(websocket)
         print(f"[STREAM] Viewer connected to device {device_id}. Total viewers: {len(self.stream_viewers[device_id])}")
-    
+
     def disconnect_viewer(self, device_id: str, websocket: WebSocket):
         """Dashboard client disconnects from viewing"""
         if device_id in self.stream_viewers:
@@ -416,22 +416,22 @@ class StreamingConnectionManager:
             if not self.stream_viewers[device_id]:
                 del self.stream_viewers[device_id]
             print(f"[STREAM] Viewer disconnected from device {device_id}")
-    
+
     async def relay_frame(self, device_id: str, frame_data: bytes):
         """Relay a screen frame from device to all viewing clients"""
         if device_id not in self.stream_viewers:
             return
-        
+
         disconnected = set()
         for viewer in self.stream_viewers[device_id]:
             try:
                 await viewer.send_bytes(frame_data)
             except:
                 disconnected.add(viewer)
-        
+
         for viewer in disconnected:
             self.disconnect_viewer(device_id, viewer)
-    
+
     async def _send_stream_ended(self, websocket: WebSocket, device_id: str):
         """Notify viewer that stream has ended"""
         try:
@@ -445,7 +445,7 @@ streaming_manager = StreamingConnectionManager()
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """
     Handle validation errors safely without crashing on multipart requests.
-    
+
     For multipart/form-data requests, the body stream is already consumed by
     the file upload parser, so attempting to read it again causes RuntimeError.
     """
@@ -456,7 +456,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         method=request.method,
         errors=exc.errors()
     )
-    
+
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors()}
@@ -469,7 +469,7 @@ def validate_configuration():
     """
     # Use config.validate() for comprehensive validation
     is_valid, errors, warnings = config.validate()
-    
+
     # Check Firebase service account path (legacy support)
     firebase_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "")
     if firebase_path and not os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
@@ -485,19 +485,19 @@ def validate_configuration():
                 "   This exposes credentials on public forks. Consider using\n"
                 "   FIREBASE_SERVICE_ACCOUNT_JSON secret instead for better security."
             )
-    
+
     # Get server URL for summary
     server_url = None
     try:
         server_url = config.server_url
     except Exception:
         pass
-    
+
     # Print validation results
     print("\n" + "="*80)
     print("🔍 NexMDM Configuration Validation")
     print("="*80)
-    
+
     if errors:
         print("\n🚨 CONFIGURATION ERRORS - Server cannot start properly:\n")
         for error in errors:
@@ -506,21 +506,21 @@ def validate_configuration():
         print("   Or visit: https://github.com/yourusername/nexmdm#quick-start")
         print("\n" + "="*80 + "\n")
         raise RuntimeError("Configuration validation failed. Please fix the errors above.")
-    
+
     if warnings:
         print("\n⚠️  Configuration Warnings:\n")
         for warning in warnings:
             print(f"   {warning}")
         print()
-    
+
     # Print success status
     print("✅ Required configuration validated successfully")
-    
+
     # Print configuration summary
     print("\n📊 Configuration Summary:")
     admin_key = config.get_admin_key()
     print(f"   • Admin Key: {'✓ Set' if admin_key else '✗ Missing'}")
-    
+
     firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
     if firebase_json:
         print(f"   • Firebase: ✓ JSON Secret (secure)")
@@ -528,14 +528,14 @@ def validate_configuration():
         print(f"   • Firebase: ✓ File Path (⚠️  less secure) - {firebase_path}")
     else:
         print(f"   • Firebase: ✗ Missing")
-    
+
     print(f"   • Server URL: {server_url if server_url else '⚠️  Not set'}")
     discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
     print(f"   • Discord Alerts: {'✓ Enabled' if discord_webhook else 'ℹ️  Disabled (console only)'}")
     db_url = config.get_database_url()
     print(f"   • Database: {db_url[:50]}...")
     print("="*80 + "\n")
-    
+
     # Print detailed config summary
     config.print_config_summary()
 
@@ -553,7 +553,7 @@ async def startup_event():
     print("🚀 Starting NexMDM Backend Server...")
     print(f"⏰ Startup time: {backend_start_time.isoformat()}")
     print("=" * 60)
-    
+
     try:
         validate_configuration()
         print("✅ Configuration validated")
@@ -561,7 +561,7 @@ async def startup_event():
         print(f"⚠️  Configuration validation had warnings: {e}")
         # Don't raise - allow server to start with warnings
         print("⚠️  Server starting despite configuration warnings...")
-    
+
     try:
         init_db()
         print("✅ Database initialized")
@@ -569,7 +569,7 @@ async def startup_event():
         print(f"⚠️  Database initialization warning: {e}")
         # Try to continue - database might already be initialized
         print("⚠️  Attempting to continue with existing database...")
-    
+
     # Note: migrate_database() temporarily skipped due to table lock issues
     # TODO: Fix migration transaction handling to avoid deadlocks
     try:
@@ -577,13 +577,13 @@ async def startup_event():
         print("✅ Bloatware packages seeded")
     except Exception as e:
         print(f"⚠️  Bloatware seeding failed (non-critical): {e}")
-    
+
     try:
         ensure_heartbeat_partitions()
         print("✅ Heartbeat partitions ensured")
     except Exception as e:
         print(f"⚠️  Heartbeat partition check failed (non-critical): {e}")
-    
+
     # Start background tasks with defensive error handling
     try:
         await alert_scheduler.start()
@@ -600,7 +600,7 @@ async def startup_event():
         )
         # Log but don't crash - some deployments may not need alerts
         print(f"⚠️  Alert scheduler failed to start: {e}")
-    
+
     try:
         await background_tasks.start()
         structured_logger.log_event(
@@ -616,7 +616,7 @@ async def startup_event():
         )
         # Log but don't crash - background tasks may be optional
         print(f"⚠️  Background tasks failed to start: {e}")
-    
+
     print("=" * 60)
     print("✅ NexMDM Backend Server started successfully!")
     print("📡 Server is ready to accept connections on port 8000")
@@ -632,7 +632,7 @@ def migrate_database():
     """Add missing columns to existing database tables"""
     from sqlalchemy import text
     from models import engine
-    
+
     # Whitelist of allowed column names and types to prevent SQL injection
     ALLOWED_COLUMNS = {
         "app_version": "VARCHAR",
@@ -643,10 +643,10 @@ def migrate_database():
         "build_id": "VARCHAR",
         "is_device_owner": "BOOLEAN",
     }
-    
+
     # Allowed SQL types for validation
     ALLOWED_TYPES = {"VARCHAR", "INTEGER", "BOOLEAN", "TEXT", "TIMESTAMP"}
-    
+
     # Each ALTER TABLE needs its own transaction to avoid deadlocks
     for column_name, column_type in ALLOWED_COLUMNS.items():
         # Validate against whitelist to prevent SQL injection
@@ -657,7 +657,7 @@ def migrate_database():
                 column_name=column_name
             )
             continue
-        
+
         if column_type not in ALLOWED_TYPES:
             structured_logger.log_event(
                 "migration.invalid_type",
@@ -666,7 +666,7 @@ def migrate_database():
                 column_name=column_name
             )
             continue
-        
+
         try:
             # Each ALTER TABLE gets its own transaction
             with engine.begin() as conn:
@@ -698,7 +698,7 @@ def ensure_heartbeat_partitions():
     """
     from db_utils import create_heartbeat_partition
     from datetime import date, timedelta
-    
+
     today = date.today()
     for i in range(8):
         target_date = today + timedelta(days=i)
@@ -715,7 +715,7 @@ def seed_bloatware_packages():
         count = db.query(BloatwarePackage).count()
         if count > 0:
             return
-        
+
         # Default bloatware packages from baseline (disabled_list_1761250623211.txt)
         default_packages = [
             "com.vzw.hss.myverizon",
@@ -775,16 +775,15 @@ def seed_bloatware_packages():
             "com.android.wallpaperbackup",
             "com.android.soundpicker",
         ]
-        
+
         # Insert all packages
         for package_name in default_packages:
             pkg = BloatwarePackage(
                 package_name=package_name,
-                enabled=True,
-                description=None
+                enabled=True
             )
             db.add(pkg)
-        
+
         db.commit()
         print(f"[SEED] Added {len(default_packages)} default bloatware packages")
     except Exception as e:
@@ -830,7 +829,7 @@ async def readiness_check():
         "overall": False
     }
     errors = []
-    
+
     # Check database connectivity
     try:
         db = SessionLocal()
@@ -843,7 +842,7 @@ async def readiness_check():
     except Exception as e:
         errors.append(f"database: {str(e)[:100]}")
         checks["database"] = False
-    
+
     # Check object storage connectivity
     try:
         storage = get_storage_service()
@@ -852,12 +851,12 @@ async def readiness_check():
     except Exception as e:
         errors.append(f"storage: {str(e)[:100]}")
         checks["storage"] = False
-    
+
     # Overall readiness
     checks["overall"] = checks["database"] and checks["storage"]
-    
+
     status_code = 200 if checks["overall"] else 503
-    
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -873,9 +872,9 @@ async def prometheus_metrics(x_admin: str = Header(None)):
     """Prometheus-compatible metrics endpoint (requires admin authentication)"""
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     structured_logger.log_event("metrics.scrape")
-    
+
     # Update connection pool metrics
     from models import engine
     pool_stats = metrics.get_pool_stats(engine)
@@ -884,9 +883,9 @@ async def prometheus_metrics(x_admin: str = Header(None)):
     metrics.set_gauge("db_pool_checked_out", pool_stats["checked_out"])
     metrics.set_gauge("db_pool_overflow", pool_stats["overflow"])
     metrics.set_gauge("db_pool_in_use", pool_stats["checked_out"])  # Alias for alerts
-    
+
     metrics_text = metrics.get_prometheus_text()
-    
+
     return Response(
         content=metrics_text,
         media_type="text/plain; version=0.0.4"
@@ -901,28 +900,28 @@ async def trigger_nightly_maintenance(
     """
     Trigger nightly maintenance job (partition lifecycle management).
     Protected endpoint for external schedulers (UptimeRobot, Cronjob.org).
-    
+
     Uses advisory locks to prevent concurrent runs.
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     structured_logger.log_event(
         "ops.nightly_maintenance.triggered",
         dry_run=dry_run,
         retention_days=retention_days
     )
-    
+
     try:
         from nightly_maintenance import run_nightly_maintenance
-        
+
         result = run_nightly_maintenance(retention_days=retention_days, dry_run=dry_run)
-        
+
         return {
             "ok": True,
             "result": result
         }
-    
+
     except Exception as e:
         structured_logger.log_event(
             "ops.nightly_maintenance.error",
@@ -940,28 +939,28 @@ async def trigger_reconciliation(
     """
     Trigger hourly reconciliation job (device_last_status consistency repair).
     Protected endpoint for external schedulers.
-    
+
     Uses advisory locks to prevent concurrent runs.
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     structured_logger.log_event(
         "ops.reconciliation.triggered",
         dry_run=dry_run,
         max_rows=max_rows
     )
-    
+
     try:
         from reconciliation_job import run_reconciliation
-        
+
         result = run_reconciliation(dry_run=dry_run, max_rows=max_rows)
-        
+
         return {
             "ok": True,
             "result": result
         }
-    
+
     except Exception as e:
         structured_logger.log_event(
             "ops.reconciliation.error",
@@ -975,24 +974,24 @@ async def get_pool_health(x_admin: str = Header(None)):
     """
     Check connection pool health and saturation levels.
     Protected endpoint for monitoring and alerting systems.
-    
+
     Returns pool utilization with WARN/CRITICAL thresholds.
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     try:
         from pool_monitor import check_pool_health, check_postgres_connection_health
-        
+
         pool_health = check_pool_health()
         pg_health = check_postgres_connection_health()
-        
+
         return {
             "ok": True,
             "pool": pool_health,
             "postgres": pg_health
         }
-    
+
     except Exception as e:
         structured_logger.log_event(
             "ops.pool_health.error",
@@ -1010,17 +1009,17 @@ async def websocket_endpoint(
     if not token:
         await websocket.close(code=1008, reason="Unauthorized - no token")
         return
-    
+
     # Verify JWT token and authenticate user (with scoped DB session)
     from auth import verify_jwt_token
     try:
         payload = verify_jwt_token(token)
         user_id = payload.get("user_id")
-        
+
         if not user_id:
             await websocket.close(code=1008, reason="Unauthorized - invalid token")
             return
-        
+
         # Create scoped DB session only for auth check
         db = SessionLocal()
         try:
@@ -1034,10 +1033,10 @@ async def websocket_endpoint(
     except Exception as e:
         await websocket.close(code=1008, reason=f"Unauthorized - {str(e)}")
         return
-    
+
     await manager.connect(websocket)
     print(f"[WS] Authenticated user {username} connected via JWT")
-    
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -1064,7 +1063,7 @@ async def device_stream_endpoint(
         if not device:
             await websocket.close(code=1008, reason="Device not found")
             return
-        
+
         # Verify device token
         token_hash = hash_token(token)
         if device.token_hash != token_hash:
@@ -1072,9 +1071,9 @@ async def device_stream_endpoint(
             return
     finally:
         db.close()  # Close DB session immediately after auth
-    
+
     await streaming_manager.connect_device_stream(device_id, websocket)
-    
+
     try:
         while True:
             # Receive screen frame from device
@@ -1097,46 +1096,46 @@ async def viewer_stream_endpoint(
     """WebSocket endpoint for dashboard to view device screen stream"""
     # Accept session_token from either cookie or query parameter (for cross-port WebSocket)
     auth_session_id = session_token or token
-    
+
     print(f"[STREAM DEBUG] Cookie session_token: {session_token is not None}, Query token: {token is not None}")
     print(f"[STREAM DEBUG] Final auth_session_id: {auth_session_id is not None}")
-    
+
     # Verify user session with scoped DB session
     if not auth_session_id:
         print(f"[STREAM DEBUG] No auth session - rejecting")
         await websocket.close(code=1008, reason="Unauthorized")
         return
-    
+
     db = SessionLocal()
     try:
         session = db.query(SessionModel).filter(SessionModel.id == auth_session_id).first()
         if not session or session.expires_at < datetime.now(timezone.utc):
             await websocket.close(code=1008, reason="Unauthorized")
             return
-        
+
         user = db.query(User).filter(User.id == session.user_id).first()
         if not user:
             await websocket.close(code=1008, reason="Unauthorized")
             return
-        
+
         # Verify device exists
         device = db.query(Device).filter(Device.id == device_id).first()
         if not device:
             await websocket.close(code=1008, reason="Device not found")
             return
-        
+
         # Store values we need after closing DB session
         username = user.username
         device_fcm_token = device.fcm_token
     finally:
         db.close()  # Close DB session immediately after auth/verification
-    
+
     # Check if this is the first viewer - if so, send FCM to start stream
     is_first_viewer = len(streaming_manager.stream_viewers.get(device_id, set())) == 0
-    
+
     await streaming_manager.connect_viewer(device_id, websocket)
     print(f"[STREAM] User {username} viewing device {device_id}")
-    
+
     # Send FCM command to device to start streaming (only for first viewer)
     if is_first_viewer and device_fcm_token:
         try:
@@ -1144,12 +1143,12 @@ async def viewer_stream_endpoint(
             access_token = get_access_token()
             project_id = get_firebase_project_id()
             fcm_url = build_fcm_v1_url(project_id)
-            
+
             message_data = {
                 "action": "remote_control",
                 "command": "start_stream"
             }
-            
+
             fcm_message = {
                 "message": {
                     "token": device_fcm_token,
@@ -1159,12 +1158,12 @@ async def viewer_stream_endpoint(
                     }
                 }
             }
-            
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
-            
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(fcm_url, json=fcm_message, headers=headers)
                 if response.status_code == 200:
@@ -1173,7 +1172,7 @@ async def viewer_stream_endpoint(
                     print(f"[STREAM] FCM failed: {response.status_code} - {response.text}")
         except Exception as e:
             print(f"[STREAM] Failed to send FCM start_stream: {e}")
-    
+
     try:
         while True:
             # Keep connection alive
@@ -1197,7 +1196,7 @@ async def register_user(
 ):
     if not verify_admin_key(admin_key):
         raise HTTPException(status_code=403, detail="Invalid admin key")
-    
+
     # Rate limiting (BUG FIX #4): Prevent registration abuse
     client_ip = req.client.host if req.client else "unknown"
     if not registration_rate_limiter.is_allowed(client_ip):
@@ -1206,34 +1205,34 @@ async def register_user(
             detail="Too many registration attempts. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
-    
+
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    
+
     existing_user = db.query(User).filter(User.username == request.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+
     password_hash = hash_password(request.password)
-    
+
     user = User(
         username=request.username,
         email=request.email,
         password_hash=password_hash,
         created_at=datetime.now(timezone.utc)
     )
-    
+
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     # Generate JWT token
     from auth import create_jwt_token
     access_token = create_jwt_token(user.id, user.username)
-    
+
     return {
         "ok": True,
         "access_token": access_token,
@@ -1253,14 +1252,14 @@ async def login_user(
     user = db.query(User).filter(User.username == request.username).first()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
+
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    
+
     # Generate JWT token
     from auth import create_jwt_token
     access_token = create_jwt_token(user.id, user.username)
-    
+
     return {
         "ok": True,
         "access_token": access_token,
@@ -1293,9 +1292,9 @@ async def logout_user(
         if session:
             db.delete(session)
             db.commit()
-    
+
     response.delete_cookie(key="session_token", samesite="lax")
-    
+
     return {"ok": True, "message": "Logged out successfully"}
 
 @app.post("/api/auth/signup")
@@ -1314,41 +1313,41 @@ async def signup_user(
             detail="Too many registration attempts. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
-    
+
     if len(request.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    
+
     if request.email:
         if len(request.email) < 3 or "@" not in request.email:
             raise HTTPException(status_code=400, detail="Invalid email address")
-        
+
         existing_email = db.query(User).filter(User.email == request.email).first()
         if existing_email:
             raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     existing_user = db.query(User).filter(User.username == request.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
-    
+
     password_hash = hash_password(request.password)
-    
+
     user = User(
         username=request.username,
         email=request.email,
         password_hash=password_hash,
         created_at=datetime.now(timezone.utc)
     )
-    
+
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
     from auth import create_jwt_token
     access_token = create_jwt_token(user.id, user.username)
-    
+
     return {
         "ok": True,
         "access_token": access_token,
@@ -1378,9 +1377,9 @@ async def get_setup_status(request: Request):
             detail="Too many requests. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     import json
-    
+
     status = {
         "required": {
             "admin_key": {
@@ -1433,7 +1432,7 @@ async def get_setup_status(request: Request):
         },
         "ready": False
     }
-    
+
     # Validate ADMIN_KEY
     admin_key = os.getenv("ADMIN_KEY", "")
     if admin_key:
@@ -1448,7 +1447,7 @@ async def get_setup_status(request: Request):
             status["required"]["admin_key"]["message"] = "✓ Valid"
     else:
         status["required"]["admin_key"]["message"] = "Not configured"
-    
+
     # Validate SESSION_SECRET
     jwt_secret = os.getenv("SESSION_SECRET", "")
     if jwt_secret:
@@ -1463,7 +1462,7 @@ async def get_setup_status(request: Request):
             status["required"]["jwt_secret"]["message"] = "✓ Valid"
     else:
         status["required"]["jwt_secret"]["message"] = "Not configured"
-    
+
     # Validate HMAC_SECRET
     hmac_secret = os.getenv("HMAC_SECRET", "")
     if hmac_secret:
@@ -1476,7 +1475,7 @@ async def get_setup_status(request: Request):
     else:
         status["required"]["hmac_secret"]["valid"] = False
         status["required"]["hmac_secret"]["message"] = "Not configured (required for device commands)"
-    
+
     # Validate Firebase JSON (consistent with validate_firebase_json endpoint)
     firebase_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
     if firebase_json:
@@ -1486,7 +1485,7 @@ async def get_setup_status(request: Request):
             # Check for required fields
             required_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
             missing_fields = [field for field in required_fields if field not in firebase_data]
-            
+
             if missing_fields:
                 status["required"]["firebase"]["valid"] = False
                 status["required"]["firebase"]["message"] = f"Missing required fields: {', '.join(missing_fields)}"
@@ -1510,7 +1509,7 @@ async def get_setup_status(request: Request):
             status["required"]["firebase"]["message"] = f"Invalid JSON format or structure: {str(e)}"
     else:
         status["required"]["firebase"]["message"] = "Not configured"
-    
+
     # Check GitHub CI secrets (optional)
     github_secrets = [
         "ANDROID_KEYSTORE_BASE64",
@@ -1523,7 +1522,7 @@ async def get_setup_status(request: Request):
     github_configured = all(os.getenv(secret) for secret in github_secrets)
     status["optional"]["github_ci"]["configured"] = github_configured
     status["optional"]["github_ci"]["message"] = "Configure GitHub Actions secrets for Android CI/CD" if not github_configured else "✓ Configured"
-    
+
     # Check Object Storage (required for APK storage)
     try:
         from object_storage import get_storage_service
@@ -1543,7 +1542,7 @@ async def get_setup_status(request: Request):
         status["optional"]["object_storage"]["configured"] = False
         status["optional"]["object_storage"]["available"] = False
         status["optional"]["object_storage"]["message"] = "Object Storage integration not set up"
-    
+
     # Check ReplitMail email service (optional but recommended)
     repl_identity = os.getenv("REPL_IDENTITY")
     web_repl_renewal = os.getenv("WEB_REPL_RENEWAL")
@@ -1562,12 +1561,12 @@ async def get_setup_status(request: Request):
         status["optional"]["email_service"]["configured"] = False
         status["optional"]["email_service"]["available"] = False
         status["optional"]["email_service"]["message"] = "ReplitMail integration not set up (recommended for email notifications)"
-    
+
     # Check database configuration
     db_url = config.get_database_url()
     if db_url and db_url != "sqlite:///./data.db":
         status["required"]["database"]["configured"] = True
-        
+
         # Detect database type
         if "postgres" in db_url.lower() or "postgresql" in db_url.lower():
             status["required"]["database"]["type"] = "postgresql"
@@ -1578,7 +1577,7 @@ async def get_setup_status(request: Request):
         else:
             status["required"]["database"]["type"] = "unknown"
             status["required"]["database"]["message"] = "Database URL configured"
-        
+
         # Try to test database connection (non-blocking, won't fail if DB is down)
         try:
             from models import engine
@@ -1596,8 +1595,8 @@ async def get_setup_status(request: Request):
         status["required"]["database"]["configured"] = False
         status["required"]["database"]["type"] = "sqlite"
         status["required"]["database"]["message"] = "Using default SQLite (PostgreSQL recommended for production)"
-        status["required"]["database"]["valid"] = True  # SQLite default is valid
-    
+        status["required"]["database"]["valid"] = True  # SQLite file-based, assume OK if file exists or can be created
+
     # Check if all required secrets are valid
     # Database is optional for setup (can use default SQLite), so don't require it
     status["ready"] = all(
@@ -1605,7 +1604,7 @@ async def get_setup_status(request: Request):
         for key, secret in status["required"].items()
         if key != "database"  # Database is optional
     )
-    
+
     return status
 
 @app.post("/api/setup/verify")
@@ -1623,7 +1622,7 @@ async def verify_setup_complete(request: Request):
             detail="Too many requests. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     results = {
         "backend": {"available": False, "message": ""},
         "database": {"available": False, "message": ""},
@@ -1631,7 +1630,7 @@ async def verify_setup_complete(request: Request):
         "signup_endpoint": {"available": False, "message": ""},
         "all_ready": False
     }
-    
+
     # Test backend health - if this endpoint is reachable, backend is running
     # We can also verify by checking if we can import modules
     try:
@@ -1642,7 +1641,7 @@ async def verify_setup_complete(request: Request):
     except Exception as e:
         results["backend"]["available"] = False
         results["backend"]["message"] = f"Backend initialization issue: {str(e)[:100]}"
-    
+
     # Test database connection
     try:
         from models import engine
@@ -1653,7 +1652,7 @@ async def verify_setup_complete(request: Request):
     except Exception as e:
         results["database"]["available"] = False
         results["database"]["message"] = f"Database connection failed: {str(e)[:100]}"
-    
+
     # Test object storage
     try:
         from object_storage import get_storage_service
@@ -1663,7 +1662,7 @@ async def verify_setup_complete(request: Request):
     except Exception as e:
         results["object_storage"]["available"] = False
         results["object_storage"]["message"] = f"Object Storage not available: {str(e)[:100]}"
-    
+
     # Test signup endpoint (just check if route exists, don't actually signup)
     # We can't easily test this without making an actual request, so we'll just check if backend is running
     if results["backend"]["available"]:
@@ -1672,14 +1671,14 @@ async def verify_setup_complete(request: Request):
     else:
         results["signup_endpoint"]["available"] = False
         results["signup_endpoint"]["message"] = "Cannot verify signup endpoint (backend not running)"
-    
+
     # All critical components ready
     results["all_ready"] = (
         results["backend"]["available"] and
         results["database"]["available"] and
         results["object_storage"]["available"]
     )
-    
+
     return results
 
 @app.post("/api/setup/test-database")
@@ -1697,7 +1696,7 @@ async def test_database_connection(request: Request):
             detail="Too many requests. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     db_url = config.get_database_url()
     result = {
         "configured": bool(db_url and db_url != "sqlite:///./data.db"),
@@ -1706,13 +1705,13 @@ async def test_database_connection(request: Request):
         "message": "",
         "error": None
     }
-    
+
     if not db_url or db_url == "sqlite:///./data.db":
         result["type"] = "sqlite"
         result["message"] = "Using default SQLite database"
         result["connected"] = True  # SQLite file-based, assume OK if file exists or can be created
         return result
-    
+
     # Detect database type
     if "postgres" in db_url.lower() or "postgresql" in db_url.lower():
         result["type"] = "postgresql"
@@ -1720,7 +1719,7 @@ async def test_database_connection(request: Request):
         result["type"] = "sqlite"
     else:
         result["type"] = "unknown"
-    
+
     # Test database connection
     try:
         from models import engine
@@ -1732,7 +1731,7 @@ async def test_database_connection(request: Request):
         result["connected"] = False
         result["error"] = str(e)
         result["message"] = f"Connection failed: {str(e)[:200]}"
-    
+
     return result
 
 @app.post("/api/setup/validate-firebase")
@@ -1750,20 +1749,20 @@ async def validate_firebase_json(request: Request):
             detail="Too many requests. Please try again later.",
             headers={"Retry-After": "60"}
         )
-    
+
     try:
         data = await request.json()
         firebase_json_str = data.get("firebase_json", "")
-        
+
         if not firebase_json_str or not firebase_json_str.strip():
             return JSONResponse(
                 status_code=400,
                 content={"valid": False, "message": "Firebase JSON is required"}
             )
-        
+
         # Trim whitespace and parse JSON
         firebase_json_str = firebase_json_str.strip()
-        
+
         # Parse and validate JSON
         try:
             firebase_data = json.loads(firebase_json_str)
@@ -1772,11 +1771,11 @@ async def validate_firebase_json(request: Request):
                 status_code=400,
                 content={"valid": False, "message": f"Invalid JSON format: {str(e)}"}
             )
-        
+
         # Check required fields
         required_fields = ["type", "project_id", "private_key_id", "private_key", "client_email"]
         missing_fields = [field for field in required_fields if field not in firebase_data]
-        
+
         if missing_fields:
             return JSONResponse(
                 status_code=400,
@@ -1785,20 +1784,20 @@ async def validate_firebase_json(request: Request):
                     "message": f"Missing required fields: {', '.join(missing_fields)}"
                 }
             )
-        
+
         if firebase_data.get("type") != "service_account":
             return JSONResponse(
                 status_code=400,
                 content={"valid": False, "message": "JSON is not a service account type"}
             )
-        
+
         # Validate that critical fields are not empty
         if not firebase_data.get("project_id") or not firebase_data.get("client_email"):
             return JSONResponse(
                 status_code=400,
                 content={"valid": False, "message": "project_id and client_email cannot be empty"}
             )
-        
+
         # Validate private_key: must be a string and at least 100 characters
         private_key = firebase_data.get("private_key")
         if not private_key or not isinstance(private_key, str) or len(private_key) < 100:
@@ -1806,12 +1805,12 @@ async def validate_firebase_json(request: Request):
                 status_code=400,
                 content={"valid": False, "message": "private_key appears to be invalid or too short"}
             )
-        
+
         return JSONResponse(
             status_code=200,
             content={"valid": True, "message": "✓ Valid Firebase service account JSON"}
         )
-        
+
     except Exception as e:
         return JSONResponse(
             status_code=500,
@@ -1827,14 +1826,14 @@ async def update_user_email(
     """Update the current user's email address"""
     if len(new_email) < 3 or "@" not in new_email:
         raise HTTPException(status_code=400, detail="Invalid email address")
-    
+
     existing_email = db.query(User).filter(User.email == new_email, User.id != user.id).first()
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     user.email = new_email
     db.commit()
-    
+
     return {
         "ok": True,
         "message": "Email updated successfully",
@@ -1855,21 +1854,21 @@ async def request_password_reset(
     client_ip = request.client.host if request.client else "unknown"
     if not password_reset_limiter.is_allowed(client_ip):
         raise HTTPException(status_code=429, detail="Too many password reset requests. Please try again later.")
-    
+
     # Find user by username or email
     user = db.query(User).filter(
         (User.username == username_or_email) | (User.email == username_or_email)
     ).first()
-    
+
     # Always return success to prevent user enumeration
     response_message = "If an account exists with that username or email, a password reset link has been sent."
-    
+
     if user and user.email:
         # Generate reset token
         import secrets
         reset_token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-        
+
         # Store token in database
         password_reset = PasswordResetToken(
             user_id=user.id,
@@ -1879,7 +1878,7 @@ async def request_password_reset(
         )
         db.add(password_reset)
         db.commit()
-        
+
         # Send reset email asynchronously
         try:
             base_url = config.server_url
@@ -1893,7 +1892,7 @@ async def request_password_reset(
         except Exception as e:
             print(f"[PASSWORD RESET] Failed to send email: {str(e)}")
             # Don't reveal email sending failures to the user
-    
+
     return {"ok": True, "message": response_message}
 
 @app.post("/api/auth/reset-password")
@@ -1909,24 +1908,24 @@ async def reset_password(
         PasswordResetToken.used == False,
         PasswordResetToken.expires_at > datetime.now(timezone.utc)
     ).first()
-    
+
     if not reset_token:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    
+
     # Get the user
     user = db.query(User).filter(User.id == reset_token.user_id).first()
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
-    
+
     # Update password
     user.password_hash = hash_password(new_password)
-    
+
     # Mark token as used
     reset_token.used = True
     reset_token.used_at = datetime.now(timezone.utc)
-    
+
     db.commit()
-    
+
     # Send confirmation email
     if user.email:
         try:
@@ -1936,11 +1935,11 @@ async def reset_password(
             )
         except Exception as e:
             print(f"[PASSWORD RESET] Failed to send success email: {str(e)}")
-    
+
     # Generate new JWT token for auto-login
     from auth import create_jwt_token
     access_token = create_jwt_token(user.id, user.username)
-    
+
     return {
         "ok": True,
         "message": "Password reset successfully",
@@ -1963,15 +1962,15 @@ async def verify_reset_token(
         PasswordResetToken.used == False,
         PasswordResetToken.expires_at > datetime.now(timezone.utc)
     ).first()
-    
+
     if not reset_token:
         raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-    
+
     # Get user info
     user = db.query(User).filter(User.id == reset_token.user_id).first()
     if not user:
         raise HTTPException(status_code=400, detail="User not found")
-    
+
     return {
         "ok": True,
         "username": user.username,
@@ -1988,16 +1987,16 @@ async def admin_generate_reset_token(
     """Admin endpoint to generate a password reset token for a user"""
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     # Generate reset token
     import secrets
     reset_token = secrets.token_urlsafe(32)
     expires_at = datetime.now(timezone.utc) + timedelta(hours=2)  # Admin tokens last 2 hours
-    
+
     # Store token in database
     password_reset = PasswordResetToken(
         user_id=user.id,
@@ -2007,7 +2006,7 @@ async def admin_generate_reset_token(
     )
     db.add(password_reset)
     db.commit()
-    
+
     return {
         "ok": True,
         "token": reset_token,
@@ -2025,36 +2024,36 @@ async def register_device(
 ):
     """
     Register a device using admin key authentication.
-    
+
     Uses a semaphore-based queue to limit concurrent registrations to prevent
     connection pool saturation during bulk deployments.
     """
     from models import EnrollmentEvent
-    
+
     alias = payload.get("alias")
     hardware_id = payload.get("hardware_id", "unknown")
-    
+
     if not alias:
         raise HTTPException(status_code=422, detail="alias is required")
-    
+
     # Validate alias length
     if len(alias) > 200:
         raise HTTPException(status_code=422, detail="alias must be 200 characters or less")
     if len(alias) < 1:
         raise HTTPException(status_code=422, detail="alias must be at least 1 character")
-    
+
     queue_start = time.time()
-    
+
     # Acquire semaphore to limit concurrent registrations
     async with registration_semaphore:
         queue_wait_ms = (time.time() - queue_start) * 1000
-        
+
         # Track queue metrics
         queue_depth = REGISTRATION_CONCURRENCY_LIMIT - registration_semaphore._value
         metrics.observe_histogram("registration_queue_wait_ms", queue_wait_ms)
         metrics.set_gauge("registration_queue_depth", queue_depth)
         metrics.set_gauge("registration_active_count", REGISTRATION_CONCURRENCY_LIMIT - registration_semaphore._value)
-        
+
         structured_logger.log_event(
             "register.request",
             alias=alias,
@@ -2063,7 +2062,7 @@ async def register_device(
             queue_wait_ms=round(queue_wait_ms, 2),
             queue_depth=queue_depth
         )
-        
+
         try:
             # Check for duplicate alias using database-level locking to prevent race conditions
             # Use SELECT FOR UPDATE to lock the row if it exists
@@ -2071,24 +2070,24 @@ async def register_device(
             existing_device = db.query(Device).filter(
                 Device.alias == alias
             ).with_for_update(nowait=True).first()
-            
+
             if existing_device:
                 raise HTTPException(
                     status_code=409,
                     detail=f"Device with alias '{alias}' already exists"
                 )
-            
+
             # Generate device token
             device_token = generate_device_token()
             token_hash = hash_token(device_token)
             token_id = compute_token_id(device_token)
-            
+
             import uuid
             device_id = str(uuid.uuid4())
-            
+
             # Get monitoring defaults to seed new device
             defaults = monitoring_defaults_cache.get_defaults(db)
-            
+
             # Create device with monitoring defaults
             device = Device(
                 id=device_id,
@@ -2102,9 +2101,9 @@ async def register_device(
                 monitored_app_name=defaults["alias"],
                 monitored_threshold_min=defaults["threshold_min"]
             )
-            
+
             db.add(device)
-            
+
             # Log enrollment event (using admin key authentication)
             event = EnrollmentEvent(
                 event_type='device.registered',
@@ -2114,18 +2113,18 @@ async def register_device(
                 metadata={"hardware_id": hardware_id, "auth_method": "admin_key"}
             )
             db.add(event)
-            
+
             db.commit()
-            
+
             # Invalidate cache on device registration
             response_cache.invalidate("/v1/metrics")
             response_cache.invalidate("/v1/devices")
-            
+
             log_device_event(db, device_id, "device_enrolled", {
                 "alias": alias,
                 "auth_method": "admin_key"
             })
-            
+
             structured_logger.log_event(
                 "register.success",
                 device_id=device_id,
@@ -2135,9 +2134,9 @@ async def register_device(
                 result="success",
                 queue_wait_ms=round(queue_wait_ms, 2)
         )
-        
+
             return RegisterResponse(device_token=device_token, device_id=device_id)
-        
+
         except HTTPException:
             raise
         except Exception as e:
@@ -2170,12 +2169,12 @@ async def heartbeat(
             status_code=410,
             detail={"reason": "device_deleted", "message": "Device has been deleted"}
         )
-    
+
     # Extract heartbeat telemetry for logging
     battery_pct = payload.battery.pct if payload.battery else None
     network_type = payload.network.transport if payload.network else None
     uptime_s = payload.system.uptime_seconds if payload.system else None
-    
+
     structured_logger.log_event(
         "heartbeat.ingest",
         device_id=device.id,
@@ -2185,17 +2184,17 @@ async def heartbeat(
         uptime_s=uptime_s,
         status="received"
     )
-    
+
     metrics.inc_counter("heartbeats_ingested_total")
-    
+
     print(f"[HEARTBEAT] Received from {device.alias}")
-    
+
     # Parse previous status for comparison
     prev_status = json.loads(device.last_status) if device.last_status else {}
-    
+
     # PERFORMANCE OPTIMIZATION: Use async event queue instead of synchronous logging
     from background_tasks import background_tasks
-    
+
     # Check for status changes (online/offline)
     was_offline = False
     offline_seconds = 0
@@ -2203,7 +2202,7 @@ async def heartbeat(
         offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
         heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
         was_offline = offline_seconds > heartbeat_interval * 3
-    
+
     if was_offline:
         # Async event logging - doesn't block the response
         background_tasks.event_queue.enqueue(device.id, "status_change", {
@@ -2211,7 +2210,7 @@ async def heartbeat(
             "to": "online",
             "offline_duration_seconds": int(offline_seconds)
         })
-    
+
     # Check for battery level changes
     prev_battery = prev_status.get("battery", {}).get("pct")
     new_battery = payload.battery.pct if payload.battery else None
@@ -2220,7 +2219,7 @@ async def heartbeat(
             background_tasks.event_queue.enqueue(device.id, "battery_low", {"level": new_battery})
         elif prev_battery >= 15 and new_battery < 15:
             background_tasks.event_queue.enqueue(device.id, "battery_critical", {"level": new_battery})
-    
+
     # Check for network changes
     prev_network = prev_status.get("network", {}).get("transport")
     new_network = payload.network.transport if payload.network else None
@@ -2231,28 +2230,28 @@ async def heartbeat(
             "ssid": payload.network.ssid if new_network == "wifi" else None,
             "carrier": payload.network.carrier if new_network == "cellular" else None
         })
-    
+
     device.last_seen = datetime.now(timezone.utc)
     # Update device.app_version from heartbeat payload to keep dashboard table in sync
     if payload.app_version:
         device.app_version = payload.app_version
-    
+
     if payload.fcm_token:
         device.fcm_token = payload.fcm_token
-    
+
     if payload.system:
         device.model = payload.system.model
         device.manufacturer = payload.system.manufacturer
         device.android_version = payload.system.android_version
         device.sdk_int = payload.system.sdk_int
         device.build_id = payload.system.build_id
-    
+
     if hasattr(payload, 'is_device_owner') and payload.is_device_owner is not None:
         device.is_device_owner = payload.is_device_owner
-    
+
     # PERFORMANCE OPTIMIZATION: Persist heartbeat to partitioned table + dual-write to device_last_status
     from db_utils import record_heartbeat_with_bucketing
-    
+
     # Extract Unity app info (ALWAYS from com.unitynetwork.unityapp)
     unity_running = None
     unity_pkg_version = None
@@ -2268,7 +2267,7 @@ async def heartbeat(
         else:
             # No foreground data available - status unknown
             unity_running = None
-    
+
     heartbeat_data = {
         'ip': str(payload.network.ip) if payload.network and payload.network.ip else None,
         'status': 'ok',
@@ -2283,21 +2282,21 @@ async def heartbeat(
         'unity_running': unity_running,
         'agent_version': payload.app_version
     }
-    
+
     # Track heartbeat write latency
     hb_write_start = time.time()
     hb_result = record_heartbeat_with_bucketing(db, device.id, heartbeat_data, bucket_seconds=10)
     hb_write_latency_ms = (time.time() - hb_write_start) * 1000
     metrics.observe_histogram("hb_write_latency_ms", hb_write_latency_ms, {})
-    
+
     if hb_result['created']:
         metrics.inc_counter("hb_writes_total")
     else:
         metrics.inc_counter("hb_dedupe_total")
-    
+
     if hb_result.get('last_status_updated'):
         metrics.inc_counter("last_status_upserts_total")
-    
+
     if payload.is_ping_response and payload.ping_request_id:
         if device.ping_request_id == payload.ping_request_id and device.last_ping_sent:
             device.last_ping_response = datetime.now(timezone.utc)
@@ -2307,31 +2306,31 @@ async def heartbeat(
             background_tasks.event_queue.enqueue(device.id, "ping_response", {"latency_ms": latency_ms})
             # Clear ping state after successful response
             device.ping_request_id = None
-    
+
     # Service monitoring evaluator: Determine if monitored service is up/down
     # Get effective monitoring settings (device or global defaults)
     from monitoring_helpers import get_effective_monitoring_settings
     monitoring_settings = get_effective_monitoring_settings(db, device)
-    
+
     service_up = None
     monitored_foreground_recent_s = None
-    
+
     if monitoring_settings["enabled"] and monitoring_settings["package"]:
         # Check if the monitored app is actually installed
         app_info = payload.app_versions.get(monitoring_settings["package"]) if payload.app_versions else None
-        is_app_installed = app_info and app_info.installed if app_info else False
-        
+        is_app_installed = app_info and app_info.installed if app_info else None
+
         # Get foreground recency from unified field (monitored_foreground_recent_s)
         # This field now tracks Unity app activity
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
-        
+
         print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}")
-        
+
         # Treat -1 as sentinel value for "not available" (normalize to None)
         if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
             print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None (data unavailable)")
             monitored_foreground_recent_s = None
-        
+
         # Evaluate service status only if app is installed
         if not is_app_installed:
             # App not installed - service status is unknown
@@ -2349,7 +2348,7 @@ async def heartbeat(
             # App installed and we have foreground data - evaluate status
             threshold_seconds = monitoring_settings["threshold_min"] * 60
             service_up = monitored_foreground_recent_s <= threshold_seconds
-            
+
             structured_logger.log_event(
                 "monitoring.evaluate",
                 device_id=device.id,
@@ -2372,18 +2371,18 @@ async def heartbeat(
                 reason="usage_access_missing",
                 source=monitoring_settings["source"]
             )
-    
+
     # Update DeviceLastStatus with service monitoring data
     last_status_record = db.query(DeviceLastStatus).filter(DeviceLastStatus.device_id == device.id).first()
     if last_status_record:
         # Track previous state for transition detection
         prev_service_up = last_status_record.service_up
-        
+
         last_status_record.service_up = service_up
         last_status_record.monitored_foreground_recent_s = monitored_foreground_recent_s
         last_status_record.monitored_package = monitoring_settings["package"] if monitoring_settings["enabled"] else None
         last_status_record.monitored_threshold_min = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
-        
+
         # Detect service state transitions for logging
         if monitoring_settings["enabled"] and prev_service_up is not None and service_up is not None:
             if prev_service_up and not service_up:
@@ -2398,7 +2397,7 @@ async def heartbeat(
                     threshold_min=monitoring_settings["threshold_min"],
                     source=monitoring_settings["source"]
                 )
-                
+
             elif not prev_service_up and service_up:
                 # Service RECOVERED
                 structured_logger.log_event(
@@ -2410,11 +2409,11 @@ async def heartbeat(
                     foreground_recent_s=monitored_foreground_recent_s,
                     source=monitoring_settings["source"]
                 )
-        
+
         # Metrics for monitoring
         if monitoring_settings["enabled"] and service_up is not None:
             metrics.set_gauge("service_up_devices", 1 if service_up else 0, {"device_id": device.id})
-    
+
     # Enrich last_status with computed monitoring data for frontend
     # Use exclude_none=False to ensure network.ssid and network.carrier are always present (even when None)
     # This allows frontend nullish coalescing to work correctly
@@ -2423,7 +2422,7 @@ async def heartbeat(
     last_status_dict["monitored_package"] = monitoring_settings["package"] if monitoring_settings["enabled"] else None
     last_status_dict["monitored_foreground_recent_s"] = monitored_foreground_recent_s
     last_status_dict["monitored_threshold_min"] = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
-    
+
     # Add unity/agent status for frontend
     # Unity field ALWAYS reflects com.unitynetwork.unityapp, NOT the monitored package
     # Defensive check: ensure app_versions exists before accessing it
@@ -2435,7 +2434,7 @@ async def heartbeat(
         }
     else:
         unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
-        
+
         if not unity_app_info:
             print(f"[UNITY-STATUS-DEBUG] {device.alias}: com.unitynetwork.unityapp key not found in app_versions (available keys: {list(payload.app_versions.keys())}) - defaulting to not_installed")
             last_status_dict["unity"] = {
@@ -2447,7 +2446,7 @@ async def heartbeat(
             # Android agent sends monitored_foreground_recent_s specifically for Unity
             # Use this directly with a 10 minute threshold (600 seconds)
             unity_fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
-            
+
             if unity_fg_seconds is not None:
                 # Unity is running if it was in foreground within the last 10 minutes
                 if unity_fg_seconds < 600:
@@ -2459,7 +2458,7 @@ async def heartbeat(
                 # No foreground data available - app is installed but not running
                 unity_status = "down"
                 print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity installed but no foreground data - status=down")
-            
+
             last_status_dict["unity"] = {
                 "package": "com.unitynetwork.unityapp",
                 "version": unity_app_info.version_name or "unknown",
@@ -2472,14 +2471,14 @@ async def heartbeat(
                 "package": "com.unitynetwork.unityapp",
                 "status": "not_installed"
             }
-    
+
     # Agent field always reflects MDM agent version (always running if sending heartbeats)
     last_status_dict["agent"] = {
         "version": payload.app_version or "unknown"
     }
-    
+
     device.last_status = json.dumps(last_status_dict)
-    
+
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
     print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: auto_relaunch_enabled={device.auto_relaunch_enabled}, monitored_package={device.monitored_package}")
     if payload.app_versions:
@@ -2489,14 +2488,14 @@ async def heartbeat(
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Package '{pkg_name}': installed={pkg_info.installed if pkg_info else 'N/A'}")
     else:
         print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_versions in payload")
-    
+
     if device.auto_relaunch_enabled and device.monitored_package:
         # Android app now sends full package names as keys (e.g., com.unitynetwork.unityapp)
         # Try primary lookup first, then fallback to com.unitynetwork.unityapp for consistency
         app_info = payload.app_versions.get(device.monitored_package) if payload.app_versions else None
         package_used = device.monitored_package
         used_fallback = False
-        
+
         # If primary lookup failed, try fallback to com.unitynetwork.unityapp
         if not app_info and device.monitored_package != "com.unitynetwork.unityapp":
             fallback_package = "com.unitynetwork.unityapp"
@@ -2505,22 +2504,22 @@ async def heartbeat(
                 package_used = fallback_package
                 used_fallback = True
                 print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Primary package '{device.monitored_package}' not found, using fallback '{fallback_package}'")
-        
+
         if app_info:
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Found app_info for '{package_used}' (fallback={used_fallback}): installed={app_info.installed}")
         else:
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_info found for '{device.monitored_package}' or fallback 'com.unitynetwork.unityapp'")
-        
+
         # Check if app is installed
         if app_info and app_info.installed:
             # Check if app is running using monitored_foreground_recent_s
             # Use the same monitoring threshold as service monitoring evaluation
             fg_seconds = payload.monitored_foreground_recent_s
-            
+
             # Treat -1 as sentinel value for "not available" (normalize to None)
             if fg_seconds is not None and fg_seconds < 0:
                 fg_seconds = None
-            
+
             if fg_seconds is not None:
                 # We have valid foreground data - use monitoring threshold to determine if running
                 # Fallback to device threshold or default 10 minutes if monitoring settings unavailable
@@ -2539,11 +2538,11 @@ async def heartbeat(
                 print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App info not found in payload - skipping relaunch (package '{device.monitored_package}' not in app_versions)")
             else:
                 print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed (installed=False) - skipping relaunch")
-        
+
         # If app is not running, trigger FCM relaunch
         fcm_token_status = "present" if device.fcm_token else "MISSING"
         print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Final check - is_app_running={is_app_running}, fcm_token={fcm_token_status}")
-        
+
         if not is_app_running:
             if not device.fcm_token:
                 print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Cannot trigger relaunch - FCM token is MISSING")
@@ -2565,18 +2564,18 @@ async def heartbeat(
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Auto-relaunch is DISABLED")
         if not device.monitored_package:
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No monitored package configured")
-    
+
     db.commit()
-    
+
     # Invalidate cache on device update
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     await manager.broadcast({
         "type": "device_update",
         "device_id": device.id
     })
-    
+
     return HeartbeatResponse(ok=True)
 
 @app.post("/v1/action-result")
@@ -2600,13 +2599,13 @@ async def action_result(
             auth_device_id=device.id,
             message="Using authenticated device.id"
         )
-    
+
     from models import FcmDispatch
-    
+
     dispatch = db.query(FcmDispatch).filter(
         FcmDispatch.request_id == payload.request_id
     ).first()
-    
+
     if not dispatch:
         structured_logger.log_event(
             "result.unknown",
@@ -2617,7 +2616,7 @@ async def action_result(
             outcome=payload.outcome
         )
         raise HTTPException(status_code=404, detail="request_id not found")
-    
+
     if dispatch.completed_at:
         structured_logger.log_event(
             "result.duplicate",
@@ -2628,13 +2627,13 @@ async def action_result(
             message="idempotent_repost"
         )
         return {"ok": True, "message": "Already processed (idempotent)"}
-    
+
     dispatch.completed_at = payload.finished_at
     dispatch.result = payload.outcome
     dispatch.result_message = payload.message
-    
+
     db.commit()
-    
+
     structured_logger.log_event(
         "result.posted",
         request_id=payload.request_id,
@@ -2643,14 +2642,14 @@ async def action_result(
         outcome=payload.outcome,
         message=payload.message
     )
-    
+
     log_device_event(db, device.id, "action_completed", {
         "request_id": payload.request_id,
         "action": payload.action,
         "outcome": payload.outcome,
         "message": payload.message
     })
-    
+
     return {"ok": True, "message": "Result recorded"}
 
 @app.get("/v1/devices/{device_id}/events")
@@ -2663,13 +2662,13 @@ async def get_device_events(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     events = db.query(DeviceEvent).filter(
         DeviceEvent.device_id == device_id
     ).order_by(
         DeviceEvent.timestamp.desc()
     ).limit(limit).all()
-    
+
     return [{
         "id": event.id,
         "event_type": event.event_type,
@@ -2684,7 +2683,7 @@ async def get_metrics(
 ):
     """
     Get device metrics (total, online, offline, low battery counts).
-    
+
     NOTE: This endpoint is exempt from rate limiting as it's a read-only
     dashboard endpoint that's heavily cached (60 second TTL). It should never
     be rate limited to ensure dashboard functionality.
@@ -2694,12 +2693,12 @@ async def get_metrics(
     cached_result = response_cache.get(cache_key, ttl_seconds=60)
     if cached_result is not None:
         return cached_result
-    
+
     total_devices = db.query(func.count(Device.id)).scalar()
-    
+
     heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
     offline_threshold = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval * 3)
-    
+
     # Optimized: Use device_last_status table if available for better performance
     if READ_FROM_LAST_STATUS:
         # Fast path: Use device_last_status table with SQL aggregation
@@ -2710,9 +2709,9 @@ async def get_metrics(
             WHERE dls.last_ts >= :offline_threshold
         """)
         online_count = db.execute(online_count_query, {"offline_threshold": offline_threshold}).scalar() or 0
-        
+
         offline_count = total_devices - online_count
-        
+
         # Count low battery devices using SQL aggregation (battery_pct < 15)
         low_battery_query = text("""
             SELECT COUNT(*) 
@@ -2725,15 +2724,15 @@ async def get_metrics(
         online_count = db.query(func.count(Device.id)).filter(
             Device.last_seen >= offline_threshold
         ).scalar() or 0
-        
+
         offline_count = total_devices - online_count
-        
+
         # For low battery, parse JSON from last_status field
         low_battery_count = 0
         battery_statuses = db.query(Device.last_status).filter(
             Device.last_status.isnot(None)
         ).all()
-        
+
         for (status_json,) in battery_statuses:
             try:
                 status = json.loads(status_json)
@@ -2742,17 +2741,17 @@ async def get_metrics(
                     low_battery_count += 1
             except:
                 pass
-    
+
     result = {
         "total": total_devices,
         "online": online_count,
         "offline": offline_count,
         "low_battery": low_battery_count
     }
-    
+
     # Cache the result
     response_cache.set(cache_key, result, ttl_seconds=60, path="/v1/metrics")
-    
+
     return result
 
 @app.get("/v1/devices")
@@ -2764,7 +2763,7 @@ async def list_devices(
 ):
     """
     List devices with pagination.
-    
+
     NOTE: This endpoint is exempt from rate limiting as it's a read-only
     dashboard endpoint that's cached (5 minute TTL for first page). It should
     never be rate limited to ensure dashboard functionality.
@@ -2776,21 +2775,21 @@ async def list_devices(
         cached_result = response_cache.get(cache_key, ttl_seconds=300)
         if cached_result is not None:
             return cached_result
-    
+
     total_count = db.query(func.count(Device.id)).scalar()
-    
+
     offset = (page - 1) * limit
     devices = db.query(Device).order_by(Device.last_seen.desc()).offset(offset).limit(limit).all()
-    
+
     # Batch fetch device statuses if using fast reads
     device_statuses = {}
     if READ_FROM_LAST_STATUS:
         device_ids = [d.id for d in devices]
         device_statuses = fast_reads.get_all_device_statuses_fast(db, device_ids)
-    
+
     result = []
     heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
-    
+
     for device in devices:
         # Determine online/offline status
         if READ_FROM_LAST_STATUS and device.id in device_statuses:
@@ -2809,7 +2808,7 @@ async def list_devices(
                 offline_seconds = (datetime.now(timezone.utc) - ensure_utc(device.last_seen)).total_seconds()
                 if offline_seconds > heartbeat_interval * 3:
                     status = "offline"
-        
+
         ping_status = None
         if device.last_ping_sent:
             if device.last_ping_response and ensure_utc(device.last_ping_response) > ensure_utc(device.last_ping_sent):
@@ -2830,7 +2829,7 @@ async def list_devices(
                         "status": "waiting",
                         "elapsed_seconds": int(time_since_ping)
                     }
-        
+
         # Handle last_status - it could be a string (JSON) or already a dict
         last_status_data = None
         if device.last_status:
@@ -2841,7 +2840,7 @@ async def list_devices(
                     last_status_data = None
             elif isinstance(device.last_status, dict):
                 last_status_data = device.last_status
-        
+
         result.append({
             "id": device.id,
             "alias": device.alias,
@@ -2861,9 +2860,9 @@ async def list_devices(
             "monitored_app_name": device.monitored_app_name,
             "auto_relaunch_enabled": device.auto_relaunch_enabled
         })
-    
+
     total_pages = (total_count + limit - 1) // limit
-    
+
     response = {
         "devices": result,
         "pagination": {
@@ -2875,11 +2874,11 @@ async def list_devices(
             "has_prev": page > 1
         }
     }
-    
+
     # Cache first page result
     if cache_key:
         response_cache.set(cache_key, response, ttl_seconds=300, path="/v1/devices")
-    
+
     return response
 
 @app.get("/v1/devices/{device_id}")
@@ -2891,7 +2890,7 @@ async def get_device(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     ping_status = None
     if device.last_ping_sent:
         if device.last_ping_response and ensure_utc(device.last_ping_response) > ensure_utc(device.last_ping_sent):
@@ -2916,7 +2915,7 @@ async def get_device(
                     "sent_at": device.last_ping_sent.isoformat() + "Z",
                     "elapsed_seconds": int(time_since_ping)
                 }
-    
+
     return {
         "id": device.id,
         "alias": device.alias,
@@ -2940,7 +2939,7 @@ async def get_device_clipboard(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     return {
         "text": device.clipboard_content,
         "updated_at": device.clipboard_updated_at.isoformat() + "Z" if device.clipboard_updated_at else None
@@ -2956,11 +2955,11 @@ async def update_device_clipboard(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     device.clipboard_content = request.get("text", "")
     device.clipboard_updated_at = datetime.now(timezone.utc)
     db.commit()
-    
+
     return {"ok": True}
 
 @app.delete("/v1/devices/{device_id}")
@@ -2972,21 +2971,21 @@ async def delete_device(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     device_alias = device.alias
     log_device_event(db, device.id, "device_deleted", {"alias": device_alias})
-    
+
     # Delete all associated events
     db.query(DeviceEvent).filter(DeviceEvent.device_id == device_id).delete()
-    
+
     # Delete device
     db.delete(device)
     db.commit()
-    
+
     # Invalidate cache on device deletion
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {"ok": True, "message": f"Device {device_alias} deleted successfully"}
 
 @app.get("/admin/devices")
@@ -3002,17 +3001,17 @@ async def get_admin_devices(
     """
     if not verify_admin_key(x_admin_key or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     query = db.query(Device)
-    
+
     if alias:
         query = query.filter(Device.alias == alias)
-    
+
     devices = query.all()
-    
+
     heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
     offline_threshold_seconds = heartbeat_interval * 3
-    
+
     result = []
     for device in devices:
         if device.last_seen:
@@ -3020,7 +3019,7 @@ async def get_admin_devices(
             status = "online" if offline_seconds <= offline_threshold_seconds else "offline"
         else:
             status = "offline"
-        
+
         result.append({
             "id": device.id,
             "alias": device.alias,
@@ -3029,7 +3028,7 @@ async def get_admin_devices(
             "manufacturer": device.manufacturer,
             "status": status
         })
-    
+
     return result
 
 @app.get("/admin/devices/last-alias")
@@ -3044,10 +3043,10 @@ async def get_last_alias(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     # Get all devices
     devices = db.query(Device).all()
-    
+
     # Find highest D# alias
     max_num = 0
     for device in devices:
@@ -3061,7 +3060,7 @@ async def get_last_alias(
             except ValueError:
                 # Skip aliases that don't match D## pattern
                 continue
-    
+
     return {
         "last_alias": f"D{max_num:02d}" if max_num > 0 else None,
         "last_number": max_num,
@@ -3079,7 +3078,7 @@ async def get_admin_key(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     return {
         "admin_key": config.get_admin_key()
     }
@@ -3096,16 +3095,16 @@ async def create_selection(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required (scope: device_manage)")
-    
+
     body = await request.json()
     filter_criteria = body.get("filter", {})
-    
+
     result = bulk_delete.create_device_selection(
         db=db,
         filter_criteria=filter_criteria,
         created_by="admin"
     )
-    
+
     return result
 
 @app.post("/admin/devices/bulk-delete")
@@ -3123,7 +3122,7 @@ async def bulk_delete_devices_endpoint(
     # Verify user is authenticated (JWT is valid)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     # Rate limiting: 10 bulk delete operations per minute per user
     rate_key = f"bulk_delete:{user.username}"
     allowed, remaining = rate_limiter.check_rate_limit(
@@ -3131,7 +3130,7 @@ async def bulk_delete_devices_endpoint(
         max_requests=10,
         window_minutes=1
     )
-    
+
     if not allowed:
         structured_logger.log_event(
             "bulk_delete.rate_limited",
@@ -3142,15 +3141,15 @@ async def bulk_delete_devices_endpoint(
             status_code=429,
             detail="Rate limit exceeded. Maximum 10 bulk delete operations per minute."
         )
-    
+
     body = await request.json()
     device_ids = body.get("device_ids")
     selection_id = body.get("selection_id")
     purge_history = body.get("purge_history", True)
-    
+
     if not device_ids and not selection_id:
         raise HTTPException(status_code=400, detail="Either device_ids or selection_id must be provided")
-    
+
     result = bulk_delete.bulk_delete_devices(
         db=db,
         device_ids=device_ids,
@@ -3158,11 +3157,11 @@ async def bulk_delete_devices_endpoint(
         purge_history=purge_history,
         admin_user=user.username
     )
-    
+
     # Invalidate cache on bulk device deletion
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return result
 
 @app.post("/v1/devices/bulk-delete")
@@ -3177,10 +3176,10 @@ async def bulk_delete_devices_legacy(
     """
     body = await request.json()
     device_ids = body.get("device_ids", [])
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="No device IDs provided")
-    
+
     # Rate limiting: 10 bulk delete operations per minute per user
     rate_key = f"bulk_delete:{user.username if user else 'anonymous'}"
     allowed, remaining = rate_limiter.check_rate_limit(
@@ -3188,7 +3187,7 @@ async def bulk_delete_devices_legacy(
         max_requests=10,
         window_minutes=1
     )
-    
+
     if not allowed:
         structured_logger.log_event(
             "bulk_delete.rate_limited",
@@ -3199,20 +3198,20 @@ async def bulk_delete_devices_legacy(
             status_code=429,
             detail="Rate limit exceeded. Maximum 10 bulk delete operations per minute."
         )
-    
+
     result = bulk_delete.bulk_delete_devices(
         db=db,
         device_ids=device_ids,
         purge_history=False,  # Legacy endpoint doesn't purge history
         admin_user=user.username if user else None
     )
-    
+
     # Invalidate cache on bulk device deletion
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {
-        "ok": True, 
+        "ok": True,
         "deleted_count": result["deleted"],
         "message": f"{result['deleted']} device(s) deleted successfully"
     }
@@ -3226,24 +3225,24 @@ async def update_device_alias(
 ):
     if not request.alias or not request.alias.strip():
         raise HTTPException(status_code=400, detail="Alias cannot be empty")
-    
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     old_alias = device.alias
     device.alias = request.alias.strip()
     db.commit()
     db.refresh(device)
-    
+
     log_device_event(db, device.id, "alias_changed", {"old_alias": old_alias, "new_alias": device.alias})
-    
+
     # Invalidate cache on alias update
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {
-        "ok": True, 
+        "ok": True,
         "message": f"Device alias updated from '{old_alias}' to '{device.alias}'",
         "device": {
             "id": device.id,
@@ -3261,9 +3260,9 @@ async def update_device_settings(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     updates = {}
-    
+
     if request.monitored_package is not None:
         if not request.monitored_package.strip():
             raise HTTPException(status_code=400, detail="Monitored package cannot be empty")
@@ -3272,13 +3271,13 @@ async def update_device_settings(
             raise HTTPException(status_code=400, detail="Invalid package name format")
         device.monitored_package = request.monitored_package.strip()
         updates["monitored_package"] = device.monitored_package
-    
+
     if request.monitored_app_name is not None:
         if not request.monitored_app_name.strip():
             raise HTTPException(status_code=400, detail="Monitored app name cannot be empty")
         device.monitored_app_name = request.monitored_app_name.strip()
         updates["monitored_app_name"] = device.monitored_app_name
-    
+
     if request.monitored_threshold_min is not None:
         if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 1440:
             raise HTTPException(status_code=400, detail="Threshold must be between 1 and 1440 minutes (24 hours)")
@@ -3288,25 +3287,25 @@ async def update_device_settings(
             warnings.warn(f"Threshold value {request.monitored_threshold_min} minutes exceeds recommended maximum of 120 minutes. Values > 120 are deprecated.", DeprecationWarning)
         device.monitored_threshold_min = request.monitored_threshold_min
         updates["monitored_threshold_min"] = device.monitored_threshold_min
-    
+
     if request.monitor_enabled is not None:
         device.monitor_enabled = request.monitor_enabled
         updates["monitor_enabled"] = device.monitor_enabled
-    
+
     if request.auto_relaunch_enabled is not None:
         device.auto_relaunch_enabled = request.auto_relaunch_enabled
         updates["auto_relaunch_enabled"] = device.auto_relaunch_enabled
-    
+
     db.commit()
     db.refresh(device)
-    
+
     log_device_event(db, device.id, "settings_updated", updates)
     structured_logger.log_event("monitoring.update", device_id=device.id, updates=updates)
-    
+
     # Invalidate cache on settings update
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {
         "ok": True,
         "message": "Device settings updated successfully",
@@ -3330,9 +3329,9 @@ async def get_device_monitoring_settings(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     last_status = db.query(DeviceLastStatus).filter(DeviceLastStatus.device_id == device_id).first()
-    
+
     return {
         "ok": True,
         "monitoring": {
@@ -3357,10 +3356,10 @@ async def update_device_monitoring_settings(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     updates = {}
     has_monitoring_update = False
-    
+
     if request.monitored_package is not None:
         if not request.monitored_package.strip():
             raise HTTPException(status_code=400, detail="Monitored package cannot be empty")
@@ -3370,14 +3369,14 @@ async def update_device_monitoring_settings(
         device.monitored_package = request.monitored_package.strip()
         updates["monitored_package"] = device.monitored_package
         has_monitoring_update = True
-    
+
     if request.monitored_app_name is not None:
         if not request.monitored_app_name.strip():
             raise HTTPException(status_code=400, detail="Monitored app name cannot be empty")
         device.monitored_app_name = request.monitored_app_name.strip()
         updates["monitored_app_name"] = device.monitored_app_name
         has_monitoring_update = True
-    
+
     if request.monitored_threshold_min is not None:
         if request.monitored_threshold_min < 1 or request.monitored_threshold_min > 1440:
             raise HTTPException(status_code=400, detail="Threshold must be between 1 and 1440 minutes (24 hours)")
@@ -3388,26 +3387,26 @@ async def update_device_monitoring_settings(
         device.monitored_threshold_min = request.monitored_threshold_min
         updates["monitored_threshold_min"] = device.monitored_threshold_min
         has_monitoring_update = True
-    
+
     if request.monitor_enabled is not None:
         device.monitor_enabled = request.monitor_enabled
         updates["monitor_enabled"] = device.monitor_enabled
         has_monitoring_update = True
-    
+
     if has_monitoring_update:
         device.monitoring_use_defaults = False
         updates["monitoring_use_defaults"] = False
-    
+
     db.commit()
     db.refresh(device)
-    
+
     log_device_event(db, device.id, "monitoring_settings_updated", updates)
     structured_logger.log_event("monitoring.update", device_id=device.id, updates=updates)
-    
+
     # Invalidate cache on monitoring settings update
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {
         "ok": True,
         "message": "Monitoring settings updated successfully",
@@ -3430,18 +3429,18 @@ async def get_monitoring_defaults(
     Results are cached for performance.
     """
     start_time = time.time()
-    
+
     defaults = monitoring_defaults_cache.get_defaults(db)
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("monitoring_defaults_get_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.monitoring_defaults.read",
         user=current_user.username,
         latency_ms=latency_ms
     )
-    
+
     return defaults
 
 class UpdateMonitoringDefaultsRequest(BaseModel):
@@ -3462,15 +3461,15 @@ async def update_monitoring_defaults(
     Validates inputs and invalidates cache.
     """
     start_time = time.time()
-    
+
     defaults_record = db.query(MonitoringDefaults).first()
-    
+
     if not defaults_record:
         defaults_record = MonitoringDefaults()
         db.add(defaults_record)
-    
+
     updates = {}
-    
+
     if request.package is not None:
         if not request.package.strip():
             raise HTTPException(status_code=422, detail="Package cannot be empty")
@@ -3479,7 +3478,7 @@ async def update_monitoring_defaults(
             raise HTTPException(status_code=422, detail="Invalid package name format")
         defaults_record.package = request.package.strip()
         updates["package"] = defaults_record.package
-    
+
     if request.alias is not None:
         if not request.alias.strip():
             raise HTTPException(status_code=422, detail="Alias cannot be empty")
@@ -3487,34 +3486,34 @@ async def update_monitoring_defaults(
             raise HTTPException(status_code=422, detail="Alias must be 64 characters or less")
         defaults_record.alias = request.alias.strip()
         updates["alias"] = defaults_record.alias
-    
+
     if request.threshold_min is not None:
         if request.threshold_min < 1 or request.threshold_min > 120:
             raise HTTPException(status_code=422, detail="Threshold must be between 1 and 120 minutes")
         defaults_record.threshold_min = request.threshold_min
         updates["threshold_min"] = defaults_record.threshold_min
-    
+
     if request.enabled is not None:
         defaults_record.enabled = request.enabled
         updates["enabled"] = defaults_record.enabled
-    
+
     defaults_record.updated_at = datetime.now(timezone.utc)
-    
+
     db.commit()
     db.refresh(defaults_record)
-    
+
     monitoring_defaults_cache.invalidate()
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("monitoring_defaults_update_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.monitoring_defaults.update",
         user=current_user.username,
         updates=updates,
         latency_ms=latency_ms
     )
-    
+
     return {
         "enabled": defaults_record.enabled,
         "package": defaults_record.package,
@@ -3533,9 +3532,9 @@ async def get_auto_relaunch_defaults(
     Returns built-in defaults if no custom settings exist.
     """
     start_time = time.time()
-    
+
     defaults_record = db.query(AutoRelaunchDefaults).first()
-    
+
     if defaults_record:
         defaults = {
             "enabled": defaults_record.enabled,
@@ -3548,17 +3547,21 @@ async def get_auto_relaunch_defaults(
             "package": "com.unitynetwork.unityapp",
             "updated_at": None
         }
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("auto_relaunch_defaults_get_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.auto_relaunch_defaults.read",
         user=current_user.username,
         latency_ms=latency_ms
     )
-    
+
     return defaults
+
+class UpdateAutoRelaunchDefaultsRequest(BaseModel):
+    enabled: Optional[bool] = None
+    package: Optional[str] = None
 
 @app.patch("/admin/settings/auto-relaunch-defaults")
 async def update_auto_relaunch_defaults(
@@ -3571,15 +3574,15 @@ async def update_auto_relaunch_defaults(
     Requires device_manage scope (admin user).
     """
     start_time = time.time()
-    
+
     defaults_record = db.query(AutoRelaunchDefaults).first()
-    
+
     if not defaults_record:
         defaults_record = AutoRelaunchDefaults()
         db.add(defaults_record)
-    
+
     updates = {}
-    
+
     if request.package is not None:
         if not request.package.strip():
             raise HTTPException(status_code=422, detail="Package cannot be empty")
@@ -3588,26 +3591,26 @@ async def update_auto_relaunch_defaults(
             raise HTTPException(status_code=422, detail="Invalid package name format")
         defaults_record.package = request.package.strip()
         updates["package"] = defaults_record.package
-    
+
     if request.enabled is not None:
         defaults_record.enabled = request.enabled
         updates["enabled"] = defaults_record.enabled
-    
+
     defaults_record.updated_at = datetime.now(timezone.utc)
-    
+
     db.commit()
     db.refresh(defaults_record)
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("auto_relaunch_defaults_update_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.auto_relaunch_defaults.update",
         user=current_user.username,
         updates=updates,
         latency_ms=latency_ms
     )
-    
+
     return {
         "enabled": defaults_record.enabled,
         "package": defaults_record.package,
@@ -3625,9 +3628,9 @@ async def get_discord_settings(
     Defaults to enabled=True if no settings exist.
     """
     start_time = time.time()
-    
+
     settings_record = db.query(DiscordSettings).first()
-    
+
     if settings_record:
         settings = {
             "enabled": settings_record.enabled,
@@ -3638,17 +3641,20 @@ async def get_discord_settings(
             "enabled": True,
             "updated_at": None
         }
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("discord_settings_get_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.discord.read",
         user=current_user.username,
         latency_ms=latency_ms
     )
-    
+
     return settings
+
+class UpdateDiscordSettingsRequest(BaseModel):
+    enabled: Optional[bool] = None
 
 @app.patch("/admin/settings/discord")
 async def update_discord_settings(
@@ -3661,36 +3667,36 @@ async def update_discord_settings(
     Requires device_manage scope (admin user).
     """
     start_time = time.time()
-    
+
     settings_record = db.query(DiscordSettings).first()
-    
+
     if not settings_record:
         settings_record = DiscordSettings()
         db.add(settings_record)
-    
+
     updates = {}
-    
+
     if request.enabled is not None:
         settings_record.enabled = request.enabled
         updates["enabled"] = settings_record.enabled
-    
+
     settings_record.updated_at = datetime.now(timezone.utc)
-    
+
     db.commit()
     db.refresh(settings_record)
-    
+
     discord_settings_cache.invalidate()
-    
+
     latency_ms = (time.time() - start_time) * 1000
     metrics.observe_histogram("discord_settings_update_latency_ms", latency_ms, {})
-    
+
     structured_logger.log_event(
         "settings.discord.update",
         user=current_user.username,
         updates=updates,
         latency_ms=latency_ms
     )
-    
+
     return {
         "enabled": settings_record.enabled,
         "updated_at": settings_record.updated_at.isoformat() + "Z"
@@ -3706,7 +3712,7 @@ async def get_wifi_settings(
     Returns the current WiFi SSID, password, and security type.
     """
     wifi_settings = db.query(WiFiSettings).first()
-    
+
     if not wifi_settings:
         return {
             "ssid": "",
@@ -3715,12 +3721,12 @@ async def get_wifi_settings(
             "enabled": False,
             "updated_at": None
         }
-    
+
     structured_logger.log_event(
         "settings.wifi.read",
         user=current_user.username
     )
-    
+
     return {
         "ssid": wifi_settings.ssid,
         "password": wifi_settings.password,
@@ -3746,7 +3752,7 @@ async def update_wifi_settings(
     Creates or updates the WiFi settings for device connectivity.
     """
     wifi_settings = db.query(WiFiSettings).first()
-    
+
     if not wifi_settings:
         wifi_settings = WiFiSettings(
             ssid="",
@@ -3755,45 +3761,45 @@ async def update_wifi_settings(
             enabled=False
         )
         db.add(wifi_settings)
-    
+
     updates = {}
-    
+
     if request.ssid is not None:
         if not request.ssid.strip():
             raise HTTPException(status_code=422, detail="SSID cannot be empty")
         wifi_settings.ssid = request.ssid.strip()
         updates["ssid"] = wifi_settings.ssid
-    
+
     if request.password is not None:
         wifi_settings.password = request.password
         updates["password_updated"] = True
-    
+
     if request.security_type is not None:
         valid_types = ["open", "wep", "wpa", "wpa2", "wpa3"]
         if request.security_type not in valid_types:
             raise HTTPException(
-                status_code=422, 
+                status_code=422,
                 detail=f"Security type must be one of: {', '.join(valid_types)}"
             )
         wifi_settings.security_type = request.security_type
         updates["security_type"] = wifi_settings.security_type
-    
+
     if request.enabled is not None:
         wifi_settings.enabled = request.enabled
         updates["enabled"] = wifi_settings.enabled
-    
+
     wifi_settings.updated_at = datetime.now(timezone.utc)
     wifi_settings.updated_by = current_user.username
-    
+
     db.commit()
     db.refresh(wifi_settings)
-    
+
     structured_logger.log_event(
         "settings.wifi.update",
         user=current_user.username,
         updates=updates
     )
-    
+
     return {
         "ok": True,
         "message": "WiFi settings updated successfully",
@@ -3818,47 +3824,47 @@ async def push_wifi_to_devices(
     """
     body = await request.json()
     device_ids = body.get("device_ids", [])
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids is required")
-    
+
     wifi_settings = db.query(WiFiSettings).first()
     if not wifi_settings or not wifi_settings.enabled:
         raise HTTPException(status_code=400, detail="WiFi settings not configured or disabled")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     print(f"[WIFI-PUSH] Pushing WiFi credentials to {len(device_ids)} device(s)")
-    
+
     results = []
-    
+
     async with httpx.AsyncClient() as client:
         for device_id in device_ids:
             device = db.query(Device).filter(Device.id == device_id).first()
             if not device:
                 results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
                 continue
-            
+
             if not device.fcm_token:
                 results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
                 continue
-            
+
             request_id = str(uuid.uuid4())
             timestamp = datetime.now(timezone.utc).isoformat()
             hmac_signature = compute_hmac_signature(request_id, device_id, "wifi_connect", timestamp)
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -3877,20 +3883,20 @@ async def push_wifi_to_devices(
                     }
                 }
             }
-            
+
             # Create FcmDispatch record before sending
             from db_utils import record_fcm_dispatch
             import time
-            
+
             fcm_start_time = time.time()
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 latency_ms = (time.time() - fcm_start_time) * 1000
                 fcm_result = response.json() if response.status_code == 200 else None
                 fcm_message_id = fcm_result.get("name") if fcm_result else None
-                
+
                 # Record FCM dispatch
                 try:
                     dispatch_result = record_fcm_dispatch(
@@ -3906,7 +3912,7 @@ async def push_wifi_to_devices(
                     )
                 except Exception as dispatch_error:
                     print(f"[WIFI-PUSH] WARN: Failed to record FcmDispatch: {dispatch_error}")
-                
+
                 if response.status_code == 200:
                     # FCM delivery successful - device execution status will come via ACK
                     results.append({
@@ -3918,14 +3924,14 @@ async def push_wifi_to_devices(
                         "request_id": request_id,
                         "message": "WiFi credentials sent to FCM (awaiting device response)"
                     })
-                    
+
                     log_device_event(db, device_id, "wifi_push", {
                         "request_id": request_id,
                         "ssid": wifi_settings.ssid,
                         "security_type": wifi_settings.security_type,
                         "fcm_status": "delivered"
                     })
-                    
+
                     print(f"[WIFI-PUSH] ✓ FCM delivered to {device.alias} ({device_id}), request_id={request_id}")
                 else:
                     # FCM delivery failed
@@ -3956,7 +3962,7 @@ async def push_wifi_to_devices(
                     )
                 except Exception as dispatch_error:
                     print(f"[WIFI-PUSH] WARN: Failed to record failed FcmDispatch: {dispatch_error}")
-                
+
                 results.append({
                     "device_id": device_id,
                     "alias": device.alias,
@@ -3967,10 +3973,10 @@ async def push_wifi_to_devices(
                     "error": str(e)
                 })
                 print(f"[WIFI-PUSH] ✗ Exception for {device.alias}: {str(e)}")
-    
+
     success_count = sum(1 for r in results if r.get("ok"))
     print(f"[WIFI-PUSH] Complete: {success_count}/{len(device_ids)} successful")
-    
+
     structured_logger.log_event(
         "wifi.push",
         user=current_user.username,
@@ -3978,7 +3984,7 @@ async def push_wifi_to_devices(
         success=success_count,
         failed=len(device_ids) - success_count
     )
-    
+
     return {
         "ok": True,
         "ssid": wifi_settings.ssid,
@@ -3999,18 +4005,18 @@ async def get_bloatware_list(
     Used by enrollment one-liner scripts to download current bloatware list.
     """
     verify_admin_key(admin_key)
-    
+
     packages = db.query(BloatwarePackage).filter(BloatwarePackage.enabled == True).order_by(BloatwarePackage.package_name).all()
-    
+
     package_names = [pkg.package_name for pkg in packages]
     plain_text = "\n".join(package_names)
-    
+
     structured_logger.log_event(
         "bloatware.list.download",
         count=len(package_names),
         source="enrollment_script"
     )
-    
+
     return Response(
         content=plain_text,
         media_type="text/plain"
@@ -4032,18 +4038,18 @@ async def update_bloatware_list(
     """
     if not request.packages or len(request.packages) == 0:
         raise HTTPException(status_code=422, detail="Packages list cannot be empty")
-    
+
     # Validate package names
     import re
     for pkg in request.packages:
         if not pkg or not pkg.strip():
             raise HTTPException(status_code=422, detail="Package names cannot be empty")
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', pkg.strip()):
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]*)+$', pkg.strip()):
             raise HTTPException(status_code=422, detail=f"Invalid package name format: {pkg}")
-    
+
     # Delete all existing packages
     db.query(BloatwarePackage).delete()
-    
+
     # Insert new packages
     for pkg_name in request.packages:
         pkg = BloatwarePackage(
@@ -4051,15 +4057,15 @@ async def update_bloatware_list(
             enabled=True
         )
         db.add(pkg)
-    
+
     db.commit()
-    
+
     structured_logger.log_event(
         "bloatware.list.update",
         user=current_user.username,
         count=len(request.packages)
     )
-    
+
     return {
         "ok": True,
         "message": f"Updated bloatware list with {len(request.packages)} packages",
@@ -4077,7 +4083,7 @@ async def get_bloatware_list_json(
     Used by admin UI for management.
     """
     packages = db.query(BloatwarePackage).order_by(BloatwarePackage.package_name).all()
-    
+
     return {
         "packages": [
             {
@@ -4102,20 +4108,20 @@ async def add_bloatware_package(
 ):
     """Add a single bloatware package to the list"""
     import re
-    
+
     package_name = request.package_name.strip()
-    
+
     if not package_name:
         raise HTTPException(status_code=422, detail="Package name cannot be empty")
-    
-    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', package_name):
+
+    if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
         raise HTTPException(status_code=422, detail=f"Invalid package name format: {package_name}")
-    
+
     # Check if already exists
     existing = db.query(BloatwarePackage).filter(BloatwarePackage.package_name == package_name).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"Package {package_name} already exists")
-    
+
     # Add package
     pkg = BloatwarePackage(
         package_name=package_name,
@@ -4123,13 +4129,13 @@ async def add_bloatware_package(
     )
     db.add(pkg)
     db.commit()
-    
+
     structured_logger.log_event(
         "bloatware.package.add",
         user=current_user.username,
         package=package_name
     )
-    
+
     return {
         "ok": True,
         "message": f"Added package {package_name}",
@@ -4148,19 +4154,19 @@ async def delete_bloatware_package(
 ):
     """Delete a single bloatware package from the list"""
     pkg = db.query(BloatwarePackage).filter(BloatwarePackage.package_name == package_name).first()
-    
+
     if not pkg:
         raise HTTPException(status_code=404, detail=f"Package {package_name} not found")
-    
+
     db.delete(pkg)
     db.commit()
-    
+
     structured_logger.log_event(
         "bloatware.package.delete",
         user=current_user.username,
         package=package_name
     )
-    
+
     return {
         "ok": True,
         "message": f"Deleted package {package_name}"
@@ -4231,10 +4237,10 @@ async def reset_bloatware_list(
         "com.android.wallpaperbackup",
         "com.android.soundpicker",
     ]
-    
+
     # Delete all existing packages
     db.query(BloatwarePackage).delete()
-    
+
     # Insert default packages
     for pkg_name in default_packages:
         pkg = BloatwarePackage(
@@ -4242,15 +4248,15 @@ async def reset_bloatware_list(
             enabled=True
         )
         db.add(pkg)
-    
+
     db.commit()
-    
+
     structured_logger.log_event(
         "bloatware.list.reset",
         user=current_user.username,
         count=len(default_packages)
     )
-    
+
     return {
         "ok": True,
         "message": f"Reset bloatware list to {len(default_packages)} default packages",
@@ -4266,13 +4272,13 @@ async def update_all_devices_settings(
     """Update auto-relaunch settings for all devices"""
     if request.auto_relaunch_enabled is None:
         raise HTTPException(status_code=400, detail="auto_relaunch_enabled is required")
-    
+
     # Optimized: Use bulk update instead of individual updates
     # This is 10-50x faster for bulk operations
     updated_count = db.query(Device).update({
         Device.auto_relaunch_enabled: request.auto_relaunch_enabled
     })
-    
+
     # Log events for each device (still need individual logging)
     # But we can batch this more efficiently if needed
     devices = db.query(Device).all()
@@ -4281,13 +4287,13 @@ async def update_all_devices_settings(
             "auto_relaunch_enabled": request.auto_relaunch_enabled,
             "bulk_update": True
         })
-    
+
     db.commit()
-    
+
     # Invalidate cache on bulk update
     response_cache.invalidate("/v1/metrics")
     response_cache.invalidate("/v1/devices")
-    
+
     return {
         "ok": True,
         "message": f"Auto-relaunch {'enabled' if request.auto_relaunch_enabled else 'disabled'} for {updated_count} devices",
@@ -4301,13 +4307,13 @@ async def send_test_alert(
 ):
     from discord_webhook import discord_client
     from alert_config import alert_config
-    
+
     if not alert_config.DISCORD_WEBHOOK_URL:
         raise HTTPException(status_code=400, detail="Discord webhook not configured")
-    
+
     if not discord_settings_cache.is_enabled(db):
         raise HTTPException(status_code=400, detail="Discord alerts are disabled")
-    
+
     success = await discord_client.send_alert(
         condition="test",
         device_id="test-device",
@@ -4315,7 +4321,7 @@ async def send_test_alert(
         severity="INFO",
         details="Your NexMDM Discord integration is working correctly!"
     )
-    
+
     if success:
         return {"ok": True, "message": "Test alert sent to Discord"}
     else:
@@ -4331,10 +4337,10 @@ async def update_fcm_token(
     fcm_token = payload.get("fcm_token")
     if not fcm_token:
         raise HTTPException(status_code=400, detail="fcm_token is required")
-    
+
     device.fcm_token = fcm_token
     db.commit()
-    
+
     return {"ok": True, "message": "FCM token updated successfully"}
 
 @app.post("/v1/devices/{device_id}/commands/ping")
@@ -4346,24 +4352,24 @@ async def ping_device(
 ):
     if not user and not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
-    
+
     if device.last_ping_at:
         time_since_last_ping = (datetime.now(timezone.utc) - ensure_utc(device.last_ping_at)).total_seconds()
         if time_since_last_ping < 15:
             raise HTTPException(
-                status_code=429, 
+                status_code=429,
                 detail=f"Rate limit: Please wait {int(15 - time_since_last_ping)} seconds before pinging again"
             )
-    
+
     correlation_id = str(uuid.uuid4())
-    
+
     command = DeviceCommand(
         device_id=device_id,
         type="PING",
@@ -4374,13 +4380,13 @@ async def ping_device(
     )
     db.add(command)
     db.flush()
-    
+
     username = user.username if user else "admin"
     log_device_event(db, device.id, "ping_initiated", {
         "correlation_id": correlation_id,
         "username": username
     })
-    
+
     structured_logger.log_event(
         "dispatch.request",
         request_id=correlation_id,
@@ -4388,24 +4394,24 @@ async def ping_device(
         action="ping",
         username=username
     )
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     timestamp = datetime.now(timezone.utc).isoformat()
     hmac_signature = compute_hmac_signature(correlation_id, device_id, "ping", timestamp)
-    
+
     message = {
         "message": {
             "token": device.fcm_token,
@@ -4422,21 +4428,21 @@ async def ping_device(
             }
         }
     }
-    
+
     fcm_start_time = time.time()
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
+
             latency_ms = (time.time() - fcm_start_time) * 1000
-            
+
             if response.status_code != 200:
                 try:
                     fcm_result = response.json()
                 except:
                     fcm_result = {"raw_response": response.text}
-                
+
                 structured_logger.log_event(
                     "dispatch.fail",
                     level="ERROR",
@@ -4447,16 +4453,16 @@ async def ping_device(
                     fcm_status="failed",
                     latency_ms=int(latency_ms)
                 )
-                
+
                 command.status = "failed"
                 command.error = f"FCM request failed with status {response.status_code}"
                 device.last_ping_at = datetime.now(timezone.utc)
                 db.commit()
-                
+
                 raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
-            
+
             fcm_result = response.json()
-            
+
             structured_logger.log_event(
                 "dispatch.sent",
                 request_id=correlation_id,
@@ -4466,20 +4472,20 @@ async def ping_device(
                 fcm_status="success",
                 latency_ms=int(latency_ms)
             )
-            
+
             metrics.observe_histogram("fcm_dispatch_latency_ms", latency_ms, {
                 "action": "ping"
             })
-            
+
             device.last_ping_at = datetime.now(timezone.utc)
             db.commit()
-            
+
             return {
                 "command_id": str(command.id),
                 "status": "queued",
                 "correlation_id": correlation_id
             }
-            
+
         except httpx.TimeoutException:
             latency_ms = (time.time() - fcm_start_time) * 1000
             structured_logger.log_event(
@@ -4530,29 +4536,29 @@ async def ring_device(
 ):
     if not user and not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
-    
+
     if payload.duration_sec < 5 or payload.duration_sec > 120:
         raise HTTPException(status_code=400, detail="duration_sec must be between 5 and 120 seconds")
-    
+
     if payload.volume < 0.0 or payload.volume > 1.0:
         raise HTTPException(status_code=400, detail="volume must be between 0.0 and 1.0")
-    
+
     now = datetime.now(timezone.utc)
-    if device.ringing_until and device.ringing_until > now:
-        raise HTTPException(
-            status_code=409,
-            detail="Device is already ringing. Please stop the current ring before starting a new one."
-        )
-    
+    # Check if device is already ringing (only if ringing_until exists and is in the future)
+    if device.ringing_until:
+        ringing_until_utc = ensure_utc(device.ringing_until)
+        if ringing_until_utc > now:
+            raise HTTPException(status_code=400, detail="Device is already ringing")
+
     correlation_id = str(uuid.uuid4())
-    
+
     command = DeviceCommand(
         device_id=device_id,
         type="RING",
@@ -4563,7 +4569,7 @@ async def ring_device(
     )
     db.add(command)
     db.flush()
-    
+
     username = user.username if user else "admin"
     log_device_event(db, device.id, "ring_initiated", {
         "correlation_id": correlation_id,
@@ -4571,32 +4577,30 @@ async def ring_device(
         "volume": payload.volume,
         "username": username
     })
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     timestamp = datetime.now(timezone.utc).isoformat()
     hmac_signature = compute_hmac_signature(correlation_id, device_id, "ring", timestamp)
-    
+
     message = {
         "message": {
             "token": device.fcm_token,
             "data": {
                 "action": "ring",
-                "correlation_id": correlation_id,
-                "device_id": device_id,
-                "duration_sec": str(payload.duration_sec),
+                "duration": str(payload.duration_sec),
                 "volume": str(payload.volume),
                 "ts": timestamp,
                 "hmac": hmac_signature
@@ -4606,33 +4610,32 @@ async def ring_device(
             }
         }
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
+
             if response.status_code != 200:
-                try:
-                    fcm_result = response.json()
-                except:
-                    fcm_result = {"raw_response": response.text}
-                
                 command.status = "failed"
                 command.error = f"FCM request failed with status {response.status_code}"
                 db.commit()
-                
-                raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
-            
-            device.ringing_until = now + timedelta(seconds=payload.duration_sec)
+
+                raise HTTPException(status_code=500, detail=f"FCM error: {response.text}")
+
             device.last_ring_at = now
+            device.ringing_until = now + timedelta(seconds=payload.duration_sec)
             db.commit()
-            
-            return {
-                "command_id": str(command.id),
-                "status": "queued",
-                "correlation_id": correlation_id
-            }
-            
+
+            structured_logger.log_event(
+                "device.ring.sent",
+                level="INFO",
+                device_id=device_id,
+                duration=payload.duration_sec,
+                alias=device.alias
+            )
+
+            return {"ok": True, "message": f"Ring command sent to {device.alias}"}
+
         except httpx.TimeoutException:
             command.status = "failed"
             command.error = "FCM request timed out"
@@ -4645,7 +4648,7 @@ async def ring_device(
             raise HTTPException(status_code=500, detail=f"Failed to send FCM message: {str(e)}")
 
 @app.post("/v1/devices/{device_id}/commands/ring/stop")
-async def stop_ring_device(
+async def stop_ringing_device(
     device_id: str,
     x_admin: str = Header(None),
     user: User = Depends(get_current_user_optional),
@@ -4653,20 +4656,25 @@ async def stop_ring_device(
 ):
     if not user and not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
-    
+
     now = datetime.now(timezone.utc)
-    if not device.ringing_until or device.ringing_until <= now:
+    # Check if device is actually ringing (only if ringing_until exists and is in the future)
+    if not device.ringing_until:
         raise HTTPException(status_code=400, detail="Device is not currently ringing")
-    
+
+    ringing_until_utc = ensure_utc(device.ringing_until)
+    if ringing_until_utc <= now:
+        raise HTTPException(status_code=400, detail="Device is not currently ringing")
+
     correlation_id = str(uuid.uuid4())
-    
+
     command = DeviceCommand(
         device_id=device_id,
         type="RING_STOP",
@@ -4677,35 +4685,35 @@ async def stop_ring_device(
     )
     db.add(command)
     db.flush()
-    
+
     username = user.username if user else "admin"
     log_device_event(db, device.id, "ring_stop_initiated", {
         "correlation_id": correlation_id,
         "username": username
     })
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     timestamp = datetime.now(timezone.utc).isoformat()
     hmac_signature = compute_hmac_signature(correlation_id, device_id, "ring_stop", timestamp)
-    
+
     message = {
         "message": {
             "token": device.fcm_token,
             "data": {
-                "action": "ring_stop",
+                "action": "stop_ring",
                 "correlation_id": correlation_id,
                 "device_id": device_id,
                 "ts": timestamp,
@@ -4716,31 +4724,30 @@ async def stop_ring_device(
             }
         }
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
+
             if response.status_code != 200:
-                try:
-                    fcm_result = response.json()
-                except:
-                    fcm_result = {"raw_response": response.text}
-                
                 command.status = "failed"
                 command.error = f"FCM request failed with status {response.status_code}"
                 db.commit()
-                
+
                 raise HTTPException(status_code=500, detail=f"FCM request failed with status {response.status_code}")
-            
+
             device.ringing_until = None
             db.commit()
-            
-            return {
-                "command_id": str(command.id),
-                "status": "queued"
-            }
-            
+
+            structured_logger.log_event(
+                "device.ring.stopped",
+                level="INFO",
+                device_id=device_id,
+                alias=device.alias
+            )
+
+            return {"ok": True, "message": f"Stop ring command sent to {device.alias}"}
+
         except httpx.TimeoutException:
             command.status = "failed"
             command.error = "FCM request timed out"
@@ -4763,7 +4770,7 @@ class AckRequest(BaseModel):
     rssi: Optional[int] = None
     charging: Optional[bool] = None
     uptime_ms: Optional[int] = None
-    
+
     def get_correlation_id(self) -> str:
         """Get correlation_id, falling back to request_id if correlation_id is not set"""
         return self.correlation_id or self.request_id or ""
@@ -4778,36 +4785,36 @@ async def acknowledge_command(
 ):
     correlation_id = payload.get_correlation_id()
     print(f"[ACK] Received ACK from device_id={device_id}, type={payload.type}, correlation_id={correlation_id}, request_id={payload.request_id}, status={payload.status}, message={payload.message}")
-    
+
     if device.id != device_id:
         print(f"[ACK] Device ID mismatch: device.id={device.id}, device_id={device_id}")
         raise HTTPException(status_code=403, detail="Device can only acknowledge its own commands")
-    
+
     # Around line 3996-4010 - Make the endpoint more lenient for WIFI_CONNECT_ACK
     # For WiFi ACK, skip DeviceCommand lookup since it uses FcmDispatch
     if payload.type != "WIFI_CONNECT_ACK":
         if not correlation_id:
             print(f"[ACK] ERROR: Missing correlation_id for type={payload.type}")
             raise HTTPException(status_code=400, detail="correlation_id is required for this ACK type")
-        
+
         command = db.query(DeviceCommand).filter(
             DeviceCommand.correlation_id == correlation_id
         ).first()
-        
+
         if not command:
             print(f"[ACK] Command not found for correlation_id={correlation_id}, type={payload.type}")
             raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
-        
+
         if command.device_id != device_id:
             print(f"[ACK] Command device mismatch: command.device_id={command.device_id}, device_id={device_id}")
             raise HTTPException(status_code=403, detail="Command does not belong to this device")
     else:
         command = None
-    
+
     if payload.type == "PING_ACK":
         if command:
             command.status = "acknowledged"
-        
+
         metric = DeviceMetric(
             device_id=device_id,
             ts=datetime.now(timezone.utc),
@@ -4820,51 +4827,51 @@ async def acknowledge_command(
             source="ping_ack"
         )
         db.add(metric)
-        
+
         log_device_event(db, device_id, "ping_acknowledged", {
             "correlation_id": correlation_id,
             "battery": payload.battery,
             "network": payload.network,
             "rssi": payload.rssi
         })
-        
+
     elif payload.type == "RING_STARTED":
         if command:
             command.status = "acknowledged"
-        
+
         log_device_event(db, device_id, "ring_started", {
             "correlation_id": correlation_id
         })
-        
+
     elif payload.type == "RING_STOPPED":
         if command:
             command.status = "completed"
-        
+
         if device.ringing_until:
             device.ringing_until = None
-        
+
         log_device_event(db, device_id, "ring_stopped", {
             "correlation_id": payload.correlation_id
         })
-    
+
     elif payload.type == "LAUNCH_APP_ACK":
         print(f"[ACK] Processing LAUNCH_APP_ACK for correlation_id={payload.correlation_id}")
-        
+
         cmd_result = db.query(CommandResult).filter(
             CommandResult.correlation_id == payload.correlation_id
         ).first()
-        
+
         if cmd_result:
             print(f"[ACK] Found CommandResult: id={cmd_result.id}, command_id={cmd_result.command_id}, current_status={cmd_result.status}")
             cmd_result.status = payload.status or "OK"
             cmd_result.message = payload.message
             cmd_result.updated_at = datetime.now(timezone.utc)
             print(f"[ACK] Updated CommandResult: new_status={cmd_result.status}, message={cmd_result.message}")
-            
+
             bulk_cmd = db.query(BulkCommand).filter(
                 BulkCommand.id == cmd_result.command_id
             ).first()
-            
+
             if bulk_cmd:
                 print(f"[ACK] Found BulkCommand: id={bulk_cmd.id}, current_acked_count={bulk_cmd.acked_count}, current_error_count={bulk_cmd.error_count}")
                 bulk_cmd.acked_count += 1
@@ -4873,7 +4880,7 @@ async def acknowledge_command(
                 print(f"[ACK] Updated BulkCommand: new_acked_count={bulk_cmd.acked_count}, new_error_count={bulk_cmd.error_count}")
             else:
                 print(f"[ACK] BulkCommand not found for command_id={cmd_result.command_id}")
-            
+
             log_device_event(db, device_id, "launch_app_ack", {
                 "correlation_id": correlation_id,
                 "status": payload.status,
@@ -4884,12 +4891,12 @@ async def acknowledge_command(
             if command:
                 command.status = "acknowledged"
                 print(f"[ACK] Fallback: Marked DeviceCommand as acknowledged")
-    
+
     elif payload.type == "WIFI_CONNECT_ACK":
         # WiFi ACK uses request_id (which may be in correlation_id or request_id field)
         request_id = payload.request_id or correlation_id
         print(f"[ACK] Processing WIFI_CONNECT_ACK for request_id={request_id}, device_id={device_id}")
-        
+
         if not request_id:
             print(f"[ACK] ERROR: WIFI_CONNECT_ACK missing both correlation_id and request_id")
             # Don't raise 404, just log and return success to prevent retries
@@ -4898,24 +4905,24 @@ async def acknowledge_command(
                 "payload": str(payload.dict())
             })
             return {"ok": True, "warning": "Missing request_id, ACK logged but not processed"}
-        
+
         from models import FcmDispatch
-        
+
         # Find FcmDispatch by request_id and device_id to ensure correct device match
         dispatch = db.query(FcmDispatch).filter(
             FcmDispatch.request_id == request_id,
             FcmDispatch.device_id == device_id,
             FcmDispatch.action == "wifi_connect"
         ).first()
-        
+
         if dispatch:
             print(f"[ACK] Found FcmDispatch: request_id={dispatch.request_id}, device_id={dispatch.device_id}, current_status={dispatch.fcm_status}")
-            
+
             # Update dispatch with result
             dispatch.completed_at = datetime.now(timezone.utc)
             dispatch.result = payload.status or "UNKNOWN"
             dispatch.result_message = payload.message
-            
+
             # Update fcm_status based on result
             if payload.status in ["OK", "ok"]:
                 dispatch.fcm_status = "completed"
@@ -4923,9 +4930,9 @@ async def acknowledge_command(
                 dispatch.fcm_status = "failed"
             else:
                 dispatch.fcm_status = "completed"  # Default to completed even if status is unknown
-            
+
             print(f"[ACK] Updated FcmDispatch: result={dispatch.result}, message={dispatch.result_message}")
-            
+
             log_device_event(db, device_id, "wifi_connect_ack", {
                 "request_id": dispatch.request_id,
                 "status": payload.status,
@@ -4943,13 +4950,13 @@ async def acknowledge_command(
             })
             # Return success to prevent device from retrying
             return {"ok": True, "warning": "FcmDispatch not found, but ACK logged"}
-    
+
     else:
         raise HTTPException(status_code=400, detail=f"Invalid ack type: {payload.type}")
-    
+
     db.commit()
     print(f"[ACK] Successfully processed {payload.type} for device_id={device_id}, correlation_id={correlation_id}")
-    
+
     return {"ok": True}
 
 @app.post("/v1/devices/{device_id}/grant-permissions")
@@ -4961,28 +4968,28 @@ async def grant_device_permissions(
     """Trigger device to send list of installed packages for diagnostics"""
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device does not have FCM token registered")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     message = {
         "message": {
             "token": device.fcm_token,
@@ -4994,33 +5001,33 @@ async def grant_device_permissions(
             }
         }
     }
-    
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
+
             if response.status_code != 200:
                 try:
                     fcm_result = response.json()
                 except:
                     fcm_result = {"raw_response": response.text}
-                
+
                 return {
                     "ok": False,
                     "error": f"FCM request failed with status {response.status_code}",
                     "fcm_response": fcm_result
                 }
-            
+
             fcm_result = response.json()
-            
+
             log_device_event(db, device.id, "list_packages_sent", {})
-            
+
             return {
                 "ok": True,
                 "message": f"List packages command sent to {device.alias}. Check logs for results.",
                 "fcm_response": fcm_result
             }
-            
+
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="FCM request timed out")
         except Exception as e:
@@ -5035,17 +5042,17 @@ async def receive_package_list(
 ):
     """Receive package list from device (diagnostic endpoint)"""
     packages = payload.get("packages", [])
-    
+
     print(f"[DIAGNOSTIC] Received {len(packages)} packages from {device.alias} ({device.id}):")
     for pkg in packages:
         print(f"  - {pkg.get('package_name')} (v{pkg.get('version_name')})")
-    
+
     # Log event with package info
     log_device_event(db, device.id, "packages_reported", {
         "package_count": len(packages),
         "packages": packages
     })
-    
+
     return {
         "ok": True,
         "message": f"Received {len(packages)} packages"
@@ -5058,52 +5065,52 @@ async def send_remote_command(
     current_user: User = Depends(get_current_user)
 ):
     """Send remote control command to multiple devices via FCM"""
-    
+
     body = await request.json()
     device_ids = body.get("device_ids", [])
     command = body.get("command")  # tap, swipe, text, key
     params = body.get("params", {})  # command-specific parameters
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids is required")
-    
+
     if not command:
         raise HTTPException(status_code=400, detail="command is required")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     results = []
-    
+
     async with httpx.AsyncClient() as client:
         for device_id in device_ids:
             device = db.query(Device).filter(Device.id == device_id).first()
             if not device:
-                results.append({"device_id": device_id, "ok": False, "error": "Device not found"})
+                results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
                 continue
-            
+
             if not device.fcm_token:
-                results.append({"device_id": device_id, "ok": False, "error": "No FCM token"})
+                results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
                 continue
-            
+
             # Build FCM message with command data
             message_data = {
                 "action": "remote_control",
                 "command": command,
                 **{k: str(v) for k, v in params.items()}  # Convert all params to strings for FCM
             }
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -5113,17 +5120,18 @@ async def send_remote_command(
                     }
                 }
             }
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 if response.status_code == 200:
                     results.append({
                         "device_id": device_id,
+                        "alias": device.alias,
                         "ok": True,
                         "message": "Command sent successfully"
                     })
-                    
+
                     # Log the command
                     log_device_event(db, device_id, "remote_command", {
                         "command": command,
@@ -5132,16 +5140,20 @@ async def send_remote_command(
                 else:
                     results.append({
                         "device_id": device_id,
+                        "alias": device.alias,
                         "ok": False,
                         "error": f"FCM error: {response.status_code}"
                     })
+                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
             except Exception as e:
                 results.append({
                     "device_id": device_id,
+                    "alias": device.alias,
                     "ok": False,
                     "error": str(e)
                 })
-    
+                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
+
     success_count = sum(1 for r in results if r.get("ok"))
     return {
         "ok": True,
@@ -5158,52 +5170,52 @@ async def launch_app_on_devices(
     current_user: User = Depends(get_current_user)
 ):
     """Launch an app on multiple devices via FCM"""
-    
+
     body = await request.json()
     device_ids = body.get("device_ids", [])
     package_name = body.get("package_name", "").strip()
     intent_uri = body.get("intent_uri", "").strip()  # Optional deep link/intent URI
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids is required")
-    
+
     if not package_name:
         raise HTTPException(status_code=400, detail="package_name is required")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     print(f"[APP LAUNCH] Launching {package_name} on {len(device_ids)} device(s)")
-    
+
     results = []
-    
+
     async with httpx.AsyncClient() as client:
         for device_id in device_ids:
             device = db.query(Device).filter(Device.id == device_id).first()
             if not device:
                 results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
                 continue
-            
+
             if not device.fcm_token:
                 results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
                 continue
-            
+
             # Build FCM message with launch_app action
             request_id = str(uuid.uuid4())
             timestamp = datetime.now(timezone.utc).isoformat()
             hmac_signature = compute_hmac_signature(request_id, device_id, "launch_app", timestamp)
-            
+
             message_data = {
                 "action": "launch_app",
                 "request_id": request_id,
@@ -5212,11 +5224,11 @@ async def launch_app_on_devices(
                 "hmac": hmac_signature,
                 "package_name": package_name
             }
-            
+
             # Add intent URI if provided (for deep linking)
             if intent_uri:
                 message_data["intent_uri"] = intent_uri
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -5226,24 +5238,24 @@ async def launch_app_on_devices(
                     }
                 }
             }
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 if response.status_code == 200:
                     results.append({
                         "device_id": device_id,
                         "alias": device.alias,
                         "ok": True,
-                        "message": "Launch command sent successfully"
+                        "message": "Command sent successfully"
                     })
-                    
+
                     # Log the app launch event
                     event_data = {"package_name": package_name}
                     if intent_uri:
                         event_data["intent_uri"] = intent_uri
                     log_device_event(db, device_id, "app_launch", event_data)
-                    
+
                     print(f"[APP LAUNCH] ✓ Sent to {device.alias} ({device_id})")
                 else:
                     results.append({
@@ -5261,10 +5273,10 @@ async def launch_app_on_devices(
                     "error": str(e)
                 })
                 print(f"[APP LAUNCH] ✗ Failed for {device.alias}: {str(e)}")
-    
+
     success_count = sum(1 for r in results if r.get("ok"))
     print(f"[APP LAUNCH] Complete: {success_count}/{len(device_ids)} successful")
-    
+
     return {
         "ok": True,
         "package_name": package_name,
@@ -5287,57 +5299,57 @@ async def bulk_launch_app(
     targets = body.get("targets", {})
     command = body.get("command", {})
     dry_run = body.get("dry_run", False)
-    
+
     package = command.get("package", "").strip()
     activity = command.get("activity")
     wake = command.get("wake", True)
     unlock = command.get("unlock", True)
     flags = command.get("flags", [])
     correlation_id = command.get("correlation_id", str(uuid.uuid4()))
-    
+
     if not package:
         raise HTTPException(status_code=400, detail="Package name is required")
-    
+
     query = db.query(Device)
-    
+
     if targets.get("all"):
         pass
     elif targets.get("filter"):
         filters = targets["filter"]
-        
+
         if filters.get("groups"):
             pass
-        
+
         if filters.get("tags"):
             pass
-        
+
         if filters.get("online") is not None:
             if filters["online"]:
                 cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
                 query = query.filter(Device.last_seen >= cutoff)
-        
+
         if filters.get("android_version"):
             versions = filters["android_version"]
             if isinstance(versions, list) and versions:
                 query = query.filter(Device.android_version.in_(versions))
-    
+
     elif targets.get("device_ids"):
         device_ids_list = targets["device_ids"]
         if not device_ids_list:
             raise HTTPException(status_code=400, detail="device_ids list is empty")
         query = query.filter(Device.id.in_(device_ids_list))
-    
+
     elif targets.get("device_aliases"):
         aliases_list = targets["device_aliases"]
         if not aliases_list:
             raise HTTPException(status_code=400, detail="device_aliases list is empty")
         query = query.filter(Device.alias.in_(aliases_list))
-    
+
     else:
         raise HTTPException(status_code=400, detail="Must specify targets: all, filter, device_ids, or device_aliases")
-    
+
     devices = query.filter(Device.fcm_token.isnot(None)).all()
-    
+
     if dry_run:
         return {
             "dry_run": True,
@@ -5345,7 +5357,7 @@ async def bulk_launch_app(
             "sample_device_ids": [d.id for d in devices[:20]],
             "sample_devices": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
         }
-    
+
     bulk_cmd = BulkCommand(
         type="launch_app",
         payload=json.dumps(command),
@@ -5357,9 +5369,9 @@ async def bulk_launch_app(
     db.add(bulk_cmd)
     db.commit()
     db.refresh(bulk_cmd)
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
@@ -5369,30 +5381,30 @@ async def bulk_launch_app(
         bulk_cmd.completed_at = datetime.now(timezone.utc)
         db.commit()
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     print(f"[BULK LAUNCH] Sending {package} to {len(devices)} device(s), command_id={bulk_cmd.id}")
-    
+
     async with httpx.AsyncClient() as client:
         for idx, device in enumerate(devices):
             device_correlation_id = f"{correlation_id}-{device.id}"
-            
+
             existing = db.query(CommandResult).filter(
                 CommandResult.command_id == bulk_cmd.id,
                 CommandResult.device_id == device.id
             ).first()
-            
+
             if existing:
                 continue
-            
+
             timestamp = datetime.now(timezone.utc).isoformat()
             hmac_signature = compute_hmac_signature(device_correlation_id, device.id, "launch_app", timestamp)
-            
+
             message_data = {
                 "action": "launch_app",
                 "correlation_id": device_correlation_id,
@@ -5403,13 +5415,13 @@ async def bulk_launch_app(
                 "wake": str(wake).lower(),
                 "unlock": str(unlock).lower()
             }
-            
+
             if activity:
                 message_data["activity"] = activity
-            
+
             if flags:
                 message_data["flags"] = ",".join(flags)
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -5419,7 +5431,7 @@ async def bulk_launch_app(
                     }
                 }
             }
-            
+
             cmd_result = CommandResult(
                 command_id=bulk_cmd.id,
                 device_id=device.id,
@@ -5427,10 +5439,10 @@ async def bulk_launch_app(
                 status="sending"
             )
             db.add(cmd_result)
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 if response.status_code == 200:
                     cmd_result.status = "sent"
                     bulk_cmd.sent_count += 1
@@ -5440,24 +5452,24 @@ async def bulk_launch_app(
                     cmd_result.message = f"FCM error: {response.status_code}"
                     bulk_cmd.error_count += 1
                     print(f"[BULK LAUNCH] ✗ Failed {device.alias}: FCM {response.status_code}")
-            
+
             except Exception as e:
                 cmd_result.status = "failed"
                 cmd_result.message = str(e)
                 bulk_cmd.error_count += 1
                 print(f"[BULK LAUNCH] ✗ Failed {device.alias}: {str(e)}")
-            
+
             db.commit()
-            
+
             if idx < len(devices) - 1:
                 await asyncio.sleep(0.05)
-    
+
     bulk_cmd.status = "completed"
     bulk_cmd.completed_at = datetime.now(timezone.utc)
     db.commit()
-    
+
     print(f"[BULK LAUNCH] Complete: {bulk_cmd.sent_count}/{len(devices)} sent, {bulk_cmd.error_count} errors")
-    
+
     return {
         "ok": True,
         "command_id": bulk_cmd.id,
@@ -5476,28 +5488,30 @@ async def get_command_status(
     Get bulk command status and per-device results
     """
     bulk_cmd = db.query(BulkCommand).filter(BulkCommand.id == command_id).first()
-    
+
     if not bulk_cmd:
         raise HTTPException(status_code=404, detail="Command not found")
-    
+
     results = db.query(CommandResult, Device.alias).join(
         Device, CommandResult.device_id == Device.id
     ).filter(CommandResult.command_id == command_id).all()
-    
+
     result_list = []
     for cmd_result, alias in results:
         result_list.append({
             "device_id": cmd_result.device_id,
             "alias": alias,
             "status": cmd_result.status,
-            "message": cmd_result.message,
+            "exit_code": cmd_result.exit_code,
+            "output": cmd_result.output_preview,
+            "error": cmd_result.error,
             "sent_at": cmd_result.sent_at.isoformat() if cmd_result.sent_at else None,
             "updated_at": cmd_result.updated_at.isoformat() if cmd_result.updated_at else None
         })
-    
+
     payload_data = json.loads(bulk_cmd.payload) if bulk_cmd.payload else {}
     targets_data = json.loads(bulk_cmd.targets) if bulk_cmd.targets else {}
-    
+
     return {
         "command_id": bulk_cmd.id,
         "type": bulk_cmd.type,
@@ -5527,23 +5541,23 @@ async def list_commands(
     List recent bulk commands
     """
     query = db.query(BulkCommand)
-    
+
     if type:
         query = query.filter(BulkCommand.type == type)
-    
+
     commands = query.order_by(BulkCommand.created_at.desc()).limit(limit).all()
-    
+
     result = []
     for cmd in commands:
         payload_data = json.loads(cmd.payload) if cmd.payload else {}
         targets_data = json.loads(cmd.targets) if cmd.targets else {}
-        
+
         scope_desc = "Entire fleet"
         if targets_data.get("filter"):
             scope_desc = "Filtered set"
         elif targets_data.get("device_ids"):
             scope_desc = f"{len(targets_data['device_ids'])} devices"
-        
+
         result.append({
             "command_id": cmd.id,
             "type": cmd.type,
@@ -5559,7 +5573,7 @@ async def list_commands(
                 "error_count": cmd.error_count
             }
         })
-    
+
     return {"commands": result}
 
 @app.post("/v1/remote/reboot")
@@ -5569,47 +5583,47 @@ async def reboot_devices(
     current_user: User = Depends(get_current_user)
 ):
     """Reboot (hard restart) multiple devices via FCM"""
-    
+
     body = await request.json()
     device_ids = body.get("device_ids", [])
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids is required")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     print(f"[REBOOT] Initiating hard restart on {len(device_ids)} device(s)")
-    
+
     results = []
-    
+
     async with httpx.AsyncClient() as client:
         for device_id in device_ids:
             device = db.query(Device).filter(Device.id == device_id).first()
             if not device:
                 results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
                 continue
-            
+
             if not device.fcm_token:
                 results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
                 continue
-            
+
             # Build FCM message with reboot action
             message_data = {
                 "action": "reboot"
             }
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -5619,10 +5633,10 @@ async def reboot_devices(
                     }
                 }
             }
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 if response.status_code == 200:
                     results.append({
                         "device_id": device_id,
@@ -5630,10 +5644,10 @@ async def reboot_devices(
                         "ok": True,
                         "message": "Reboot command sent successfully"
                     })
-                    
+
                     # Log the reboot event
                     log_device_event(db, device_id, "device_reboot", {"type": "hard_restart"})
-                    
+
                     print(f"[REBOOT] ✓ Sent to {device.alias} ({device_id})")
                 else:
                     results.append({
@@ -5651,10 +5665,10 @@ async def reboot_devices(
                     "error": str(e)
                 })
                 print(f"[REBOOT] ✗ Failed for {device.alias}: {str(e)}")
-    
+
     success_count = sum(1 for r in results if r.get("ok"))
     print(f"[REBOOT] Complete: {success_count}/{len(device_ids)} successful")
-    
+
     return {
         "ok": True,
         "total": len(device_ids),
@@ -5670,47 +5684,47 @@ async def restart_app_on_devices(
     current_user: User = Depends(get_current_user)
 ):
     """Restart NexMDM app (soft restart) on multiple devices via FCM"""
-    
+
     body = await request.json()
     device_ids = body.get("device_ids", [])
-    
+
     if not device_ids:
         raise HTTPException(status_code=400, detail="device_ids is required")
-    
+
     import httpx
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
+
     fcm_url = build_fcm_v1_url(project_id)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
     }
-    
+
     print(f"[APP RESTART] Initiating soft restart on {len(device_ids)} device(s)")
-    
+
     results = []
-    
+
     async with httpx.AsyncClient() as client:
         for device_id in device_ids:
             device = db.query(Device).filter(Device.id == device_id).first()
             if not device:
                 results.append({"device_id": device_id, "alias": None, "ok": False, "error": "Device not found"})
                 continue
-            
+
             if not device.fcm_token:
                 results.append({"device_id": device_id, "alias": device.alias, "ok": False, "error": "No FCM token"})
                 continue
-            
+
             # Build FCM message with restart_app action
             message_data = {
                 "action": "restart_app"
             }
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -5720,10 +5734,10 @@ async def restart_app_on_devices(
                     }
                 }
             }
-            
+
             try:
                 response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-                
+
                 if response.status_code == 200:
                     results.append({
                         "device_id": device_id,
@@ -5731,10 +5745,10 @@ async def restart_app_on_devices(
                         "ok": True,
                         "message": "App restart command sent successfully"
                     })
-                    
+
                     # Log the app restart event
                     log_device_event(db, device_id, "app_restart", {"type": "soft_restart"})
-                    
+
                     print(f"[APP RESTART] ✓ Sent to {device.alias} ({device_id})")
                 else:
                     results.append({
@@ -5752,10 +5766,10 @@ async def restart_app_on_devices(
                     "error": str(e)
                 })
                 print(f"[APP RESTART] ✗ Failed for {device.alias}: {str(e)}")
-    
+
     success_count = sum(1 for r in results if r.get("ok"))
     print(f"[APP RESTART] Complete: {success_count}/{len(device_ids)} successful")
-    
+
     return {
         "ok": True,
         "total": len(device_ids),
@@ -5764,887 +5778,1855 @@ async def restart_app_on_devices(
         "results": results
     }
 
-@app.get("/v1/scripts/enroll.cmd")
-async def get_windows_enroll_script(
-    alias: str = Query(...),
-    agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+@app.post("/v1/remote-exec")
+async def create_remote_exec(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate zero-tap Windows enrollment script with enhanced debugging"""
-    from models import EnrollmentEvent
-    
-    # Get server configuration
-    server_url = config.server_url
-    
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
-    
-    # Log script generation event
-    event = EnrollmentEvent(
-        event_type='script.render',
-        token_id=None,
-        alias=alias,
-        details=json.dumps({
-            "platform": "windows",
-            "agent_pkg": agent_pkg,
-            "unity_pkg": unity_pkg,
-            "generated_by": current_user.username
-        })
+    """
+    Execute remote command (FCM or Shell) on devices with dry-run support
+    """
+    body = await request.json()
+    mode = body.get("mode")
+    targets = body.get("targets", {})
+    payload = body.get("payload")
+    command = body.get("command")
+    dry_run = body.get("dry_run", False)
+
+    if mode not in ["fcm", "shell"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'fcm' or 'shell'")
+
+    if mode == "fcm" and not payload:
+        raise HTTPException(status_code=400, detail="FCM mode requires 'payload' field")
+
+    if mode == "shell" and not command:
+        raise HTTPException(status_code=400, detail="Shell mode requires 'command' field")
+
+    if mode == "shell":
+        is_valid, error_msg = validate_shell_command(command)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    query = db.query(Device)
+
+    if targets.get("all"):
+        pass
+    elif targets.get("filter"):
+        filters = targets["filter"]
+
+        if filters.get("groups"):
+            pass
+
+        if filters.get("tags"):
+            pass
+
+        if filters.get("online") is not None:
+            if filters["online"]:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                query = query.filter(Device.last_seen >= cutoff)
+
+        if filters.get("android_version"):
+            versions = filters["android_version"]
+            if isinstance(versions, list) and versions:
+                query = query.filter(Device.android_version.in_(versions))
+
+    elif targets.get("aliases"):
+        aliases_list = targets["aliases"]
+        if not aliases_list:
+            raise HTTPException(status_code=400, detail="aliases list is empty")
+        query = query.filter(Device.alias.in_(aliases_list))
+
+    else:
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, device_ids, or device_aliases")
+
+    devices = query.filter(Device.fcm_token.isnot(None)).all()
+
+    # Validate that we have devices after filtering
+    if not devices:
+        raise HTTPException(
+            status_code=400,
+            detail="No devices match the specified criteria or no devices have FCM tokens registered"
+        )
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "estimated_count": len(devices),
+            "sample_aliases": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
+        }
+
+    import hashlib
+    payload_str = json.dumps(payload if mode == "fcm" else {"command": command}, sort_keys=True)
+    payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
+
+    client_ip = request.client.host if request.client else None
+
+    exec_record = RemoteExec(
+        mode=mode,
+        raw_request=json.dumps(body),
+        targets=json.dumps(targets),
+        created_by=current_user.username if current_user else "admin",
+        created_by_ip=client_ip,
+        payload_hash=payload_hash,
+        total_targets=len(devices),
+        status="processing"
     )
-    db.add(event)
+    db.add(exec_record)
     db.commit()
-    
-    # Check WiFi settings configuration
-    from models import WiFiSettings
-    wifi_settings = db.query(WiFiSettings).first()
-    wifi_configured = wifi_settings and wifi_settings.enabled and wifi_settings.ssid and wifi_settings.ssid.strip()
-    wifi_ssid = wifi_settings.ssid if wifi_settings else ""
-    
-    # Generate script with enhanced debugging and fail-fast behavior
-    script_content = f'''@echo off
-REM ============================================================
-REM UnityMDM Zero-Tap Device Enrollment Script (Windows)
-REM Device Alias: {alias}
-REM Package: {agent_pkg}
-REM ============================================================
+    db.refresh(exec_record)
 
-setlocal enabledelayedexpansion
+    print(f"[REMOTE-EXEC] Started exec_id={exec_record.id}, mode={mode}, targets={len(devices)}")
 
-set PKG={agent_pkg}
-set ALIAS={alias}
-set RECEIVER=.NexDeviceAdminReceiver
-set BASE_URL={server_url}
-set ADMIN_KEY={admin_key}
-set APK_PATH=%TEMP%\\unitymdm.apk
-set DEVICE_ALIAS={alias}
+    import httpx
 
-echo ================================================
-echo UnityMDM Zero-Tap Enrollment
-echo Device: !ALIAS!
-echo ================================================
-echo.
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        exec_record.status = "failed"
+        exec_record.error_count = len(devices)
+        exec_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
 
-echo [Step 0/7] Checking prerequisites...
-echo    Checking for ADB...
-where adb >nul 2>&1
-if errorlevel 1 (
-    echo ❌ ADB not found in PATH
-    echo    Fix: Install Android Platform Tools and add to PATH
-    echo    Download: https://developer.android.com/tools/releases/platform-tools
-    echo    After installing, add to PATH or run from platform-tools directory
-    set EXITCODE=1
-    goto :end
-)
-echo ✅ ADB found
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
 
-REM Show ADB version for debugging
-for /f "tokens=*" %%A in ('adb version 2^>nul ^| findstr /C:"Android Debug Bridge"') do echo    Version: %%A
+    async with httpx.AsyncClient() as client:
+        for idx, device in enumerate(devices):
+            device_correlation_id = f"{exec_record.id}-{device.id}"
 
-REM Show connected devices
-echo    Listing devices...
-adb devices -l
-echo.
+            existing = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_record.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
 
-echo [Step 1/7] Wait for device...
-echo    Waiting up to 60 seconds for device connection...
-adb wait-for-device
-if errorlevel 1 (
-    echo ❌ No device found
-    echo    Fix: Check USB cable, ensure USB debugging enabled
-    echo    Current devices:
-    adb devices -l
-    set EXITCODE=2
-    goto :end
-)
+            if existing:
+                continue
 
-REM Verify we actually have a device
-for /f "skip=1 tokens=1,2" %%A in ('adb devices 2^>nul') do (
-    if "%%B"=="device" (
-        set DEVICE_FOUND=1
-        echo ✅ Device connected: %%A
-    )
-)
-if not defined DEVICE_FOUND (
-    echo ❌ No authorized device found
-    echo    Current status:
-    adb devices -l
-    echo.
-    echo    Fix: Check if device shows "unauthorized" and accept the prompt on device
-    set EXITCODE=2
-    goto :end
-)
-echo.
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = "remote_exec_fcm" if mode == "fcm" else "remote_exec_shell"
+            hmac_signature = compute_hmac_signature(device_correlation_id, device.id, action, timestamp)
 
-echo [Step 2/10] Check Android version compatibility...
-set MIN_SDK=30
-for /f "tokens=*" %%A in ('adb shell getprop ro.build.version.sdk 2^>nul') do set DEVICE_SDK=%%A
-set DEVICE_SDK=!DEVICE_SDK: =!
-for /f "tokens=*" %%A in ('adb shell getprop ro.build.version.release 2^>nul') do set DEVICE_VER=%%A
-set DEVICE_VER=!DEVICE_VER: =!
+            message_data = {
+                "action": action,
+                "correlation_id": device_correlation_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
+                "exec_id": exec_record.id,
+                "mode": mode
+            }
 
-echo    Device SDK: !DEVICE_SDK! (Android !DEVICE_VER!)
-echo    Required: SDK !MIN_SDK!+ (Android 11+)
+            if mode == "fcm":
+                message_data.update({k: str(v) for k, v in payload.items()})
+            else:
+                message_data["command"] = command
 
-if "!DEVICE_SDK!"=="" (
-    echo ❌ Could not detect device SDK version
-    set EXITCODE=2
-    goto :end
-)
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": message_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
 
-if !DEVICE_SDK! LSS !MIN_SDK! (
-    echo.
-    echo ❌ INCOMPATIBLE DEVICE
-    echo    This device runs Android !DEVICE_VER! (SDK !DEVICE_SDK!)
-    echo    NexMDM requires Android 11+ (SDK 30+)
-    echo.
-    echo    Options:
-    echo    1. Use a device with Android 11 or newer
-    echo    2. Update this device's OS if possible
-    set EXITCODE=2
-    goto :end
-)
-echo ✅ Android version compatible
-echo.
-
-echo [Step 3/10] Download latest APK...
-curl -L -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/apk/download-latest" -o "!APK_PATH!" >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Download failed
-    echo    Fix: Check network, verify SERVER_URL: !BASE_URL!
-    echo    Debug: curl -v "!BASE_URL!/v1/apk/download-latest"
-    set EXITCODE=3
-    goto :end
-)
-if not exist "!APK_PATH!" (
-    echo ❌ APK missing at !APK_PATH!
-    echo    Fix: Check temp directory permissions
-    set EXITCODE=3
-    goto :end
-)
-echo ✅ APK downloaded
-echo.
-
-echo [Step 4/10] Install APK...
-adb install -r -g "!APK_PATH!" >nul 2>&1
-if errorlevel 1 (
-    echo    Retry: Uninstalling existing version...
-    adb uninstall !PKG! >nul 2>&1
-    adb install -r -g -t "!APK_PATH!" >nul 2>&1
-    if errorlevel 1 (
-        echo ❌ Install failed
-        echo    Fix: Check adb install errors
-        echo    Debug: adb install -r -g "!APK_PATH!"
-        set EXITCODE=4
-        goto :end
-    )
-)
-echo ✅ APK installed
-echo.
-
-echo [Step 5/10] Set Device Owner...
-REM Check if device is provisioned
-for /f "tokens=*" %%A in ('adb shell settings get secure user_setup_complete 2^>nul') do set SETUP=%%A
-set SETUP=!SETUP:~0,1!
-
-if "!SETUP!"=="1" (
-    echo    WARN: Device appears provisioned (user_setup_complete=1)
-)
-
-adb shell dpm set-device-owner !PKG!/!RECEIVER! >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Device Owner setup failed
-    echo    Fix: Factory reset device or use QR provisioning
-    echo    Debug: adb shell dpm get-device-owner
-    echo    Note: Device must be unprovisioned (fresh or reset)
-    set EXITCODE=5
-    goto :end
-)
-
-REM Verify Device Owner
-adb shell dumpsys device_policy | findstr /C:"!PKG!" >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Device Owner verification failed
-    echo    Debug: adb shell dumpsys device_policy
-    set EXITCODE=6
-    goto :end
-)
-echo ✅ Device Owner confirmed
-echo.
-
-echo [Step 6/10] Grant core permissions...
-adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS >nul 2>&1
-adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION >nul 2>&1
-adb shell pm grant !PKG! android.permission.CAMERA >nul 2>&1
-adb shell appops set !PKG! RUN_ANY_IN_BACKGROUND allow >nul 2>&1
-adb shell appops set !PKG! GET_USAGE_STATS allow >nul 2>&1
-adb shell dumpsys deviceidle whitelist +!PKG! >nul 2>&1
-echo ✅ Permissions granted
-echo.
-
-echo [Step 7/10] Disable bloatware (optional)...
-echo    This may take 30-60 seconds...
-set BLOAT_COUNT=0
-for %%P in (^
-    com.vzw.hss.myverizon com.verizon.obdm_permissions com.vzw.apnlib ^
-    com.verizon.mips.services com.vcast.mediamanager com.reliancecommunications.vvmclient ^
-    com.google.android.apps.youtube.music com.google.android.youtube com.google.android.apps.videos ^
-    com.google.android.apps.docs com.google.android.apps.maps com.google.android.apps.photos ^
-    com.google.android.apps.wallpaper com.google.android.apps.walletnfcrel ^
-    com.google.android.apps.nbu.files com.google.android.apps.keep ^
-    com.google.android.apps.googleassistant com.google.android.apps.tachyon ^
-    com.google.android.apps.safetyhub com.google.android.apps.nbu.paisa.user ^
-    com.google.android.apps.chromecast.app com.google.android.apps.wellbeing ^
-    com.google.android.apps.customization.pixel com.google.android.deskclock ^
-    com.google.android.calendar com.google.android.gm com.google.android.calculator ^
-    com.google.android.projection.gearhead com.google.android.printservice.recommendation ^
-    com.google.android.feedback com.google.android.marvin.talkback com.google.android.tts ^
-    com.google.android.gms.supervision com.LogiaGroup.LogiaDeck com.dti.folderlauncher ^
-    com.huub.viper us.sliide.viper com.example.sarswitch com.handmark.expressweather ^
-    com.tripledot.solitaire com.facebook.katana com.facebook.appmanager com.discounts.viper ^
-    com.android.egg com.android.dreams.basic com.android.dreams.phototable ^
-    com.android.musicfx com.android.soundrecorder com.android.protips ^
-    com.android.wallpapercropper com.android.wallpaper.livepicker ^
-    com.android.providers.partnerbookmarks com.android.bips com.android.printspooler ^
-    com.android.wallpaperbackup com.android.soundpicker^
-) do (
-    adb shell pm disable-user --user 0 %%P >nul 2>&1
-    if not errorlevel 1 set /a BLOAT_COUNT+=1
-)
-echo ✅ Disabled !BLOAT_COUNT! bloatware packages
-echo.
-
-echo [Step 8/10] Apply system tweaks...
-adb shell settings put global app_standby_enabled 0 >nul 2>&1
-adb shell settings put global battery_tip_constants app_restriction_enabled=false >nul 2>&1
-adb shell settings put system screen_brightness_mode 0 >nul 2>&1
-adb shell settings put system ambient_tilt_to_wake 1 >nul 2>&1
-adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1
-echo ✅ System tweaks applied
-echo.
-
-echo [Step 9/10] Check WiFi configuration...
-set WIFI_FILE=!TEMP!\mdm_wifi_check.txt
-curl -s -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/settings/wifi" -o "!WIFI_FILE!" 2>nul
-if not errorlevel 1 (
-    findstr /C:"\"enabled\":true" "!WIFI_FILE!" >nul 2>&1
-    if not errorlevel 1 (
-        REM Extract SSID from JSON (format: "ssid": "NetworkName")
-        for /f "tokens=2 delims=:" %%A in ('findstr /C:"\"ssid\"" "!WIFI_FILE!"') do (
-            set WIFI_SSID_RAW=%%A
-            REM Remove quotes, commas, and spaces
-            set WIFI_SSID_RAW=!WIFI_SSID_RAW:"=!
-            set WIFI_SSID_RAW=!WIFI_SSID_RAW:,=!
-            set WIFI_SSID_RAW=!WIFI_SSID_RAW: =!
-            if not "!WIFI_SSID_RAW!"=="" (
-                set WIFI_SSID=!WIFI_SSID_RAW!
+            exec_result = RemoteExecResult(
+                exec_id=exec_record.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=device_correlation_id,
+                status="sending"
             )
+            db.add(exec_result)
+
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=5.0)
+
+                if response.status_code == 200:
+                    exec_result.status = "sent"
+                    exec_record.sent_count += 1
+                    print(f"[REMOTE-EXEC] ✓ Sent to {device.alias} ({device.id})")
+                else:
+                    exec_result.status = "failed"
+                    exec_result.error = f"FCM error: {response.status_code}"
+                    exec_record.error_count += 1
+                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
+
+            except httpx.TimeoutException:
+                exec_result.status = "failed"
+                exec_result.error = "FCM request timeout"
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Timeout {device.alias}")
+
+            except Exception as e:
+                exec_result.status = "failed"
+                exec_result.error = str(e)
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
+
+            db.commit()
+
+            if idx < len(devices) - 1:
+                await asyncio.sleep(0.05)
+
+    exec_record.status = "completed"
+    exec_record.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    print(f"[REMOTE-EXEC] Complete: {exec_record.sent_count}/{len(devices)} sent, {exec_record.error_count} errors")
+
+    return {
+        "ok": True,
+        "exec_id": exec_record.id,
+        "mode": mode,
+        "total_targets": len(devices),
+        "sent_count": exec_record.sent_count,
+        "error_count": exec_record.error_count
+    }
+
+@app.get("/v1/remote-exec/{exec_id}")
+async def get_remote_exec_status(
+    exec_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get execution status and per-device results"""
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+
+    if not exec_record:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == exec_id
+    ).all()
+
+    result_list = []
+    for result in results:
+        result_list.append({
+            "device_id": result.device_id,
+            "alias": result.alias,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "output": result.output_preview,
+            "error": result.error,
+            "sent_at": result.sent_at.isoformat() if result.sent_at else None,
+            "updated_at": result.updated_at.isoformat() if result.updated_at else None
+        })
+
+    return {
+        "exec_id": exec_record.id,
+        "mode": exec_record.mode,
+        "status": exec_record.status,
+        "created_at": exec_record.created_at.isoformat(),
+        "created_by": exec_record.created_by,
+        "completed_at": exec_record.completed_at.isoformat() if exec_record.completed_at else None,
+        "stats": {
+            "total_targets": exec_record.total_targets,
+            "sent_count": exec_record.sent_count,
+            "acked_count": exec_record.acked_count,
+            "error_count": exec_record.error_count
+        },
+        "results": result_list
+    }
+
+@app.get("/v1/remote-exec")
+async def list_recent_executions(
+    limit: int = Query(default=10, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List recent remote executions"""
+    executions = db.query(RemoteExec).order_by(
+        RemoteExec.created_at.desc()
+    ).limit(limit).all()
+
+    exec_list = []
+    for exec in executions:
+        payload_data = json.loads(exec.payload) if exec.payload else {}
+        targets_data = json.loads(exec.targets) if exec.targets else {}
+
+        scope_desc = "Entire fleet"
+        if targets_data.get("filter"):
+            scope_desc = "Filtered set"
+        elif targets_data.get("device_ids"):
+            scope_desc = f"{len(targets_data['device_ids'])} devices"
+
+        exec_list.append({
+            "exec_id": exec.id,
+            "mode": exec.mode,
+            "status": exec.status,
+            "created_at": exec.created_at.isoformat(),
+            "created_by": exec.created_by,
+            "stats": {
+                "total_targets": exec.total_targets,
+                "sent_count": exec.sent_count,
+                "acked_count": exec.acked_count,
+                "error_count": exec.error_count
+            }
+        })
+
+    return {"executions": exec_list, "count": len(exec_list)}
+
+@app.post("/v1/remote-exec/ack")
+async def remote_exec_ack(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Receive ACK from device for remote execution"""
+    # Authenticate device via token
+    x_device_token = request.headers.get("X-Device-Token")
+    if not x_device_token:
+        raise HTTPException(status_code=401, detail="Missing X-Device-Token header")
+
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+
+    body = await request.json()
+
+    exec_id = body.get("exec_id")
+    device_id = body.get("device_id")
+    correlation_id = body.get("correlation_id")
+    status = body.get("status")
+    exit_code = body.get("exit_code")
+    output = body.get("output", "")
+
+    if not all([exec_id, device_id, correlation_id, status]):
+        missing_fields = []
+        if not exec_id: missing_fields.append("exec_id")
+        if not device_id: missing_fields.append("device_id")
+        if not correlation_id: missing_fields.append("correlation_id")
+        if not status: missing_fields.append("status")
+
+        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+        structured_logger.log_event(
+            "remote_exec.ack.validation_error",
+            level="WARN",
+            device_id=device_id,
+            missing_fields=missing_fields
         )
-        if defined WIFI_SSID (
-            echo ✅ WiFi settings configured in backend
-            echo    Device will auto-connect to WiFi during enrollment
-            echo    SSID: !WIFI_SSID!
-        ) else (
-            echo ⚠️  WiFi settings exist but SSID is empty
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Validate device_id matches authenticated device
+    if device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Device ID in payload does not match authenticated device"
         )
-    ) else (
-        echo ℹ️  WiFi auto-configuration not enabled
-        echo    Configure WiFi in Settings Drawer to enable auto-connection
-    )
-) else (
-    echo ⚠️  Could not check WiFi settings (non-critical)
-)
-del "!WIFI_FILE!" >nul 2>&1
-echo.
 
-echo [Step 10/10] Auto-enroll and launch...
-REM Send configuration broadcast first with receiver-foreground flag
-adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --receiver-foreground --es server_url "!BASE_URL!" --es admin_key "!ADMIN_KEY!" --es alias "!DEVICE_ALIAS!" >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Configuration broadcast failed
-    echo    Debug: Check ConfigReceiver in manifest
-    echo    Fix: Verify receiver is exported
-    set EXITCODE=7
-    goto :end
-)
-echo ✅ Auto-enrollment initiated
-if defined WIFI_SSID (
-    echo    WiFi connection will be attempted automatically after registration
-)
+    # Validate correlation_id format and ownership
+    expected_correlation_id = f"{exec_id}-{device.id}"
+    if correlation_id != expected_correlation_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not match expected format or device"
+        )
 
-REM Launch app
-adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1
-echo.
+    result = db.query(RemoteExecResult).filter(
+        RemoteExecResult.correlation_id == correlation_id
+    ).first()
 
-echo [Verify] Checking service...
-timeout /t 3 /nobreak >nul
-adb shell pidof !PKG! >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Service not running
-    echo    Debug: adb logcat -d ^| findstr !PKG!
-    set EXITCODE=8
-    goto :end
-)
-echo ✅ Service running
-echo.
+    if not result:
+        structured_logger.log_event(
+            "remote_exec.ack.result_not_found",
+            level="WARN",
+            correlation_id=correlation_id,
+            device_id=device_id
+        )
+        return {"ok": False, "error": "Result not found"}
 
-echo [Verify] Registration and WiFi...
-echo    Waiting 10 seconds for first heartbeat...
-timeout /t 10 /nobreak >nul
+    # Additional validation: verify result belongs to authenticated device
+    if result.device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not belong to authenticated device"
+        )
 
-echo    Checking backend for device "!ALIAS!"...
-set API_FILE=!TEMP!\mdm_api_response.txt
-curl -s -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/admin/devices?alias=!DEVICE_ALIAS!" -o "!API_FILE!" 2>nul
+    try:
+        # Update result record
+        result.status = status.upper()
+        result.exit_code = exit_code
+        result.output_preview = output[:2000] if output else None
+        result.error = body.get("error")
+        result.updated_at = datetime.now(timezone.utc)
 
-REM Check if device alias appears in response
-findstr /C:"\"alias\":\"!DEVICE_ALIAS!\"" "!API_FILE!" >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Device NOT found in backend
-    echo    API Response:
-    type "!API_FILE!"
-    echo.
-    echo ================================================
-    echo ❌❌❌ ENROLLMENT FAILED ❌❌❌
-    echo ================================================
-    echo 📱 Device "!ALIAS!" did not register
-    echo 🔍 Check server logs for errors
-    echo    Debug: Check /v1/register endpoint
-    echo ================================================
-    del "!API_FILE!" >nul 2>&1
-    set EXITCODE=9
-    goto :end
-)
+        # Use atomic SQL updates to prevent race conditions
+        from sqlalchemy import update
+        if status.upper() == "OK":
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(acked_count=RemoteExec.acked_count + 1)
+            )
+        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(error_count=RemoteExec.error_count + 1)
+            )
 
-echo ✅ Device registered in backend!
+        # Single commit after all operations
+        db.commit()
 
-REM Check for last_seen (optional, best effort)
-findstr /C:"last_seen" "!API_FILE!" >nul 2>&1
-if not errorlevel 1 (
-    echo    Device is sending heartbeats
-)
+        structured_logger.log_event(
+            "remote_exec.ack.success",
+            level="INFO",
+            device_id=device_id,
+            exec_id=exec_id,
+            status=status.upper(),
+            exit_code=exit_code
+        )
 
-del "!API_FILE!" >nul 2>&1
-echo.
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        structured_logger.log_event(
+            "remote_exec.ack.error",
+            level="ERROR",
+            device_id=device_id,
+            exec_id=exec_id,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail="Failed to process ACK")
 
-REM Verify WiFi connection if configured
-if defined WIFI_SSID (
-    echo [WiFi Verification] Checking WiFi connection status...
-    timeout /t 5 /nobreak >nul
-    adb shell dumpsys wifi ^| findstr /C:"mWifiInfo" >nul 2>&1
-    if not errorlevel 1 (
-        echo ✅ WiFi connection verified
-        echo    Device should be connected to: !WIFI_SSID!
-    ) else (
-        echo ⚠️  WiFi connection status unclear
-        echo    Check device logs: adb logcat -d ^| findstr /C:"ENROLL-WIFI"
-        echo    Note: WiFi connection happens automatically during enrollment
-    )
-    echo.
-)
+@app.get("/v1/apk/download-optimized/{apk_id}")
+async def download_apk_optimized_endpoint(
+    apk_id: int,
+    request: Request,
+    x_device_token: Optional[str] = Header(None),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    installation_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Optimized APK download endpoint with caching and telemetry.
 
-echo ================================================
-echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅
-echo ================================================
-echo 📱 Device "!ALIAS!" enrolled and verified!
-echo 🔍 Check dashboard now - device is online
-echo.
-echo ⚠️  MANUAL STEPS REQUIRED ON DEVICE:
-echo.
-echo 1. Enable Usage Access:
-echo    Settings → Apps → Special app access → Usage access → NexMDM → Allow
-echo.
-echo 2. Enable Full Screen Intents (Android 14+):
-echo    Settings → Apps → NexMDM → Notifications → Use full screen intents → Allow
-echo.
-echo 💡 These permissions enable battery/RAM monitoring and alert notifications.
-echo    The device will send metrics to the dashboard within 60 seconds.
-echo ================================================
-set EXITCODE=0
+    Features:
+    - In-memory caching (200MB, 1hr TTL)
+    - Download telemetry tracking  
+    - SHA-256 in response headers for client-side caching
+    - No rate limiting for deployments
 
-:end
-echo.
-if not "!EXITCODE!"=="0" (
-    echo [Diagnostics] Capturing ADB logs...
-    set DIAG_FILE=!TEMP!\mdm_enroll_diag.txt
-    echo NexMDM Enrollment Diagnostics > "!DIAG_FILE!"
-    echo Generated: %DATE% %TIME% >> "!DIAG_FILE!"
-    echo Device Alias: !ALIAS! >> "!DIAG_FILE!"
-    echo Exit Code: !EXITCODE! >> "!DIAG_FILE!"
-    echo. >> "!DIAG_FILE!"
-    echo ===== ADB Logcat ===== >> "!DIAG_FILE!"
-    adb logcat -d | findstr /i "nexmdm usage appops standby deviceidle" >> "!DIAG_FILE!" 2>&1
-    echo. >> "!DIAG_FILE!"
-    echo Diagnostics saved to: !DIAG_FILE!
-    echo.
-)
-pause
-exit /b !EXITCODE!
-'''
-    
-    return Response(
-        content=script_content,
-        media_type="text/plain",
-        headers={
-            "Content-Disposition": f'attachment; filename="enroll-{alias}.cmd"'
-        }
+    Requires device token or admin key authentication.
+    """
+    device = None
+    device_id = None
+
+    # Authenticate
+    if x_admin_key and verify_admin_key(x_admin_key):
+        pass  # Admin authenticated
+    elif x_device_token:
+        device = get_device_by_token(x_device_token, db)
+        if device:
+            device_id = device.id
+        else:
+            raise HTTPException(status_code=401, detail="Invalid device token")
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Use optimized download service
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        device_id=device_id,
+        installation_id=installation_id,
+        use_cache=True
     )
 
-@app.get("/v1/scripts/enroll.sh")
-async def get_bash_enroll_script(
-    alias: str = Query(...),
-    agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
+    """
+    Build a shell script that disables a list of packages gracefully.
+    Uses a loop over a temp file to avoid command-line length limits.  
+    Skips packages that don't exist or are already disabled.
+
+    Returns the complete shell script as a single string.
+
+    Note: Does NOT wrap in 'sh -c' because the Android app adds that wrapper automatically.
+    """
+    # Use variable-based approach that matches validation expectations
+    script = """TMP_DIR="/data/data/com.nexmdm/files"
+LIST_FILE="$TMP_DIR/bloat_list.txt"
+
+mkdir -p "$TMP_DIR"
+cat > "$LIST_FILE" << 'EOF'
+{chr(10).join(package_names)}
+EOF
+
+count=0
+failed=0
+while IFS= read -r pkg; do
+  if [ -z "$pkg" ]; then
+    continue
+  fi
+  if pm disable-user --user 0 "$pkg" 2>/dev/null; then
+    count=$((count + 1))
+  else
+    failed=$((failed + 1))
+  fi
+done < "$LIST_FILE"
+
+rm -f "$LIST_FILE"
+
+echo "Disabled $count packages ($failed skipped or failed)" """
+
+    return script
+def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate a single shell command (without && chaining).
+    Returns (is_valid, error_message)
+    """
+    import re
+    import shlex
+
+    cmd = cmd.strip()
+    if not cmd:
+        return False, "Command is empty"
+
+    # Tokenize the command safely
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False, "Invalid command syntax"
+
+    if not tokens:
+        return False, "Command is empty"
+
+    # Special handling for cmd jobscheduler (token-based validation)
+    if len(tokens) >= 4 and tokens[0] == "cmd" and tokens[1] == "jobscheduler" and tokens[2] == "run":
+        # Extract tokens after "cmd jobscheduler run"
+        remaining = tokens[3:]
+
+        # Check for -f flag
+        has_f_flag = False
+        if remaining and remaining[0] == "-f":
+            has_f_flag = True
+            remaining = remaining[1:]
+
+        # Must have at least service and job_id
+        if len(remaining) < 2:
+            return False, "Invalid jobscheduler command format"
+
+        service_name = remaining[0]
+        job_id = remaining[1]
+
+        # Verify no extra arguments
+        if len(remaining) > 2:
+            return False, "Unexpected arguments in jobscheduler command"
+
+        # Validate service name (only SystemUpdateService allowed)
+        if service_name != "android/com.android.server.update.SystemUpdateService":
+            return False, "Only SystemUpdateService is allowed for jobscheduler"
+
+        # Validate job_id is numeric
+        if not job_id.isdigit():
+            return False, "Job ID must be numeric"
+
+        return True, None
+
+    # Special handling for getprop (token-based validation)
+    if len(tokens) == 2 and tokens[0] == "getprop":
+        allowed_props = ["ro.build.version.release", "ro.build.version.security_patch"]
+        if tokens[1] in allowed_props:
+            return True, None
+        return False, f"Only {', '.join(allowed_props)} are allowed for getprop"
+
+    # Allow disabling packages that are in the managed bloatware list
+    disable_match = re.match(r'^pm\s+disable-user\s+--user\s+0\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)$', cmd)
+    if disable_match:
+        package_name = disable_match.group(1)
+        db = None
+        try:
+            db = SessionLocal()
+            exists = (
+                db.query(BloatwarePackage)
+                .filter(
+                    BloatwarePackage.package_name == package_name,
+                    BloatwarePackage.enabled == True
+                )
+                .first()
+                is not None
+            )
+        except Exception as e:
+            print(f"[REMOTE-EXEC] Failed to validate bloatware package {package_name}: {e}")
+            exists = False
+        finally:
+            if db:
+                db.close()
+
+        if exists:
+            return True, None
+        return False, f"Package {package_name} is not in the enabled bloatware list"
+
+    # Regex-based validation for other commands
+    allow_patterns = [
+        r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
+        r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
+        r'^cmd\s+package\s+(list|resolve-activity)\s+[A-Za-z0-9._\s-]*$',  # More restrictive
+        r'^settings\s+(get|put)\s+(secure|system|global)\s+[A-Za-z0-9._]+(\s+[A-Za-z0-9._]+)?$',  # More restrictive
+        r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
+        r'^svc\s+(wifi|data)\s+(enable|disable)$',
+        r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
+    ]
+
+    for pattern in allow_patterns:
+        if re.match(pattern, cmd):
+            return True, None
+
+    return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
+def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate a batch bloatware disable script.
+    These scripts use heredoc syntax and variables, which requires more specific validation
+    than the generic shell command checks.
+
+    Returns (is_valid, error_message)
+    """
+    import re
+
+    # --- Structure and Security Checks ---
+
+    # 1. Check for key components of the script
+    required_substrings = [
+        'mkdir -p',
+        'cat >',
+        "<< 'EOF'",
+        'while IFS= read -r pkg',
+        'pm disable-user --user 0',
+        'done <',
+        'rm -f'
+    ]
+    for sub in required_substrings:
+        if sub not in command:
+            return False, f"Invalid batch script: missing required component '{sub}'"
+
+    # 2. Extract and validate variable definitions (if present)
+    lines = command.split('\n')
+
+    # Check for TMP_DIR variable or hardcoded path
+    tmp_dir_match = re.search(r'TMP_DIR=(["\']?)(.*?)\1', command)
+    if tmp_dir_match:
+        tmp_dir = tmp_dir_match.group(2)
+        # Validate that TMP_DIR is an allowed path
+        allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
+        if tmp_dir not in allowed_dirs:
+            return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
+    else:
+        # Check for hardcoded path
+        if '/data/data/com.nexmdm/files' not in command:
+            return False, "Script must use /data/data/com.nexmdm/files directory"
+
+    # 3. Verify consistent use of paths
+    if tmp_dir_match:
+        # Variable-based script - check for consistent variable usage
+        expected_patterns = [
+            rf'mkdir -p ["\']?\$TMP_DIR["\']?',
+            rf'cat > ["\']?\$LIST_FILE["\']?',
+            rf'done < ["\']?\$LIST_FILE["\']?',
+            rf'rm -f ["\']?\$LIST_FILE["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
+    else:
+        # Hardcoded path script - check for consistent path usage
+        expected_patterns = [
+            r'mkdir -p ["\']?/data/data/com\.nexmdm/files["\']?',
+            r'cat > ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'done < ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'rm -f ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent path usage or missing pattern '{pattern}'"
+
+    # 4. Check for the pm disable command (accept both with and without output capturing)
+    pm_command_patterns = [
+        r'pm disable-user --user 0 ["\']?\$pkg["\']? 2>/dev/null',
+        r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
+    ]
+    if not any(re.search(pattern, command) for pattern in pm_command_patterns):
+        return False, "Script does not use the expected 'pm disable-user' command"
+
+    # --- Package List Validation ---
+
+    # 5. Extract package names from the heredoc
+    eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
+    match = re.search(eof_pattern, command, re.DOTALL)
+    if not match:
+        return False, "Invalid script format: could not find package list in heredoc"
+
+    package_list_text = match.group(1)
+    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
+
+    if not packages:
+        return False, "No packages found in script"
+
+    # 6. Verify all packages are in the enabled bloatware database
+    db = None
+    try:
+        db = SessionLocal()
+        for package_name in packages:
+            if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
+                return False, f"Invalid package name format: {package_name}"
+
+            exists = db.query(BloatwarePackage).filter(
+                BloatwarePackage.package_name == package_name,
+                BloatwarePackage.enabled == True
+            ).first() is not None
+
+            if not exists:
+                return False, f"Package '{package_name}' is not in the enabled bloatware list"
+
+        db.close()
+    except Exception as e:
+        if db:
+            db.close()
+        return False, f"Database error during package validation: {str(e)}"
+
+    return True, None
+
+def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate shell command against allow-list, supporting && chaining.
+    Returns (is_valid, error_message)
+    """
+    command = command.strip()
+    if not command:
+        return False, "Command is empty"
+
+    # Heuristic to detect bloatware batch scripts before applying generic security checks
+    # Look for key patterns: heredoc syntax, pm disable-user, and file operations
+    looks_like_bloatware_script = (
+        'cat >' in command and
+        "<< 'EOF'" in command and
+        'pm disable-user' in command and
+        ('done <' in command or 'while' in command)
+    )
+
+    # If it looks like a bloatware script, validate it with the specialized validator
+    if looks_like_bloatware_script:
+        is_batch_script, batch_error = validate_batch_bloatware_script(command)
+        if is_batch_script:
+            # This is a valid batch bloatware script, allow it
+            return True, None
+        else:
+            # It looked like a bloatware script but validation failed, return specific error
+            return False, batch_error or "Invalid bloatware batch script"
+
+    # For non-batch commands, apply standard validation
+    # Detect dangerous shell metacharacters (but allow &&)
+    # Block: |, ;, >, <, `, $, newlines, and single & (but allow &&)
+    dangerous_chars = ['|', ';', '>', '<', '`', '$', '\n', '\r']
+    if any(char in command for char in dangerous_chars):
+        return False, "Dangerous shell metacharacters not allowed"
+
+    # Check for single & (not &&) - this prevents & for backgrounding
+    if '&' in command and '&&' not in command:
+        return False, "Single & not allowed (only && for chaining)"
+
+    # If command contains &&, split and validate each subcommand
+    if '&&' in command:
+        subcommands = command.split('&&')
+        for i, subcmd in enumerate(subcommands):
+            is_valid, error_msg = validate_single_command(subcmd)
+            if not is_valid:
+                return False, f"Subcommand {i+1} failed validation: {error_msg}"
+        return True, None
+    else:
+        # Single command, validate directly
+        return validate_single_command(command)
+
+@app.post("/v1/remote-exec")
+async def create_remote_exec(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate zero-tap Bash enrollment script with enhanced debugging"""
-    from models import EnrollmentEvent
-    
-    # Get server configuration
-    server_url = config.server_url
-    
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
-    
-    # Log script generation event
-    event = EnrollmentEvent(
-        event_type='script.render',
-        token_id=None,
-        alias=alias,
-        details=json.dumps({
-            "platform": "bash",
-            "agent_pkg": agent_pkg,
-            "unity_pkg": unity_pkg,
-            "generated_by": current_user.username
-        })
-    )
-    db.add(event)
-    db.commit()
-    
-    # Generate script with enhanced debugging and fail-fast behavior
-    script_content = f'''#!/bin/bash
-# ============================================================
-# UnityMDM Zero-Tap Device Enrollment Script (Bash/POSIX)
-# Device Alias: {alias}
-# Package: {agent_pkg}
-# ============================================================
+    """
+    Execute remote command (FCM or Shell) on devices with dry-run support
+    """
+    body = await request.json()
+    mode = body.get("mode")
+    targets = body.get("targets", {})
+    payload = body.get("payload")
+    command = body.get("command")
+    dry_run = body.get("dry_run", False)
 
-set -e
+    if mode not in ["fcm", "shell"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'fcm' or 'shell'")
 
-PKG="{agent_pkg}"
-ALIAS="{alias}"
-RECEIVER=".NexDeviceAdminReceiver"
-BASE_URL="{server_url}"
-ADMIN_KEY="{admin_key}"
-APK_PATH="/tmp/unitymdm.apk"
-DEVICE_ALIAS="{alias}"
+    if mode == "fcm" and not payload:
+        raise HTTPException(status_code=400, detail="FCM mode requires 'payload' field")
 
-echo "================================================"
-echo "UnityMDM Zero-Tap Enrollment"
-echo "Device: $ALIAS"
-echo "================================================"
-echo
+    if mode == "shell" and not command:
+        raise HTTPException(status_code=400, detail="Shell mode requires 'command' field")
 
-echo "[Step 0/10] Checking prerequisites..."
-echo "   Checking for ADB..."
-if ! command -v adb &> /dev/null; then
-    echo "❌ ADB not found in PATH"
-    echo "   Fix: Install Android Platform Tools and add to PATH"
-    echo "   Download: https://developer.android.com/tools/releases/platform-tools"
-    echo "   macOS: brew install android-platform-tools"
-    echo "   Linux: sudo apt-get install android-tools-adb"
-    exit 1
-fi
-echo "✅ ADB found"
+    if mode == "shell":
+        is_valid, error_msg = validate_shell_command(command)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
 
-# Show ADB version for debugging
-ADB_VERSION=$(adb version 2>&1 | head -1)
-echo "   Version: $ADB_VERSION"
+    query = db.query(Device)
 
-# Show connected devices
-echo "   Listing devices..."
-adb devices -l
-echo
+    if targets.get("all"):
+        pass
+    elif targets.get("filter"):
+        filters = targets["filter"]
 
-echo "[Step 1/10] Wait for device..."
-echo "   Waiting up to 60 seconds for device connection..."
-if ! adb wait-for-device; then
-    echo "❌ No device found"
-    echo "   Fix: Check USB cable, ensure USB debugging enabled"
-    echo "   Current devices:"
-    adb devices -l
-    exit 2
-fi
+        if filters.get("groups"):
+            pass
 
-# Verify we actually have an authorized device
-DEVICE_COUNT=$(adb devices | grep -c "device$" || true)
-if [ "$DEVICE_COUNT" -eq 0 ]; then
-    echo "❌ No authorized device found"
-    echo "   Current status:"
-    adb devices -l
-    echo
-    echo "   Fix: Check if device shows 'unauthorized' and accept the prompt on device"
-    exit 2
-fi
+        if filters.get("tags"):
+            pass
 
-# Show which device we're using
-DEVICE_SERIAL=$(adb devices | grep "device$" | head -1 | awk '{{print $1}}')
-echo "✅ Device connected: $DEVICE_SERIAL"
-echo
+        if filters.get("online") is not None:
+            if filters["online"]:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                query = query.filter(Device.last_seen >= cutoff)
 
-echo "[Step 2/10] Check Android version compatibility..."
-MIN_SDK=30
-DEVICE_SDK=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\\r')
-DEVICE_VER=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\\r')
+        if filters.get("android_version"):
+            versions = filters["android_version"]
+            if isinstance(versions, list) and versions:
+                query = query.filter(Device.android_version.in_(versions))
 
-echo "   Device SDK: $DEVICE_SDK (Android $DEVICE_VER)"
-echo "   Required: SDK $MIN_SDK+ (Android 11+)"
+    elif targets.get("aliases"):
+        aliases_list = targets["aliases"]
+        if not aliases_list:
+            raise HTTPException(status_code=400, detail="aliases list is empty")
+        query = query.filter(Device.alias.in_(aliases_list))
 
-if [ -z "$DEVICE_SDK" ]; then
-    echo "❌ Could not detect device SDK version"
-    exit 2
-fi
+    else:
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, device_ids, or device_aliases")
 
-if [ "$DEVICE_SDK" -lt "$MIN_SDK" ] 2>/dev/null; then
-    echo
-    echo "❌ INCOMPATIBLE DEVICE"
-    echo "   This device runs Android $DEVICE_VER (SDK $DEVICE_SDK)"
-    echo "   NexMDM requires Android 11+ (SDK 30+)"
-    echo
-    echo "   Options:"
-    echo "   1. Use a device with Android 11 or newer"
-    echo "   2. Update this device's OS if possible"
-    exit 2
-fi
-echo "✅ Android version compatible"
-echo
+    devices = query.filter(Device.fcm_token.isnot(None)).all()
 
-echo "[Step 3/10] Download latest APK..."
-if ! curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK_PATH" 2>/dev/null; then
-    echo "❌ Download failed"
-    echo "   Fix: Check network, verify SERVER_URL: $BASE_URL"
-    echo "   Debug: curl -v '$BASE_URL/v1/apk/download-latest'"
-    exit 3
-fi
-if [ ! -f "$APK_PATH" ]; then
-    echo "❌ APK missing at $APK_PATH"
-    echo "   Fix: Check temp directory permissions"
-    exit 3
-fi
-echo "✅ APK downloaded"
-echo
+    # Validate that we have devices after filtering
+    if not devices:
+        raise HTTPException(
+            status_code=400,
+            detail="No devices match the specified criteria or no devices have FCM tokens registered"
+        )
 
-echo "[Step 4/10] Install APK..."
-if ! adb install -r -g "$APK_PATH" 2>/dev/null; then
-    echo "   Retry: Uninstalling existing version..."
-    adb uninstall "$PKG" 2>/dev/null || true
-    if ! adb install -r -g -t "$APK_PATH" 2>/dev/null; then
-        echo "❌ Install failed"
-        echo "   Fix: Check adb install errors"
-        echo "   Debug: adb install -r -g '$APK_PATH'"
-        exit 4
-    fi
-fi
-echo "✅ APK installed"
-echo
-
-echo "[Step 5/10] Set Device Owner..."
-# Check if device is provisioned
-SETUP=$(adb shell settings get secure user_setup_complete 2>/dev/null | tr -d '\\r\\n')
-
-if [ "$SETUP" = "1" ]; then
-    echo "   WARN: Device appears provisioned (user_setup_complete=1)"
-fi
-
-if ! adb shell dpm set-device-owner "$PKG/$RECEIVER" 2>/dev/null; then
-    echo "❌ Device Owner setup failed"
-    echo "   Fix: Factory reset device or use QR provisioning"
-    echo "   Debug: adb shell dpm get-device-owner"
-    echo "   Note: Device must be unprovisioned (fresh or reset)"
-    exit 5
-fi
-
-# Verify Device Owner
-if ! adb shell dumpsys device_policy 2>/dev/null | grep -q "$PKG"; then
-    echo "❌ Device Owner verification failed"
-    echo "   Debug: adb shell dumpsys device_policy"
-    exit 6
-fi
-echo "✅ Device Owner confirmed"
-echo
-
-echo "[Step 6/10] Grant core permissions..."
-adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
-adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
-adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
-adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null || true
-adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null || true
-adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null || true
-echo "✅ Permissions granted"
-echo
-
-echo "[Step 7/10] Disable bloatware (optional)..."
-echo "   This may take 30-60 seconds..."
-BLOAT_COUNT=0
-BLOAT_PACKAGES=(
-    "com.vzw.hss.myverizon" "com.verizon.obdm_permissions" "com.vzw.apnlib"
-    "com.verizon.mips.services" "com.vcast.mediamanager" "com.reliancecommunications.vvmclient"
-    "com.google.android.apps.youtube.music" "com.google.android.youtube" "com.google.android.apps.videos"
-    "com.google.android.apps.docs" "com.google.android.apps.maps" "com.google.android.apps.photos"
-    "com.google.android.apps.wallpaper" "com.google.android.apps.walletnfcrel"
-    "com.google.android.apps.nbu.files" "com.google.android.apps.keep"
-    "com.google.android.apps.googleassistant" "com.google.android.apps.tachyon"
-    "com.google.android.apps.safetyhub" "com.google.android.apps.nbu.paisa.user"
-    "com.google.android.apps.chromecast.app" "com.google.android.apps.wellbeing"
-    "com.google.android.apps.customization.pixel" "com.google.android.deskclock"
-    "com.google.android.calendar" "com.google.android.gm" "com.google.android.calculator"
-    "com.google.android.projection.gearhead" "com.google.android.printservice.recommendation"
-    "com.google.android.feedback" "com.google.android.marvin.talkback" "com.google.android.tts"
-    "com.google.android.gms.supervision" "com.LogiaGroup.LogiaDeck" "com.dti.folderlauncher"
-    "com.huub.viper" "us.sliide.viper" "com.example.sarswitch" "com.handmark.expressweather"
-    "com.tripledot.solitaire" "com.facebook.katana" "com.facebook.appmanager" "com.discounts.viper"
-    "com.android.egg" "com.android.dreams.basic" "com.android.dreams.phototable"
-    "com.android.musicfx" "com.android.soundrecorder" "com.android.protips"
-    "com.android.wallpapercropper" "com.android.wallpaper.livepicker"
-    "com.android.providers.partnerbookmarks" "com.android.bips" "com.android.printspooler"
-    "com.android.wallpaperbackup" "com.android.soundpicker"
-)
-for PKG_TO_DISABLE in "${{BLOAT_PACKAGES[@]}}"; do
-    if adb shell pm disable-user --user 0 "$PKG_TO_DISABLE" 2>/dev/null; then
-        ((BLOAT_COUNT++)) || true
-    fi
-done
-echo "✅ Disabled $BLOAT_COUNT bloatware packages"
-echo
-echo "[Step 8/10] Apply system tweaks..."
-adb shell settings put global app_standby_enabled 0 2>/dev/null || true
-adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null || true
-adb shell settings put system screen_brightness_mode 0 2>/dev/null || true
-adb shell settings put system ambient_tilt_to_wake 1 2>/dev/null || true
-adb shell settings put system ambient_touch_to_wake 1 2>/dev/null || true
-echo "✅ System tweaks applied"
-echo
-
-echo "[Step 9/10] Auto-enroll and launch..."
-# Send configuration broadcast first with receiver-foreground flag
-if ! adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$DEVICE_ALIAS" 2>/dev/null; then
-    echo "❌ Configuration broadcast failed"
-    echo "   Debug: Check ConfigReceiver in manifest"
-    echo "   Fix: Verify receiver is exported"
-    exit 7
-fi
-echo "✅ Auto-enrollment initiated"
-
-# Launch app
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
-echo
-
-echo "[Step 10/10] Verify service..."
-sleep 3
-if ! adb shell pidof "$PKG" 2>/dev/null; then
-    echo "❌ Service not running"
-    echo "   Debug: adb logcat -d | grep $PKG"
-    DIAG_FILE="/tmp/mdm_enroll_diag.txt"
-    echo "NexMDM Enrollment Diagnostics" > "$DIAG_FILE"
-    echo "Generated: $(date)" >> "$DIAG_FILE"
-    echo "Device Alias: $ALIAS" >> "$DIAG_FILE"
-    echo "Exit Code: 8" >> "$DIAG_FILE"
-    echo "" >> "$DIAG_FILE"
-    echo "===== ADB Logcat =====" >> "$DIAG_FILE"
-    adb logcat -d 2>&1 | grep -i "nexmdm\|usage\|appops\|standby\|deviceidle" >> "$DIAG_FILE" 2>&1 || true
-    echo "" >> "$DIAG_FILE"
-    echo "Diagnostics saved to: $DIAG_FILE"
-    exit 8
-fi
-echo "✅ Service running"
-echo
-echo "[Verify] Registration check..."
-echo "   Waiting 10 seconds for first heartbeat..."
-sleep 10
-echo "   Checking backend for device \"$ALIAS\"..."
-API_RESPONSE=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$DEVICE_ALIAS" 2>/dev/null)
-
-if echo "$API_RESPONSE" | grep -q "\"alias\":\"$DEVICE_ALIAS\""; then
-    echo "✅ Device registered in backend!"
-    
-    # Extract last_seen if available (optional, best effort)
-    if echo "$API_RESPONSE" | grep -q "last_seen"; then
-        echo "   Device is sending heartbeats"
-    fi
-    
-    echo
-    echo "================================================"
-    echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅"
-    echo "================================================"
-    echo "📱 Device \"$ALIAS\" enrolled and verified!"
-    echo "🔍 Check dashboard now - device is online"
-    echo
-    echo "⚠️  MANUAL STEPS REQUIRED ON DEVICE:"
-    echo
-    echo "1. Enable Usage Access:"
-    echo "   Settings → Apps → Special app access → Usage access → NexMDM → Allow"
-    echo
-    echo "2. Enable Full Screen Intents (Android 14+):"
-    echo "   Settings → Apps → NexMDM → Notifications → Use full screen intents → Allow"
-    echo
-    echo "💡 These permissions enable battery/RAM monitoring and alert notifications."
-    echo "   The device will send metrics to the dashboard within 60 seconds."
-    echo "================================================"
-else
-    echo "❌ Device NOT found in backend"
-    echo "   API Response: $API_RESPONSE"
-    echo
-    DIAG_FILE="/tmp/mdm_enroll_diag.txt"
-    echo "NexMDM Enrollment Diagnostics" > "$DIAG_FILE"
-    echo "Generated: $(date)" >> "$DIAG_FILE"
-    echo "Device Alias: $ALIAS" >> "$DIAG_FILE"
-    echo "Exit Code: 9" >> "$DIAG_FILE"
-    echo "API Response: $API_RESPONSE" >> "$DIAG_FILE"
-    echo "" >> "$DIAG_FILE"
-    echo "===== ADB Logcat =====" >> "$DIAG_FILE"
-    adb logcat -d 2>&1 | grep -i "nexmdm\|usage\|appops\|standby\|deviceidle" >> "$DIAG_FILE" 2>&1 || true
-    echo "" >> "$DIAG_FILE"
-    echo "Diagnostics saved to: $DIAG_FILE"
-    echo
-    echo "================================================"
-    echo "❌❌❌ ENROLLMENT FAILED ❌❌❌"
-    echo "================================================"
-    echo "📱 Device \"$ALIAS\" did not register"
-    echo "🔍 Check server logs for errors"
-    echo "   Debug: Check /v1/register endpoint"
-    echo "   Diagnostics saved to: $DIAG_FILE"
-    echo "================================================"
-    exit 9
-fi
-'''
-    
-    return Response(
-        content=script_content,
-        media_type="text/plain",
-        headers={
-            "Content-Disposition": f'attachment; filename="enroll-{alias}.sh"'
+    if dry_run:
+        return {
+            "dry_run": True,
+            "estimated_count": len(devices),
+            "sample_aliases": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
         }
-    )
 
-@app.get("/v1/scripts/enroll.one-liner.cmd")
-async def get_windows_one_liner_script(
-    alias: str = Query(...),
-    agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+    import hashlib
+    payload_str = json.dumps(payload if mode == "fcm" else {"command": command}, sort_keys=True)
+    payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
+
+    client_ip = request.client.host if request.client else None
+
+    exec_record = RemoteExec(
+        mode=mode,
+        raw_request=json.dumps(body),
+        targets=json.dumps(targets),
+        created_by=current_user.username if current_user else "admin",
+        created_by_ip=client_ip,
+        payload_hash=payload_hash,
+        total_targets=len(devices),
+        status="processing"
+    )
+    db.add(exec_record)
+    db.commit()
+    db.refresh(exec_record)
+
+    print(f"[REMOTE-EXEC] Started exec_id={exec_record.id}, mode={mode}, targets={len(devices)}")
+
+    import httpx
+
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        exec_record.status = "failed"
+        exec_record.error_count = len(devices)
+        exec_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        for idx, device in enumerate(devices):
+            device_correlation_id = f"{exec_record.id}-{device.id}"
+
+            existing = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_record.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+
+            if existing:
+                continue
+
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = "remote_exec_fcm" if mode == "fcm" else "remote_exec_shell"
+            hmac_signature = compute_hmac_signature(device_correlation_id, device.id, action, timestamp)
+
+            message_data = {
+                "action": action,
+                "correlation_id": device_correlation_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
+                "exec_id": exec_record.id,
+                "mode": mode
+            }
+
+            if mode == "fcm":
+                message_data.update({k: str(v) for k, v in payload.items()})
+            else:
+                message_data["command"] = command
+
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": message_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+
+            exec_result = RemoteExecResult(
+                exec_id=exec_record.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=device_correlation_id,
+                status="sending"
+            )
+            db.add(exec_result)
+
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=5.0)
+
+                if response.status_code == 200:
+                    exec_result.status = "sent"
+                    exec_record.sent_count += 1
+                    print(f"[REMOTE-EXEC] ✓ Sent to {device.alias} ({device.id})")
+                else:
+                    exec_result.status = "failed"
+                    exec_result.error = f"FCM error: {response.status_code}"
+                    exec_record.error_count += 1
+                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
+
+            except httpx.TimeoutException:
+                exec_result.status = "failed"
+                exec_result.error = "FCM request timeout"
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Timeout {device.alias}")
+
+            except Exception as e:
+                exec_result.status = "failed"
+                exec_result.error = str(e)
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
+
+            db.commit()
+
+            if idx < len(devices) - 1:
+                await asyncio.sleep(0.05)
+
+    exec_record.status = "completed"
+    exec_record.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    print(f"[REMOTE-EXEC] Complete: {exec_record.sent_count}/{len(devices)} sent, {exec_record.error_count} errors")
+
+    return {
+        "ok": True,
+        "exec_id": exec_record.id,
+        "mode": mode,
+        "total_targets": len(devices),
+        "sent_count": exec_record.sent_count,
+        "error_count": exec_record.error_count
+    }
+
+@app.get("/v1/remote-exec/{exec_id}")
+async def get_remote_exec_status(
+    exec_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate zero-tap Windows one-liner enrollment command with enhanced debugging"""
-    from models import EnrollmentEvent
-    
-    # Get server configuration
-    server_url = config.server_url
-    
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
-    
-    # Log script generation event
-    event = EnrollmentEvent(
-        event_type='script.render_one_liner',
-        token_id=None,
-        alias=alias,
-        details=json.dumps({
-            "platform": "windows_oneliner",
-            "agent_pkg": agent_pkg,
-            "unity_pkg": unity_pkg,
-            "generated_by": current_user.username
-        })
-    )
-    db.add(event)
-    db.commit()
-    
-    structured_logger.log_event(
-        "script.render_one_liner",
-        token_id=None,
-        alias=alias,
-        platform="windows",
-        generated_by=current_user.username
-    )
-    
-    metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
-    
-    # Create one-liner with direct value substitution (no delayed expansion needed)
-    # Use %TEMP% for APK path - it expands at runtime
-    # Escape inner quotes with ^" for CMD parsing
-    apk_path = "%TEMP%\\unitymdm.apk"
-    bloat_file = "%TEMP%\\mdm_bloatware.txt"
-    
-    # One-liner downloads bloatware list from server and processes it
-    # Note: FOR /F "delims=" reads entire lines without tokenization
-    # Use single % for command-line one-liners (not %% which is for batch files)
-    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment v3 - {alias} & echo Supports: Android 11+ (SDK 30+) & echo ============================================ & echo. & echo [Step 0/10] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/10] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/10] Check Android version... & for /f ^"tokens=*^" %V in ('adb shell getprop ro.build.version.release 2^^^>nul') do @set ANDROID_VER=%V & for /f ^"tokens=*^" %S in ('adb shell getprop ro.build.version.sdk 2^^^>nul') do @(echo Device: Android %V (SDK %S) & if %S LSS 30 (echo ❌ INCOMPATIBLE - Requires Android 11+ SDK 30+ & exit /b 2) else (echo ✅ Compatible)) & echo. & echo [Step 3/10] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download-latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/9] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/9] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/9] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/9] Disable bloatware... & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/bloatware-list^" -o ^"{bloat_file}^" >nul 2>&1 && (set BLOAT_COUNT=0 & for /f "delims=" %P in ({bloat_file}) do @(adb shell pm disable-user --user 0 %P >nul 2>&1 ^& set /a BLOAT_COUNT+=1) & echo ✅ Disabled bloatware packages & del ^"{bloat_file}^" >nul 2>&1) || (echo ⚠️  Bloatware list download failed - continuing) & echo. & echo [Step 7/9] Apply system tweaks... & adb shell settings put global app_standby_enabled 0 >nul 2>&1 & adb shell settings put global battery_tip_constants app_restriction_enabled=false >nul 2>&1 & adb shell settings put system screen_brightness_mode 0 >nul 2>&1 & adb shell settings put system ambient_tilt_to_wake 1 >nul 2>&1 & adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1 & echo ✅ System tweaks applied & echo. & echo [Step 8/9] Auto-enroll and launch... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1) || (echo ❌ Broadcast failed) & echo. & echo [Step 9/9] Verify service... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 8) & echo. & echo Verify registration... & echo Waiting 10 seconds for first heartbeat... & timeout /t 10 /nobreak >nul & echo Checking backend for device ^"{alias}^"... & set API_FILE=%TEMP%\\mdm_verify.txt & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/devices?alias={alias}^" -o %API_FILE% 2>nul & findstr /C:^"\\"alias\\":\\"{alias}\\"^" %API_FILE% >nul 2>&1 && (echo ✅ Device registered! & echo. & echo ============================================ & echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅ & echo ============================================ & echo Device: {alias} enrolled and verified! & echo Check dashboard - device should be online & echo ============================================) || (echo ❌ Device NOT found in backend & type %API_FILE% & del %API_FILE% >nul 2>&1 & echo. & echo ============================================ & echo ❌❌❌ ENROLLMENT FAILED ❌❌❌ & echo ============================================ & echo Device: {alias} did not register & echo Check server logs & echo ============================================ & exit /b 9) & del %API_FILE% >nul 2>&1 & echo. & echo Window will stay open - Type 'exit' to close"'''
-    
-    return Response(
-        content=one_liner,
-        media_type="text/plain",
-        headers={
-            "Content-Disposition": f'inline; filename="enroll-{alias}-oneliner.cmd"'
-        }
-    )
+    """Get execution status and per-device results"""
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
 
-@app.get("/v1/scripts/enroll.one-liner.sh")
-async def get_bash_one_liner_script(
-    alias: str = Query(...),
-    agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+    if not exec_record:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == exec_id
+    ).all()
+
+    result_list = []
+    for result in results:
+        result_list.append({
+            "device_id": result.device_id,
+            "alias": result.alias,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "output": result.output_preview,
+            "error": result.error,
+            "sent_at": result.sent_at.isoformat() if result.sent_at else None,
+            "updated_at": result.updated_at.isoformat() if result.updated_at else None
+        })
+
+    return {
+        "exec_id": exec_record.id,
+        "mode": exec_record.mode,
+        "status": exec_record.status,
+        "created_at": exec_record.created_at.isoformat(),
+        "created_by": exec_record.created_by,
+        "completed_at": exec_record.completed_at.isoformat() if exec_record.completed_at else None,
+        "stats": {
+            "total_targets": exec_record.total_targets,
+            "sent_count": exec_record.sent_count,
+            "acked_count": exec_record.acked_count,
+            "error_count": exec_record.error_count
+        },
+        "results": result_list
+    }
+
+@app.get("/v1/remote-exec")
+async def list_recent_executions(
+    limit: int = Query(default=10, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Generate zero-tap Bash one-liner enrollment command with enhanced debugging"""
-    from models import EnrollmentEvent
-    
-    # Get server configuration
-    server_url = config.server_url
-    
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key:
-        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
-    
-    # Log script generation event
-    event = EnrollmentEvent(
-        event_type='script.render_one_liner',
-        token_id=None,
-        alias=alias,
-        details=json.dumps({
-            "platform": "bash_oneliner",
-            "agent_pkg": agent_pkg,
-            "unity_pkg": unity_pkg,
-            "generated_by": current_user.username
+    """List recent remote executions"""
+    executions = db.query(RemoteExec).order_by(
+        RemoteExec.created_at.desc()
+    ).limit(limit).all()
+
+    exec_list = []
+    for exec in executions:
+        payload_data = json.loads(exec.payload) if exec.payload else {}
+        targets_data = json.loads(exec.targets) if exec.targets else {}
+
+        scope_desc = "Entire fleet"
+        if targets_data.get("filter"):
+            scope_desc = "Filtered set"
+        elif targets_data.get("device_ids"):
+            scope_desc = f"{len(targets_data['device_ids'])} devices"
+
+        exec_list.append({
+            "exec_id": exec.id,
+            "mode": exec.mode,
+            "status": exec.status,
+            "created_at": exec.created_at.isoformat(),
+            "created_by": exec.created_by,
+            "stats": {
+                "total_targets": exec.total_targets,
+                "sent_count": exec.sent_count,
+                "acked_count": exec.acked_count,
+                "error_count": exec.error_count
+            }
         })
+
+    return {"executions": exec_list, "count": len(exec_list)}
+
+@app.post("/v1/remote-exec/ack")
+async def remote_exec_ack(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Receive ACK from device for remote execution"""
+    # Authenticate device via token
+    x_device_token = request.headers.get("X-Device-Token")
+    if not x_device_token:
+        raise HTTPException(status_code=401, detail="Missing X-Device-Token header")
+
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+
+    body = await request.json()
+
+    exec_id = body.get("exec_id")
+    device_id = body.get("device_id")
+    correlation_id = body.get("correlation_id")
+    status = body.get("status")
+    exit_code = body.get("exit_code")
+    output = body.get("output", "")
+
+    if not all([exec_id, device_id, correlation_id, status]):
+        missing_fields = []
+        if not exec_id: missing_fields.append("exec_id")
+        if not device_id: missing_fields.append("device_id")
+        if not correlation_id: missing_fields.append("correlation_id")
+        if not status: missing_fields.append("status")
+
+        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+        structured_logger.log_event(
+            "remote_exec.ack.validation_error",
+            level="WARN",
+            device_id=device_id,
+            missing_fields=missing_fields
+        )
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Validate device_id matches authenticated device
+    if device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Device ID in payload does not match authenticated device"
+        )
+
+    # Validate correlation_id format and ownership
+    expected_correlation_id = f"{exec_id}-{device.id}"
+    if correlation_id != expected_correlation_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not match expected format or device"
+        )
+
+    result = db.query(RemoteExecResult).filter(
+        RemoteExecResult.correlation_id == correlation_id
+    ).first()
+
+    if not result:
+        structured_logger.log_event(
+            "remote_exec.ack.result_not_found",
+            level="WARN",
+            correlation_id=correlation_id,
+            device_id=device_id
+        )
+        return {"ok": False, "error": "Result not found"}
+
+    # Validate that result belongs to authenticated device
+    if result.device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not belong to authenticated device"
+        )
+
+    try:
+        # Update result record
+        result.status = status.upper()
+        result.exit_code = exit_code
+        result.output_preview = output[:2000] if output else None
+        result.error = body.get("error")
+        result.updated_at = datetime.now(timezone.utc)
+
+        # Use atomic SQL updates to prevent race conditions
+        from sqlalchemy import update
+        if status.upper() == "OK":
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(acked_count=RemoteExec.acked_count + 1)
+            )
+        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(error_count=RemoteExec.error_count + 1)
+            )
+
+        # Single commit after all operations
+        db.commit()
+
+        structured_logger.log_event(
+            "remote_exec.ack.success",
+            level="INFO",
+            device_id=device_id,
+            exec_id=exec_id,
+            status=status.upper(),
+            exit_code=exit_code
+        )
+
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        structured_logger.log_event(
+            "remote_exec.ack.error",
+            level="ERROR",
+            device_id=device_id,
+            exec_id=exec_id,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail="Failed to process ACK")
+
+@app.get("/v1/apk/download-optimized/{apk_id}")
+async def download_apk_optimized_endpoint(
+    apk_id: int,
+    request: Request,
+    x_device_token: Optional[str] = Header(None),
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    installation_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Optimized APK download endpoint with caching and telemetry.
+
+    Features:
+    - In-memory caching (200MB, 1hr TTL)
+    - Download telemetry tracking  
+    - SHA-256 in response headers for client-side caching
+    - No rate limiting for deployments
+
+    Requires device token or admin key authentication.
+    """
+    device = None
+    device_id = None
+
+    # Authenticate
+    if x_admin_key and verify_admin_key(x_admin_key):
+        pass  # Admin authenticated
+    elif x_device_token:
+        device = get_device_by_token(x_device_token, db)
+        if device:
+            device_id = device.id
+        else:
+            raise HTTPException(status_code=401, detail="Invalid device token")
+    else:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Use optimized download service
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        device_id=device_id,
+        installation_id=installation_id,
+        use_cache=True
     )
-    db.add(event)
-    db.commit()
-    
-    structured_logger.log_event(
-        "script.render_one_liner",
-        token_id=None,
-        alias=alias,
-        platform="bash",
-        generated_by=current_user.username
+
+def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
+    """
+    Build a shell script that disables a list of packages gracefully.
+    Uses a loop over a temp file to avoid command-line length limits.  
+    Skips packages that don't exist or are already disabled.
+
+    Returns the complete shell script as a single string.
+
+    Note: Does NOT wrap in 'sh -c' because the Android app adds that wrapper automatically.
+    """
+    # Use variable-based approach that matches validation expectations
+    script = """TMP_DIR="/data/data/com.nexmdm/files"
+LIST_FILE="$TMP_DIR/bloat_list.txt"
+
+mkdir -p "$TMP_DIR"
+cat > "$LIST_FILE" << 'EOF'
+{chr(10).join(package_names)}
+EOF
+
+count=0
+failed=0
+while IFS= read -r pkg; do
+  if [ -z "$pkg" ]; then
+    continue
+  fi
+  if pm disable-user --user 0 "$pkg" 2>/dev/null; then
+    count=$((count + 1))
+  else
+    failed=$((failed + 1))
+  fi
+done < "$LIST_FILE"
+
+rm -f "$LIST_FILE"
+
+echo "Disabled $count packages ($failed skipped or failed)" """
+
+    return script
+def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate a batch bloatware disable script.
+    These scripts use heredoc syntax and variables, which requires more specific validation
+    than the generic shell command checks.
+
+    Returns (is_valid, error_message)
+    """
+    import re
+
+    # --- Structure and Security Checks ---
+
+    # 1. Check for key components of the script
+    required_substrings = [
+        'mkdir -p',
+        'cat >',
+        "<< 'EOF'",
+        'while IFS= read -r pkg',
+        'pm disable-user --user 0',
+        'done <',
+        'rm -f'
+    ]
+    for sub in required_substrings:
+        if sub not in command:
+            return False, f"Invalid batch script: missing required component '{sub}'"
+
+    # 2. Extract and validate variable definitions (if present)
+    lines = command.split('\n')
+
+    # Check for TMP_DIR variable or hardcoded path
+    tmp_dir_match = re.search(r'TMP_DIR=(["\']?)(.*?)\1', command)
+    if tmp_dir_match:
+        tmp_dir = tmp_dir_match.group(2)
+        # Validate that TMP_DIR is an allowed path
+        allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
+        if tmp_dir not in allowed_dirs:
+            return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
+    else:
+        # Check for hardcoded path
+        if '/data/data/com.nexmdm/files' not in command:
+            return False, "Script must use /data/data/com.nexmdm/files directory"
+
+    # 3. Verify consistent use of paths
+    if tmp_dir_match:
+        # Variable-based script - check for consistent variable usage
+        expected_patterns = [
+            rf'mkdir -p ["\']?\$TMP_DIR["\']?',
+            rf'cat > ["\']?\$LIST_FILE["\']?',
+            rf'done < ["\']?\$LIST_FILE["\']?',
+            rf'rm -f ["\']?\$LIST_FILE["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
+    else:
+        # Hardcoded path script - check for consistent path usage
+        expected_patterns = [
+            r'mkdir -p ["\']?/data/data/com\.nexmdm/files["\']?',
+            r'cat > ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'done < ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
+            r'rm -f ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?'
+        ]
+        for pattern in expected_patterns:
+            if not re.search(pattern, command):
+                return False, f"Script validation failed: inconsistent path usage or missing pattern '{pattern}'"
+
+    # 4. Check for the pm disable command (accept both with and without output capturing)
+    pm_command_patterns = [
+        r'pm disable-user --user 0 ["\']?\$pkg["\']? 2>/dev/null',
+        r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
+    ]
+    if not any(re.search(pattern, command) for pattern in pm_command_patterns):
+        return False, "Script does not use the expected 'pm disable-user' command"
+
+    # --- Package List Validation ---
+
+    # 5. Extract package names from the heredoc
+    eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
+    match = re.search(eof_pattern, command, re.DOTALL)
+    if not match:
+        return False, "Invalid script format: could not find package list in heredoc"
+
+    package_list_text = match.group(1)
+    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
+
+    if not packages:
+        return False, "No packages found in script"
+
+    # 6. Verify all packages are in the enabled bloatware database
+    db = None
+    try:
+        db = SessionLocal()
+        for package_name in packages:
+            if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
+                return False, f"Invalid package name format: {package_name}"
+
+            exists = db.query(BloatwarePackage).filter(
+                BloatwarePackage.package_name == package_name,
+                BloatwarePackage.enabled == True
+            ).first() is not None
+
+            if not exists:
+                return False, f"Package '{package_name}' is not in the enabled bloatware list"
+
+        db.close()
+    except Exception as e:
+        if db:
+            db.close()
+        return False, f"Database error during package validation: {str(e)}"
+
+    return True, None
+
+def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate shell command against allow-list, supporting && chaining.
+    Returns (is_valid, error_message)
+    """
+    command = command.strip()
+    if not command:
+        return False, "Command is empty"
+
+    # Heuristic to detect bloatware batch scripts before applying generic security checks
+    # Look for key patterns: heredoc syntax, pm disable-user, and file operations
+    looks_like_bloatware_script = (
+        'cat >' in command and
+        "<< 'EOF'" in command and
+        'pm disable-user' in command and
+        ('done <' in command or 'while' in command)
     )
-    
-    metrics.inc_counter("script_oneliner_copies_total", {"platform": "bash", "alias": alias})
-    
-    # Create Bash one-liner that downloads bloatware list from server
-    # v3: Added SDK version checking for Android 11+ (SDK 30+) compatibility
-    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" BLOAT_FILE="/tmp/mdm_bloatware.txt" MIN_SDK=30 && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment v3 - $ALIAS" && echo "Supports: Android 11+ (SDK 30+)" && echo "================================================" && echo && echo "[Step 0/10] Check prerequisites..." && (command -v adb &>/dev/null && echo "✅ ADB found: $(adb version 2>&1 | head -1)") || (echo "❌ ADB not found in PATH" && echo "Fix: Install Android Platform Tools" && echo "Download: https://developer.android.com/tools/releases/platform-tools" && exit 1) && echo "Listing devices:" && adb devices -l && echo && echo "[Step 1/10] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && adb devices -l && exit 2) && echo && echo "[Step 2/10] Check Android version..." && DEVICE_SDK=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\\r') && DEVICE_VER=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\\r') && echo "Device: Android $DEVICE_VER (SDK $DEVICE_SDK)" && echo "Required: SDK $MIN_SDK+ (Android 11+)" && ([ "$DEVICE_SDK" -ge "$MIN_SDK" ] 2>/dev/null && echo "✅ Compatible") || (echo "❌ INCOMPATIBLE - Requires Android 11+ (SDK 30+)" && exit 2) && echo && echo "[Step 3/10] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 4/10] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 5/10] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 6/10] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 7/10] Disable bloatware..." && curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/bloatware-list" -o "$BLOAT_FILE" 2>/dev/null && (BLOAT_COUNT=0 && while IFS= read -r PKG_TO_DISABLE; do [ -n "$PKG_TO_DISABLE" ] && adb shell pm disable-user --user 0 "$PKG_TO_DISABLE" 2>/dev/null && BLOAT_COUNT=$((BLOAT_COUNT+1)); done < "$BLOAT_FILE" && echo "✅ Disabled $BLOAT_COUNT bloatware packages" && rm -f "$BLOAT_FILE") || echo "⚠️  Bloatware list download failed - continuing" && echo && echo "[Step 8/10] Apply system tweaks..." && adb shell settings put global app_standby_enabled 0 2>/dev/null; adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null; adb shell settings put system screen_brightness_mode 0 2>/dev/null; adb shell settings put system ambient_tilt_to_wake 1 2>/dev/null; adb shell settings put system ambient_touch_to_wake 1 2>/dev/null && echo "✅ System tweaks applied" && echo && echo "[Step 9/10] Auto-enroll and launch..." && (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated" && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 10/10] Verify service..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "Verify registration..." && echo "Waiting 10 seconds for first heartbeat..." && sleep 10 && echo "Checking backend for device \\"$ALIAS\\"..." && API_RESP=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$ALIAS" 2>/dev/null) && if echo "$API_RESP" | grep -q "\\"alias\\":\\"$ALIAS\\""; then echo "✅ Device registered!" && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" enrolled and verified!" && echo "🔍 Check dashboard - device should be online" && echo "================================================"; else echo "❌ Device NOT found in backend" && echo "API Response: $API_RESP" && echo && echo "================================================" && echo "❌❌❌ ENROLLMENT FAILED ❌❌❌" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" did not register" && echo "🔍 Check server logs" && echo "================================================" && exit 9; fi'''
-    
-    return Response(
-        content=one_liner,
-        media_type="text/plain",
-        headers={
-            "Content-Disposition": f'inline; filename="enroll-{alias}-oneliner.sh"'
+
+    # If it looks like a bloatware script, validate it with the specialized validator
+    if looks_like_bloatware_script:
+        is_batch_script, batch_error = validate_batch_bloatware_script(command)
+        if is_batch_script:
+            # This is a valid batch bloatware script, allow it
+            return True, None
+        else:
+            # It looked like a bloatware script but validation failed, return specific error
+            return False, batch_error or "Invalid bloatware batch script"
+
+    # For non-batch commands, apply standard validation
+    # Detect dangerous shell metacharacters (but allow &&)
+    # Block: |, ;, >, <, `, $, newlines, and single & (but allow &&)
+    dangerous_chars = ['|', ';', '>', '<', '`', '$', '\n', '\r']
+    if any(char in command for char in dangerous_chars):
+        return False, "Dangerous shell metacharacters not allowed"
+
+    # Check for single & (not &&) - this prevents & for backgrounding
+    if '&' in command and '&&' not in command:
+        return False, "Single & not allowed (only && for chaining)"
+
+    # If command contains &&, split and validate each subcommand
+    if '&&' in command:
+        subcommands = command.split('&&')
+        for i, subcmd in enumerate(subcommands):
+            is_valid, error_msg = validate_single_command(subcmd)
+            if not is_valid:
+                return False, f"Subcommand {i+1} failed validation: {error_msg}"
+        return True, None
+    else:
+        # Single command, validate directly
+        return validate_single_command(command)
+
+@app.post("/v1/remote-exec")
+async def create_remote_exec(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Execute remote command (FCM or Shell) on devices with dry-run support
+    """
+    body = await request.json()
+    mode = body.get("mode")
+    targets = body.get("targets", {})
+    payload = body.get("payload")
+    command = body.get("command")
+    dry_run = body.get("dry_run", False)
+
+    if mode not in ["fcm", "shell"]:
+        raise HTTPException(status_code=400, detail="Mode must be 'fcm' or 'shell'")
+
+    if mode == "fcm" and not payload:
+        raise HTTPException(status_code=400, detail="FCM mode requires 'payload' field")
+
+    if mode == "shell" and not command:
+        raise HTTPException(status_code=400, detail="Shell mode requires 'command' field")
+
+    if mode == "shell":
+        is_valid, error_msg = validate_shell_command(command)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+    query = db.query(Device)
+
+    if targets.get("all"):
+        pass
+    elif targets.get("filter"):
+        filters = targets["filter"]
+
+        if filters.get("groups"):
+            pass
+
+        if filters.get("tags"):
+            pass
+
+        if filters.get("online") is not None:
+            if filters["online"]:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+                query = query.filter(Device.last_seen >= cutoff)
+
+        if filters.get("android_version"):
+            versions = filters["android_version"]
+            if isinstance(versions, list) and versions:
+                query = query.filter(Device.android_version.in_(versions))
+
+    elif targets.get("aliases"):
+        aliases_list = targets["aliases"]
+        if not aliases_list:
+            raise HTTPException(status_code=400, detail="aliases list is empty")
+        query = query.filter(Device.alias.in_(aliases_list))
+
+    else:
+        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, device_ids, or device_aliases")
+
+    devices = query.filter(Device.fcm_token.isnot(None)).all()
+
+    # Validate that we have devices after filtering
+    if not devices:
+        raise HTTPException(
+            status_code=400,
+            detail="No devices match the specified criteria or no devices have FCM tokens registered"
+        )
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "estimated_count": len(devices),
+            "sample_aliases": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
         }
+
+    import hashlib
+    payload_str = json.dumps(payload if mode == "fcm" else {"command": command}, sort_keys=True)
+    payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
+
+    client_ip = request.client.host if request.client else None
+
+    exec_record = RemoteExec(
+        mode=mode,
+        raw_request=json.dumps(body),
+        targets=json.dumps(targets),
+        created_by=current_user.username if current_user else "admin",
+        created_by_ip=client_ip,
+        payload_hash=payload_hash,
+        total_targets=len(devices),
+        status="processing"
     )
+    db.add(exec_record)
+    db.commit()
+    db.refresh(exec_record)
+
+    print(f"[REMOTE-EXEC] Started exec_id={exec_record.id}, mode={mode}, targets={len(devices)}")
+
+    import httpx
+
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+    except Exception as e:
+        exec_record.status = "failed"
+        exec_record.error_count = len(devices)
+        exec_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+
+    fcm_url = build_fcm_v1_url(project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    async with httpx.AsyncClient() as client:
+        for idx, device in enumerate(devices):
+            device_correlation_id = f"{exec_record.id}-{device.id}"
+
+            existing = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_record.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+
+            if existing:
+                continue
+
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = "remote_exec_fcm" if mode == "fcm" else "remote_exec_shell"
+            hmac_signature = compute_hmac_signature(device_correlation_id, device.id, action, timestamp)
+
+            message_data = {
+                "action": action,
+                "correlation_id": device_correlation_id,
+                "device_id": device.id,
+                "ts": timestamp,
+                "hmac": hmac_signature,
+                "exec_id": exec_record.id,
+                "mode": mode
+            }
+
+            if mode == "fcm":
+                message_data.update({k: str(v) for k, v in payload.items()})
+            else:
+                message_data["command"] = command
+
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": message_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+
+            exec_result = RemoteExecResult(
+                exec_id=exec_record.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=device_correlation_id,
+                status="sending"
+            )
+            db.add(exec_result)
+
+            try:
+                response = await client.post(fcm_url, json=message, headers=headers, timeout=5.0)
+
+                if response.status_code == 200:
+                    exec_result.status = "sent"
+                    exec_record.sent_count += 1
+                    print(f"[REMOTE-EXEC] ✓ Sent to {device.alias} ({device.id})")
+                else:
+                    exec_result.status = "failed"
+                    exec_result.error = f"FCM error: {response.status_code}"
+                    exec_record.error_count += 1
+                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
+
+            except httpx.TimeoutException:
+                exec_result.status = "failed"
+                exec_result.error = "FCM request timeout"
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Timeout {device.alias}")
+
+            except Exception as e:
+                exec_result.status = "failed"
+                exec_result.error = str(e)
+                exec_record.error_count += 1
+                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
+
+            db.commit()
+
+            if idx < len(devices) - 1:
+                await asyncio.sleep(0.05)
+
+    exec_record.status = "completed"
+    exec_record.completed_at = datetime.now(timezone.utc)
+    db.commit()
+
+    print(f"[REMOTE-EXEC] Complete: {exec_record.sent_count}/{len(devices)} sent, {exec_record.error_count} errors")
+
+    return {
+        "ok": True,
+        "exec_id": exec_record.id,
+        "mode": mode,
+        "total_targets": len(devices),
+        "sent_count": exec_record.sent_count,
+        "error_count": exec_record.error_count
+    }
+
+@app.get("/v1/remote-exec/{exec_id}")
+async def get_remote_exec_status(
+    exec_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get execution status and per-device results"""
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+
+    if not exec_record:
+        raise HTTPException(status_code=404, detail="Execution not found")
+
+    results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == exec_id
+    ).all()
+
+    result_list = []
+    for result in results:
+        result_list.append({
+            "device_id": result.device_id,
+            "alias": result.alias,
+            "status": result.status,
+            "exit_code": result.exit_code,
+            "output": result.output_preview,
+            "error": result.error,
+            "sent_at": result.sent_at.isoformat() if result.sent_at else None,
+            "updated_at": result.updated_at.isoformat() if result.updated_at else None
+        })
+
+    return {
+        "exec_id": exec_record.id,
+        "mode": exec_record.mode,
+        "status": exec_record.status,
+        "created_at": exec_record.created_at.isoformat(),
+        "created_by": exec_record.created_by,
+        "completed_at": exec_record.completed_at.isoformat() if exec_record.completed_at else None,
+        "stats": {
+            "total_targets": exec_record.total_targets,
+            "sent_count": exec_record.sent_count,
+            "acked_count": exec_record.acked_count,
+            "error_count": exec_record.error_count
+        },
+        "results": result_list
+    }
+
+@app.get("/v1/remote-exec")
+async def list_recent_executions(
+    limit: int = Query(default=10, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List recent remote executions"""
+    executions = db.query(RemoteExec).order_by(
+        RemoteExec.created_at.desc()
+    ).limit(limit).all()
+
+    exec_list = []
+    for exec in executions:
+        payload_data = json.loads(exec.payload) if exec.payload else {}
+        targets_data = json.loads(exec.targets) if exec.targets else {}
+
+        scope_desc = "Entire fleet"
+        if targets_data.get("filter"):
+            scope_desc = "Filtered set"
+        elif targets_data.get("device_ids"):
+            scope_desc = f"{len(targets_data['device_ids'])} devices"
+
+        exec_list.append({
+            "exec_id": exec.id,
+            "mode": exec.mode,
+            "status": exec.status,
+            "created_at": exec.created_at.isoformat(),
+            "created_by": exec.created_by,
+            "stats": {
+                "total_targets": exec.total_targets,
+                "sent_count": exec.sent_count,
+                "acked_count": exec.acked_count,
+                "error_count": exec.error_count
+            }
+        })
+
+    return {"executions": exec_list, "count": len(exec_list)}
+
+@app.post("/v1/remote-exec/ack")
+async def remote_exec_ack(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Receive ACK from device for remote execution"""
+    # Authenticate device via token
+    x_device_token = request.headers.get("X-Device-Token")
+    if not x_device_token:
+        raise HTTPException(status_code=401, detail="Missing X-Device-Token header")
+
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+
+    body = await request.json()
+
+    exec_id = body.get("exec_id")
+    device_id = body.get("device_id")
+    correlation_id = body.get("correlation_id")
+    status = body.get("status")
+    exit_code = body.get("exit_code")
+    output = body.get("output", "")
+
+    if not all([exec_id, device_id, correlation_id, status]):
+        missing_fields = []
+        if not exec_id: missing_fields.append("exec_id")
+        if not device_id: missing_fields.append("device_id")
+        if not correlation_id: missing_fields.append("correlation_id")
+        if not status: missing_fields.append("status")
+
+        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+        structured_logger.log_event(
+            "remote_exec.ack.validation_error",
+            level="WARN",
+            device_id=device_id,
+            missing_fields=missing_fields
+        )
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    # Validate device_id matches authenticated device
+    if device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Device ID in payload does not match authenticated device"
+        )
+
+    # Validate correlation_id format and ownership
+    expected_correlation_id = f"{exec_id}-{device.id}"
+    if correlation_id != expected_correlation_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not match expected format or device"
+        )
+
+    result = db.query(RemoteExecResult).filter(
+        RemoteExecResult.correlation_id == correlation_id
+    ).first()
+
+    if not result:
+        structured_logger.log_event(
+            "remote_exec.ack.result_not_found",
+            level="WARN",
+            correlation_id=correlation_id,
+            device_id=device_id
+        )
+        return {"ok": False, "error": "Result not found"}
+
+    # Validate that result belongs to authenticated device
+    if result.device_id != device.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Correlation ID does not belong to authenticated device"
+        )
+
+    try:
+        # Update result record
+        result.status = status.upper()
+        result.exit_code = exit_code
+        result.output_preview = output[:2000] if output else None
+        result.error = body.get("error")
+        result.updated_at = datetime.now(timezone.utc)
+
+        # Use atomic SQL updates to prevent race conditions
+        from sqlalchemy import update
+        if status.upper() == "OK":
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(acked_count=RemoteExec.acked_count + 1)
+            )
+        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
+            db.execute(
+                update(RemoteExec)
+                .where(RemoteExec.id == exec_id)
+                .values(error_count=RemoteExec.error_count + 1)
+            )
+
+        # Single commit after all operations
+        db.commit()
+
+        structured_logger.log_event(
+            "remote_exec.ack.success",
+            level="INFO",
+            device_id=device_id,
+            exec_id=exec_id,
+            status=status.upper(),
+            exit_code=exit_code
+        )
+
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        structured_logger.log_event(
+            "remote_exec.ack.error",
+            level="ERROR",
+            device_id=device_id,
+            exec_id=exec_id,
+            error=str(e),
+            error_type=type(e).__name__
+        )
+        raise HTTPException(status_code=500, detail="Failed to process ACK")
+
+# ==================== APK Management ====================
 
 @app.post("/v1/apk/upload")
 async def upload_apk(
@@ -6666,7 +7648,7 @@ async def upload_apk(
         print(f"[DEBUG APK UPLOAD] First 10 chars of received: {api_key[:10] if api_key else 'None'}")
         print(f"[DEBUG APK UPLOAD] First 10 chars of expected: {admin_key[:10] if admin_key else 'None'}")
         print(f"[DEBUG APK UPLOAD] Keys match: {api_key == admin_key}")
-        
+
         if not admin_key or api_key != admin_key:
             raise HTTPException(status_code=401, detail="Invalid API key")
         username = "github-actions"
@@ -6674,7 +7656,7 @@ async def upload_apk(
         username = current_user.username
     else:
         raise HTTPException(status_code=401, detail="Authentication required (API key or session)")
-    
+
     apk_version = await save_apk_file(
         file=file,
         package_name=package_name,
@@ -6684,9 +7666,9 @@ async def upload_apk(
         uploaded_by=username,
         notes=notes
     )
-    
+
     base_url = config.server_url
-    
+
     return {
         "id": apk_version.id,
         "package_name": apk_version.package_name,
@@ -6711,24 +7693,24 @@ async def upload_apk_chunk(
     """Upload a single chunk of an APK file"""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     from pathlib import Path
     import re
-    
+
     if not re.match(r'^[a-zA-Z0-9\-_]+$', upload_id):
         raise HTTPException(status_code=400, detail="Invalid upload_id format")
-    
+
     CHUNK_SIZE = 5 * 1024 * 1024
     dest_dir = Path("/tmp/apk_uploads") / upload_id
     dest_dir.mkdir(parents=True, exist_ok=True)
-    
+
     chunk_path = dest_dir / f"part_{chunk_index}"
-    
+
     try:
         with open(chunk_path, "wb") as f:
             while data := await file.read(CHUNK_SIZE):
                 f.write(data)
-        
+
         structured_logger.log_event(
             "apk.chunk_uploaded",
             upload_id=upload_id,
@@ -6737,7 +7719,7 @@ async def upload_apk_chunk(
             filename=filename,
             user=current_user.username
         )
-        
+
         return {"status": "ok", "chunk_index": chunk_index}
     except Exception as e:
         structured_logger.log_event(
@@ -6759,11 +7741,11 @@ async def complete_apk_upload(
     """Complete a chunked APK upload by merging chunks and creating database entry"""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     from pathlib import Path
     import shutil
     import re
-    
+
     body = await request.json()
     upload_id = body.get("upload_id")
     package_name = body.get("package_name")
@@ -6772,54 +7754,54 @@ async def complete_apk_upload(
     filename = body.get("filename")
     total_chunks = body.get("total_chunks")
     build_type = body.get("build_type", "release")
-    
+
     if not all([upload_id, package_name, version_name, version_code, filename, total_chunks]):
         raise HTTPException(status_code=400, detail="Missing required fields")
-    
+
     if not re.match(r'^[a-zA-Z0-9\-_]+$', upload_id):
         raise HTTPException(status_code=400, detail="Invalid upload_id format")
-    
+
     start_time = time.time()
     dest_dir = Path("/tmp/apk_uploads") / upload_id
-    
+
     try:
-        
+
         if not dest_dir.exists():
             raise HTTPException(status_code=404, detail="Upload not found")
-        
+
         for i in range(total_chunks):
             chunk_path = dest_dir / f"part_{i}"
             if not chunk_path.exists():
                 raise HTTPException(status_code=400, detail=f"Missing chunk {i}")
-        
+
         merged_path = dest_dir / "merged.apk"
-        
+
         with open(merged_path, "wb") as outfile:
             for i in range(total_chunks):
                 chunk_path = dest_dir / f"part_{i}"
                 with open(chunk_path, "rb") as infile:
                     shutil.copyfileobj(infile, outfile)
-        
+
         file_size = merged_path.stat().st_size
-        
+
         sha256_hash = hashlib.sha256()
         with open(merged_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
                 sha256_hash.update(chunk)
         sha256 = sha256_hash.hexdigest()
-        
+
         original_version_code = version_code
         while True:
             existing = db.query(ApkVersion).filter(
                 ApkVersion.package_name == package_name,
                 ApkVersion.version_code == version_code
             ).first()
-            
+
             if not existing:
                 break
-            
+
             version_code += 1
-        
+
         if version_code != original_version_code:
             structured_logger.log_event(
                 "apk.version_code_incremented",
@@ -6829,10 +7811,10 @@ async def complete_apk_upload(
                 new_version_code=version_code,
                 user=current_user.username
             )
-        
+
         with open(merged_path, "rb") as f:
             content = f.read()
-        
+
         storage = get_storage_service()
         final_filename = f"{package_name}_{version_code}.apk"
         object_path = storage.upload_file(
@@ -6840,7 +7822,7 @@ async def complete_apk_upload(
             filename=final_filename,
             content_type="application/vnd.android.package-archive"
         )
-        
+
         apk_version = ApkVersion(
             version_name=version_name,
             version_code=version_code,
@@ -6853,19 +7835,19 @@ async def complete_apk_upload(
             sha256=sha256,
             build_type=build_type
         )
-        
+
         db.add(apk_version)
         db.commit()
         db.refresh(apk_version)
-        
+
         shutil.rmtree(dest_dir)
-        
+
         duration = time.time() - start_time
-        
+
         log_dir = Path("/tmp/logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / "apk_uploads.log"
-        
+
         with open(log_file, "a") as f:
             log_entry = (
                 f"{datetime.now(timezone.utc).isoformat()} | "
@@ -6876,7 +7858,7 @@ async def complete_apk_upload(
                 f"sha256={sha256}\n"
             )
             f.write(log_entry)
-        
+
         structured_logger.log_event(
             "apk.upload_completed",
             upload_id=upload_id,
@@ -6889,9 +7871,9 @@ async def complete_apk_upload(
             user=current_user.username,
             sha256=sha256
         )
-        
+
         base_url = config.server_url
-        
+
         return {
             "id": apk_version.id,
             "package_name": apk_version.package_name,
@@ -6903,16 +7885,16 @@ async def complete_apk_upload(
             "download_url": get_apk_download_url(apk_version, base_url),
             "sha256": sha256
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         duration = time.time() - start_time
-        
+
         log_dir = Path("/tmp/logs")
         log_dir.mkdir(exist_ok=True)
         log_file = log_dir / "apk_uploads.log"
-        
+
         with open(log_file, "a") as f:
             log_entry = (
                 f"{datetime.now(timezone.utc).isoformat()} | "
@@ -6922,7 +7904,7 @@ async def complete_apk_upload(
                 f"error={str(e)}\n"
             )
             f.write(log_entry)
-        
+
         structured_logger.log_event(
             "apk.upload_failed",
             level="ERROR",
@@ -6932,10 +7914,10 @@ async def complete_apk_upload(
             duration_seconds=duration,
             user=current_user.username
         )
-        
+
         if dest_dir.exists():
             shutil.rmtree(dest_dir)
-        
+
         raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
 
 @app.get("/v1/apk/list")
@@ -6945,17 +7927,17 @@ async def list_apk_versions(
 ):
     """List all uploaded APK versions with OTA deployment info"""
     from models import ApkDeploymentStats
-    
+
     apks = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).all()
-    
+
     base_url = config.server_url
-    
+
     result = []
     for apk in apks:
         stats = db.query(ApkDeploymentStats).filter(
             ApkDeploymentStats.build_id == apk.id
         ).first()
-        
+
         apk_data = {
             "id": apk.id,
             "package_name": apk.package_name,
@@ -6974,7 +7956,7 @@ async def list_apk_versions(
             "must_install": apk.must_install,
             "signer_fingerprint": apk.signer_fingerprint
         }
-        
+
         if stats:
             apk_data["deployment_stats"] = {
                 "total_checks": stats.total_checks,
@@ -6987,9 +7969,9 @@ async def list_apk_versions(
             }
         else:
             apk_data["deployment_stats"] = None
-        
+
         result.append(apk_data)
-    
+
     return result
 
 @app.get("/v1/apk/download/{apk_id}")
@@ -6998,33 +7980,34 @@ async def download_apk_version(
     request: Request,
     x_device_token: Optional[str] = Header(None),
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    installation_id: Optional[int] = Query(None),
     db: Session = Depends(get_db)
 ):
     """Download a specific APK version (requires device token or admin authentication)"""
     from models import ApkDownloadEvent
-    
+
     device = None
     token_id_last4 = "anon"
     auth_source = "unknown"
-    
+
     # Try admin key authentication first
     if x_admin_key:
         admin_key = os.getenv("ADMIN_KEY", "")
         if admin_key and x_admin_key == admin_key:
             auth_source = "admin"
             token_id_last4 = "admin"
-    
+
     # Try device token authentication if not admin
     if auth_source != "admin" and x_device_token:
         device = get_device_by_token(x_device_token, db)
         if device:
             token_id_last4 = device.token_id[-4:] if device.token_id else "none"
             auth_source = "device"
-    
+
     # Require valid authentication (either admin key or device token)
     if auth_source not in ["admin", "device"]:
         raise HTTPException(status_code=401, detail="Invalid authentication")
-    
+
     # Handle "latest" as special case
     if apk_id.lower() == "latest":
         apk = db.query(ApkVersion).filter(
@@ -7038,10 +8021,10 @@ async def download_apk_version(
             apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id_int).first()
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid APK ID format")
-        
+
         if not apk:
             raise HTTPException(status_code=404, detail="APK not found")
-    
+
     # Validate that file_path exists (not empty or None)
     if not apk.file_path or apk.file_path.strip() == "":
         structured_logger.log_event(
@@ -7052,10 +8035,10 @@ async def download_apk_version(
             package_name=apk.package_name
         )
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
         )
-    
+
     # Download from App Storage
     try:
         storage = get_storage_service()
@@ -7064,7 +8047,7 @@ async def download_apk_version(
         raise HTTPException(status_code=404, detail="APK file not found in storage")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
-    
+
     structured_logger.log_event(
         "apk.download",
         build_id=apk.id,
@@ -7075,7 +8058,7 @@ async def download_apk_version(
         source=auth_source,
         device_id=device.id if device else None
     )
-    
+
     download_event = ApkDownloadEvent(
         build_id=apk.id,
         source=auth_source,
@@ -7085,17 +8068,17 @@ async def download_apk_version(
     )
     db.add(download_event)
     db.commit()
-    
+
     metrics.inc_counter("apk_download_total", {
         "build_type": apk.build_type or "unknown",
         "source": auth_source
     })
-    
+
     if device:
         print(f"[APK DOWNLOAD] Device {device.id} ({device.alias}) downloading APK {apk.package_name} v{apk.version_code}")
     else:
         print(f"[APK DOWNLOAD] Enrollment token download: APK {apk.package_name} v{apk.version_code}")
-    
+
     return Response(
         content=file_data,
         media_type="application/vnd.android.package-archive",
@@ -7115,14 +8098,14 @@ async def download_apk_web(
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     # Validate that file_path exists (not empty or None)
     if not apk.file_path or apk.file_path.strip() == "":
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
         )
-    
+
     # Download from App Storage
     try:
         storage = get_storage_service()
@@ -7131,9 +8114,9 @@ async def download_apk_web(
         raise HTTPException(status_code=404, detail="APK file not found in storage")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
-    
+
     print(f"[APK WEB DOWNLOAD] User {current_user.username} downloading APK {apk.package_name} v{apk.version_code}")
-    
+
     return Response(
         content=file_data,
         media_type="application/vnd.android.package-archive",
@@ -7151,28 +8134,28 @@ async def download_latest_apk(
 ):
     """Download the latest APK version (requires X-Admin-Key) - For ADB enrollment scripts"""
     from models import ApkDownloadEvent
-    
+
     # Verify admin key
     if not x_admin_key or not verify_admin_key(x_admin_key):
         raise HTTPException(status_code=401, detail="Admin key required")
-    
+
     # Get the latest active APK
     apk = db.query(ApkVersion).filter(
         ApkVersion.is_active == True
     ).order_by(
         ApkVersion.uploaded_at.desc()
     ).first()
-    
+
     if not apk:
         raise HTTPException(status_code=404, detail="No APK versions available")
-    
+
     # Validate that file_path exists (not empty or None)
     if not apk.file_path or apk.file_path.strip() == "":
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
         )
-    
+
     # Download from App Storage
     try:
         storage = get_storage_service()
@@ -7181,7 +8164,7 @@ async def download_latest_apk(
         raise HTTPException(status_code=404, detail="APK file not found in storage")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
-    
+
     structured_logger.log_event(
         "apk.download",
         build_id=apk.id,
@@ -7192,7 +8175,7 @@ async def download_latest_apk(
         source="enrollment",
         auth_method="admin_key"
     )
-    
+
     download_event = ApkDownloadEvent(
         build_id=apk.id,
         source="enrollment",
@@ -7202,14 +8185,14 @@ async def download_latest_apk(
     )
     db.add(download_event)
     db.commit()
-    
+
     metrics.inc_counter("apk_download_total", {
         "build_type": apk.build_type or "unknown",
         "source": "enrollment"
     })
-    
+
     print(f"[APK LATEST DOWNLOAD] Downloading latest APK {apk.package_name} v{apk.version_code} via admin key")
-    
+
     return Response(
         content=file_data,
         media_type="application/vnd.android.package-archive",
@@ -7218,6 +8201,7 @@ async def download_latest_apk(
             "Content-Length": str(file_size)
         }
     )
+
 async def send_fcm_to_device(device, installation, apk, download_url, current_user, db):
     """Send FCM message to a single device (for parallel execution)"""
     message_data = {
@@ -7231,11 +8215,11 @@ async def send_fcm_to_device(device, installation, apk, download_url, current_us
         "file_size": str(apk.file_size),
         "sha256": apk.sha256 or ""
     }
-    
+
     access_token = get_access_token()
     project_id = get_firebase_project_id()
     fcm_url = build_fcm_v1_url(project_id)
-    
+
     message_payload = {
         "message": {
             "token": device.fcm_token,
@@ -7245,7 +8229,7 @@ async def send_fcm_to_device(device, installation, apk, download_url, current_us
             }
         }
     }
-    
+
     try:
         import httpx
         async with httpx.AsyncClient() as client:
@@ -7258,7 +8242,7 @@ async def send_fcm_to_device(device, installation, apk, download_url, current_us
                 json=message_payload,
                 timeout=10.0
             )
-            
+
             if response.status_code == 200:
                 log_device_event(db, device.id, "apk_deploy_initiated", {
                     "apk_id": apk.id,
@@ -7296,23 +8280,23 @@ async def deploy_apk_to_devices(
     apk = db.query(ApkVersion).filter(ApkVersion.id == request.apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     if request.device_ids:
         devices = db.query(Device).filter(Device.id.in_(request.device_ids)).all()
     else:
         devices = db.query(Device).all()
-    
+
     if not devices:
         raise HTTPException(status_code=400, detail="No devices found")
-    
+
     base_url = config.server_url
-    
+
     download_url = get_apk_download_url(apk, base_url)
-    
+
     # Step 1: Create installation records for all devices and filter out devices without FCM token
     tasks = []
     failed_devices = []
-    
+
     for device in devices:
         if not device.fcm_token:
             failed_devices.append({
@@ -7321,7 +8305,7 @@ async def deploy_apk_to_devices(
                 "reason": "No FCM token"
             })
             continue
-        
+
         installation = ApkInstallation(
             device_id=device.id,
             apk_version_id=apk.id,
@@ -7332,28 +8316,28 @@ async def deploy_apk_to_devices(
         )
         db.add(installation)
         db.flush()
-        
+
         # Prepare parallel FCM task
         tasks.append(send_fcm_to_device(device, installation, apk, download_url, current_user, db))
-    
+
     # Step 2: Send all FCM messages in parallel using asyncio.gather
     print(f"[APK DEPLOY] Broadcasting to {len(tasks)} devices in parallel...")
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Step 3: Process results
     success_count = 0
     installation_ids = []
     installations = []
-    
+
     for result in results:
         if isinstance(result, Exception):
             print(f"[APK DEPLOY ERROR] {result}")
             continue
-        
+
         if not isinstance(result, dict):
             print(f"[APK DEPLOY ERROR] Unexpected result type: {type(result)}")
             continue
-            
+
         if result.get("success"):
             success_count += 1
             installation_ids.append(result["installation_id"])
@@ -7373,11 +8357,11 @@ async def deploy_apk_to_devices(
                 "alias": result["device"].alias,
                 "reason": result.get("reason", "Unknown error")
             })
-    
+
     db.commit()
-    
+
     print(f"[APK DEPLOY] Complete: {success_count} successful, {len(failed_devices)} failed")
-    
+
     return {
         "success": True,
         "total_devices": len(devices),
@@ -7404,22 +8388,22 @@ async def delete_apk(
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     storage_dir = os.path.join(os.path.dirname(__file__), "apk_storage")
     apk_file_path = os.path.join(storage_dir, f"{apk.package_name}_{apk.version_code}.apk")
-    
+
     if os.path.exists(apk_file_path):
         try:
             os.remove(apk_file_path)
             print(f"Deleted APK file: {apk_file_path}")
         except Exception as e:
             print(f"Failed to delete APK file: {e}")
-    
+
     db.query(ApkInstallation).filter(ApkInstallation.apk_version_id == apk_id).delete()
-    
+
     db.delete(apk)
     db.commit()
-    
+
     return {"success": True, "message": "APK deleted successfully"}
 
 @app.get("/v1/apk/installations/{device_id}")
@@ -7432,7 +8416,7 @@ async def get_device_installation_status(
     installations = db.query(ApkInstallation).filter(
         ApkInstallation.device_id == device_id
     ).order_by(ApkInstallation.initiated_at.desc()).all()
-    
+
     return [{
         "id": inst.id,
         "apk_version_id": inst.apk_version_id,
@@ -7453,14 +8437,14 @@ async def get_all_installation_status(
 ):
     """Get installation status across all devices, optionally filtered by APK or status"""
     query = db.query(ApkInstallation)
-    
+
     if apk_id:
         query = query.filter(ApkInstallation.apk_version_id == apk_id)
     if status:
         query = query.filter(ApkInstallation.status == status)
-    
+
     installations = query.order_by(ApkInstallation.initiated_at.desc()).all()
-    
+
     return [{
         "id": inst.id,
         "device_id": inst.device_id,
@@ -7490,29 +8474,29 @@ async def update_installation_status(
     rate_limit_key = f"apk_update_{payload.installation_id}"
     if not apk_rate_limiter.is_allowed(rate_limit_key):
         raise HTTPException(status_code=429, detail="Too many update requests, slow down")
-    
+
     # Optimize: Only fetch installations first to get device_id, then verify
     installation = db.query(ApkInstallation).filter(
         ApkInstallation.id == payload.installation_id
     ).first()
-    
+
     if not installation:
         raise HTTPException(status_code=404, detail="Installation not found")
-    
+
     # Only verify against the specific device (much faster)
     device = db.query(Device).filter(Device.id == installation.device_id).first()
-    
+
     if not device or not verify_token(x_device_token, device.token_hash):
         raise HTTPException(status_code=401, detail="Invalid device token")
-    
+
     installation = db.query(ApkInstallation).filter(
         ApkInstallation.id == payload.installation_id,
         ApkInstallation.device_id == device.id
     ).first()
-    
+
     if not installation:
         raise HTTPException(status_code=404, detail="Installation not found")
-    
+
     installation.status = payload.status
     if payload.download_progress is not None:
         installation.download_progress = payload.download_progress
@@ -7520,15 +8504,15 @@ async def update_installation_status(
         installation.error_message = payload.error_message
     if payload.status in ["completed", "failed"]:
         installation.completed_at = datetime.now(timezone.utc)
-        
+
         event_type = "apk_install_success" if payload.status == "completed" else "apk_install_failed"
         details = {"installation_id": payload.installation_id, "status": payload.status}
         if payload.error_message:
             details["error"] = payload.error_message
         log_device_event(db, device.id, event_type, details)
-    
+
     db.commit()
-    
+
     await manager.broadcast({
         "type": "installation_update",
         "device_id": device.id,
@@ -7536,7 +8520,7 @@ async def update_installation_status(
         "status": payload.status,
         "progress": payload.download_progress
     })
-    
+
     return {"success": True}
 
 # ==================== OTA Update Management ====================
@@ -7554,51 +8538,51 @@ async def agent_update_check(
     """
     from ota_utils import get_current_build, is_device_eligible_for_rollout, increment_deployment_stat, log_ota_event, calculate_sha256
     from models import ApkDownloadEvent
-    
+
     device = get_device_by_token(x_device_token, db)
-    
+
     if not device:
         metrics.inc_counter("ota_checks_total", {"status": "unauthorized"})
         raise HTTPException(status_code=401, detail="Invalid device token")
-    
+
     current_build = get_current_build(db, package_name="com.nexmdm.agent")
-    
+
     if not current_build:
         log_ota_event("ota.manifest.304", device_id=device.id, reason="no_current_build")
         metrics.inc_counter("ota_checks_total", {"status": "no_build"})
         raise HTTPException(status_code=304, detail="No current build available")
-    
+
     increment_deployment_stat(db, current_build.id, "total_checks")
-    
+
     if current_version_code and current_version_code >= current_build.version_code:
-        log_ota_event("ota.manifest.304", device_id=device.id, build_id=current_build.id, 
+        log_ota_event("ota.manifest.304", device_id=device.id, build_id=current_build.id,
                      current_version=current_version_code, reason="up_to_date")
         metrics.inc_counter("ota_checks_total", {"status": "up_to_date"})
         raise HTTPException(status_code=304, detail="Already on current version")
-    
+
     if not is_device_eligible_for_rollout(device.id, current_build.staged_rollout_percent):
         log_ota_event("ota.manifest.304", device_id=device.id, build_id=current_build.id,
                      rollout_percent=current_build.staged_rollout_percent, reason="cohort_ineligible")
         metrics.inc_counter("ota_checks_total", {"status": "cohort_ineligible"})
         raise HTTPException(status_code=304, detail="Not in rollout cohort")
-    
+
     increment_deployment_stat(db, current_build.id, "total_eligible")
-    
+
     base_url = config.server_url
-    
+
     download_url = f"{base_url}/v1/apk/download/{current_build.id}"
-    
+
     sha256_checksum = None
     if os.path.exists(current_build.file_path):
         try:
             sha256_checksum = calculate_sha256(current_build.file_path)
         except Exception as e:
             print(f"Failed to calculate SHA256 for build {current_build.id}: {e}")
-    
+
     log_ota_event("ota.manifest.200", device_id=device.id, build_id=current_build.id,
                  version_code=current_build.version_code, rollout_percent=current_build.staged_rollout_percent)
     metrics.inc_counter("ota_checks_total", {"status": "update_available"})
-    
+
     return {
         "update_available": True,
         "build_id": current_build.id,
@@ -7631,27 +8615,27 @@ async def promote_apk_build(
     Demotes any previously promoted build for the same package.
     """
     from ota_utils import log_ota_event, get_or_create_deployment_stats
-    
+
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     if not apk.is_active:
         raise HTTPException(status_code=400, detail="Cannot promote inactive APK")
-    
+
     if payload.staged_rollout_percent < 0 or payload.staged_rollout_percent > 100:
         raise HTTPException(status_code=400, detail="Rollout percent must be between 0 and 100")
-    
+
     previous_current = db.query(ApkVersion).filter(
         ApkVersion.package_name == apk.package_name,
         ApkVersion.is_current == True
     ).first()
-    
+
     if previous_current:
         previous_current.is_current = False
-        log_ota_event("ota.demote", build_id=previous_current.id, 
+        log_ota_event("ota.demote", build_id=previous_current.id,
                      version_code=previous_current.version_code, promoted_to=apk.id)
-    
+
     apk.is_current = True
     apk.staged_rollout_percent = payload.staged_rollout_percent
     apk.wifi_only = payload.wifi_only
@@ -7660,16 +8644,16 @@ async def promote_apk_build(
     apk.promoted_by = current_user.username
     if previous_current:
         apk.rollback_from_build_id = previous_current.id
-    
+
     get_or_create_deployment_stats(db, apk.id)
-    
+
     db.commit()
-    
+
     log_ota_event("ota.promote", build_id=apk.id, version_code=apk.version_code,
                  rollout_percent=payload.staged_rollout_percent, promoted_by=current_user.username,
                  wifi_only=payload.wifi_only, must_install=payload.must_install)
     metrics.inc_counter("ota_promotions_total", {"package": apk.package_name})
-    
+
     structured_logger.log_event(
         "ota.promote",
         build_id=apk.id,
@@ -7678,7 +8662,7 @@ async def promote_apk_build(
         rollout_percent=payload.staged_rollout_percent,
         promoted_by=current_user.username
     )
-    
+
     return {
         "success": True,
         "build_id": apk.id,
@@ -7704,35 +8688,36 @@ async def update_rollout_percentage(
     Update staged rollout percentage for the current build.
     """
     from ota_utils import log_ota_event
-    
+
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     if not apk.is_current:
         raise HTTPException(status_code=400, detail="APK is not the current build")
-    
+
     if payload.staged_rollout_percent < 0 or payload.staged_rollout_percent > 100:
         raise HTTPException(status_code=400, detail="Rollout percent must be between 0 and 100")
-    
+
     old_percent = apk.staged_rollout_percent
     apk.staged_rollout_percent = payload.staged_rollout_percent
-    
+
     db.commit()
-    
-    log_ota_event("ota.rollout.update", build_id=apk.id, version_code=apk.version_code,
+
+    log_ota_event("ota.rollout.update", build_id=apk.id,
+                 version_code=apk.version_code,
                  old_percent=old_percent, new_percent=payload.staged_rollout_percent,
                  updated_by=current_user.username)
-    
+
     structured_logger.log_event(
         "ota.rollout.update",
         build_id=apk.id,
         version_code=apk.version_code,
         old_percent=old_percent,
-        new_percent=payload.staged_rollout_percent,
+        new_percent=apk.staged_rollout_percent,
         updated_by=current_user.username
     )
-    
+
     return {
         "success": True,
         "build_id": apk.id,
@@ -7755,41 +8740,41 @@ async def rollback_to_previous_build(
     Sets the rollback_from build as current again.
     """
     from ota_utils import log_ota_event
-    
+
     current_build = db.query(ApkVersion).filter(
         ApkVersion.is_current == True
     ).first()
-    
+
     if not current_build:
         raise HTTPException(status_code=404, detail="No current build to rollback from")
-    
+
     if not current_build.rollback_from_build_id:
         raise HTTPException(status_code=400, detail="No previous build available for rollback")
-    
+
     previous_build = db.query(ApkVersion).filter(
         ApkVersion.id == current_build.rollback_from_build_id
     ).first()
-    
+
     if not previous_build:
         raise HTTPException(status_code=404, detail="Previous build not found")
-    
+
     current_build.is_current = False
     previous_build.is_current = True
     previous_build.promoted_at = datetime.now(timezone.utc)
     previous_build.promoted_by = f"{current_user.username} (rollback)"
-    
+
     if payload.force_downgrade:
         previous_build.must_install = True
-    
+
     db.commit()
-    
-    log_ota_event("ota.rollback", build_id=previous_build.id, 
+
+    log_ota_event("ota.rollback", build_id=previous_build.id,
                  version_code=previous_build.version_code,
                  rolled_back_from=current_build.id,
                  force_downgrade=payload.force_downgrade,
                  performed_by=current_user.username)
     metrics.inc_counter("ota_rollbacks_total", {"package": previous_build.package_name})
-    
+
     structured_logger.log_event(
         "ota.rollback",
         from_build_id=current_build.id,
@@ -7799,7 +8784,7 @@ async def rollback_to_previous_build(
         force_downgrade=payload.force_downgrade,
         performed_by=current_user.username
     )
-    
+
     return {
         "success": True,
         "rolled_back_to": {
@@ -7825,15 +8810,15 @@ async def get_deployment_stats(
     Get deployment statistics for a specific build.
     """
     from models import ApkDeploymentStats
-    
+
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
-    
+
     stats = db.query(ApkDeploymentStats).filter(
         ApkDeploymentStats.build_id == apk_id
     ).first()
-    
+
     if not stats:
         return {
             "build_id": apk_id,
@@ -7845,10 +8830,37 @@ async def get_deployment_stats(
             "verify_failed": 0,
             "last_updated": None
         }
-    
+
     return {
         "build_id": stats.build_id,
-        "total_checks": stats.total_checks,
+        "total_files = {
+        'file': ('app.apk', open('app-debug.apk', 'rb'), 'application/vnd.android.package-archive')
+    }
+    data = {
+        'build_id': 'build_001',
+        'version_code': '123',
+        'version_name': '1.2.3',
+        'build_type': 'debug',
+        'package_name': 'com.nexmdm.agent'
+    }
+    response = requests.post(
+        'https://your-app.repl.co/admin/apk/upload',
+        headers={'X-Admin': 'your-admin-key'},
+        files=files,
+        data=data
+    )
+    ```
+
+    **Example - curl:**
+    ```bash
+    curl -X POST https://your-app.repl.co/admin/apk/upload \
+      -H "X-Admin: your-admin-key" \
+      -F "file=@app-debug.apk" \
+      -F "build_id=build_001" \
+      -F "version_code=123" \
+      -F "version_name=1.2.3" \
+      -F "build_type=debug" \
+      -F "package_name=com.nexmdm.agent""total_checks": stats.total_checks,
         "total_eligible": stats.total_eligible,
         "total_downloads": stats.total_downloads,
         "installs_success": stats.installs_success,
@@ -7857,9 +8869,6 @@ async def get_deployment_stats(
         "last_updated": stats.last_updated.isoformat() if stats.last_updated else None,
         "adoption_rate": round((stats.installs_success / stats.total_eligible * 100), 2) if stats.total_eligible > 0 else 0
     }
-
-class NudgeUpdateRequest(BaseModel):
-    device_ids: Optional[list[str]] = None
 
 @app.post("/v1/apk/nudge-update")
 async def nudge_update_check(
@@ -7872,15 +8881,15 @@ async def nudge_update_check(
     If device_ids is None, sends to all devices with FCM tokens.
     """
     import httpx
-    
+
     if payload.device_ids:
         devices = db.query(Device).filter(Device.id.in_(payload.device_ids)).all()
     else:
         devices = db.query(Device).filter(Device.fcm_token.isnot(None)).all()
-    
+
     if not devices:
-        raise HTTPException(status_code=404, detail="No devices found with FCM tokens")
-    
+        raise HTTPException(status_code=404, detail="No devices found")
+
     # Get FCM credentials
     try:
         access_token = get_access_token()
@@ -7888,10 +8897,10 @@ async def nudge_update_check(
         fcm_url = build_fcm_v1_url(project_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"FCM configuration error: {str(e)}")
-    
+
     success_count = 0
     failed_devices = []
-    
+
     for device in devices:
         if not device.fcm_token:
             failed_devices.append({
@@ -7900,12 +8909,12 @@ async def nudge_update_check(
                 "reason": "No FCM token"
             })
             continue
-        
+
         try:
             request_id = str(uuid.uuid4())
             timestamp = datetime.now(timezone.utc).isoformat()
             hmac_sig = compute_hmac_signature(request_id, device.id, "update", timestamp)
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -7921,19 +8930,14 @@ async def nudge_update_check(
                     }
                 }
             }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    fcm_url,
-                    json=message,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
-                )
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(fcm_url, json=message, headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json"
+                })
                 result = {"success": response.status_code == 200}
-            
+
             if result.get("success"):
                 success_count += 1
                 log_device_event(db, device.id, "ota_update_nudge_sent", {
@@ -7946,14 +8950,14 @@ async def nudge_update_check(
                     "alias": device.alias,
                     "reason": result.get("error", "FCM send failed")
                 })
-                
+
         except Exception as e:
             failed_devices.append({
                 "device_id": device.id,
                 "alias": device.alias,
                 "reason": str(e)
             })
-    
+
     structured_logger.log_event(
         "ota.nudge.sent",
         total_devices=len(devices),
@@ -7961,9 +8965,9 @@ async def nudge_update_check(
         failed_count=len(failed_devices),
         initiated_by=current_user.username
     )
-    
+
     metrics.inc_counter("ota_nudge_total", {"status": "sent"}, value=success_count)
-    
+
     return {
         "success": True,
         "total_devices": len(devices),
@@ -8000,13 +9004,13 @@ async def register_apk_build(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     existing = db.query(ApkVersion).filter(
         ApkVersion.package_name == payload.package_name,
         ApkVersion.version_code == payload.version_code,
         ApkVersion.build_type == payload.build_type
     ).first()
-    
+
     if existing:
         existing.version_name = payload.version_name
         existing.file_size = payload.file_size_bytes
@@ -8040,7 +9044,7 @@ async def register_apk_build(
         db.commit()
         db.refresh(apk_version)
         action = "registered"
-    
+
     structured_logger.log_event(
         "apk.register",
         build_id=apk_version.id,
@@ -8051,12 +9055,12 @@ async def register_apk_build(
         git_sha=payload.git_sha,
         action=action
     )
-    
+
     metrics.inc_counter("apk_builds_total", {
         "build_type": payload.build_type,
         "action": action
     })
-    
+
     return {
         "success": True,
         "action": action,
@@ -8079,14 +9083,14 @@ async def upload_apk_file(
 ):
     """
     Upload APK file binary to Replit Object Storage.
-    
+
     **IMPORTANT:** This endpoint requires multipart/form-data encoding.
     All metadata fields must be sent as form fields alongside the file.
-    
+
     **Two-Step Upload Process:**
     1. Call /admin/apk/register to register APK metadata
     2. Call /admin/apk/upload to upload the actual APK file
-    
+
     **Required Form Fields:**
     - file: APK binary file (multipart/form-data, must end with .apk)
     - build_id: Unique build identifier (must match registered build)
@@ -8094,15 +9098,15 @@ async def upload_apk_file(
     - version_name: Human-readable version (e.g., "1.2.3")
     - build_type: Build type ("debug" or "release")
     - package_name: Android package name (default: "com.nexmdm.agent")
-    
+
     **Authentication:**
     - X-Admin header with admin key required
-    
+
     **File Constraints:**
     - Maximum size: 120MB (enforced by object storage)
     - Must be a valid .apk file
     - Build metadata must be registered first via /admin/apk/register
-    
+
     **Example - Python with requests:**
     ```python
     files = {
@@ -8122,7 +9126,7 @@ async def upload_apk_file(
         data=data
     )
     ```
-    
+
     **Example - curl:**
     ```bash
     curl -X POST https://your-app.repl.co/admin/apk/upload \
@@ -8134,7 +9138,7 @@ async def upload_apk_file(
       -F "build_type=debug" \
       -F "package_name=com.nexmdm.agent"
     ```
-    
+
     **Response Codes:**
     - 200: Upload successful
     - 400: Invalid file type (not .apk)
@@ -8142,47 +9146,47 @@ async def upload_apk_file(
     - 404: Build not registered (call /admin/apk/register first)
     - 413: File too large (>120MB)
     - 500: Storage upload failed
-    
+
     **Storage:**
     Files are stored in Replit Object Storage with automatic sidecar authentication.
     Storage path format: storage://apk/{build_type}/{uuid}_{filename}.apk
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     if not file.filename or not file.filename.endswith('.apk'):
         raise HTTPException(status_code=400, detail="Invalid file type. Must be .apk")
-    
+
     existing = db.query(ApkVersion).filter(
         ApkVersion.package_name == package_name,
         ApkVersion.version_code == version_code,
         ApkVersion.build_type == build_type
     ).first()
-    
+
     if not existing:
         raise HTTPException(
-            status_code=404, 
+            status_code=404,
             detail=f"APK build not found. Please call /admin/apk/register first to register metadata."
         )
-    
+
     # Upload to App Storage
     try:
         content = await file.read()
         file_size = len(content)
-        
+
         storage = get_storage_service()
-        final_filename = f"{package_name}_{version_code}_{build_type}.apk"
+        final_filename = f"{package_name}_{version_code}.apk"
         object_path = storage.upload_file(
             file_data=content,
             filename=final_filename,
             content_type="application/vnd.android.package-archive"
         )
-        
+
         existing.file_path = object_path
         existing.file_size = file_size
         db.commit()
         db.refresh(existing)
-        
+
         structured_logger.log_event(
             "apk.upload",
             build_id=existing.id,
@@ -8192,9 +9196,9 @@ async def upload_apk_file(
             file_size=file_size,
             file_path=object_path
         )
-        
+
         metrics.inc_counter("apk_uploads_total", {"build_type": build_type})
-        
+
         return {
             "success": True,
             "build_id": existing.id,
@@ -8226,19 +9230,19 @@ async def list_apk_builds(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     query = db.query(ApkVersion).filter(ApkVersion.is_active == True)
-    
+
     if build_type:
         query = query.filter(ApkVersion.build_type == build_type)
-    
+
     if order == "asc":
         query = query.order_by(ApkVersion.uploaded_at.asc())
     else:
         query = query.order_by(ApkVersion.uploaded_at.desc())
-    
+
     apks = query.limit(limit).all()
-    
+
     builds = []
     for apk in apks:
         builds.append({
@@ -8255,14 +9259,14 @@ async def list_apk_builds(
             "signer_fingerprint": apk.signer_fingerprint,
             "package_name": apk.package_name
         })
-    
+
     structured_logger.log_event(
         "apk.list",
         build_type=build_type,
         count=len(builds),
         limit=limit
     )
-    
+
     return {"builds": builds}
 
 @app.get("/admin/apk/download/{build_id}")
@@ -8283,7 +9287,7 @@ async def download_apk_build_admin(
         source="admin",
         ip=request.client.host if request.client else None
     )
-    
+
     if not verify_admin_key(x_admin or ""):
         structured_logger.log_event(
             "apk.download.auth_failed",
@@ -8291,7 +9295,7 @@ async def download_apk_build_admin(
             reason="missing_or_invalid_admin_key"
         )
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
     if not apk:
         structured_logger.log_event(
@@ -8300,7 +9304,7 @@ async def download_apk_build_admin(
             reason="apk_record_not_in_database"
         )
         raise HTTPException(status_code=404, detail="APK build not found")
-    
+
     structured_logger.log_event(
         "apk.download.found",
         build_id=build_id,
@@ -8309,15 +9313,15 @@ async def download_apk_build_admin(
         version_name=apk.version_name,
         package_name=apk.package_name
     )
-    
+
     # Determine if file is in local storage or object storage
     file_data = None
     file_size = 0
     is_local_file = apk.file_path and (
-        apk.file_path.startswith("./") or 
+        apk.file_path.startswith("./") or
         apk.file_path.startswith("/") and not apk.file_path.startswith("/nexmdm-apks")
     )
-    
+
     if is_local_file:
         # Handle local file storage (legacy)
         structured_logger.log_event(
@@ -8335,11 +9339,11 @@ async def download_apk_build_admin(
                     file_path=apk.file_path
                 )
                 raise HTTPException(status_code=404, detail=f"APK file not found at {apk.file_path}")
-            
+
             with open(apk.file_path, 'rb') as f:
                 file_data = f.read()
             file_size = len(file_data)
-            
+
             structured_logger.log_event(
                 "apk.download.local_success",
                 build_id=build_id,
@@ -8366,7 +9370,7 @@ async def download_apk_build_admin(
         try:
             storage = get_storage_service()
             file_data, content_type, file_size = storage.download_file(apk.file_path)
-            
+
             structured_logger.log_event(
                 "apk.download.object_storage_success",
                 build_id=build_id,
@@ -8389,7 +9393,7 @@ async def download_apk_build_admin(
                 file_path=apk.file_path
             )
             raise HTTPException(status_code=500, detail=f"Failed to download APK: {str(e)}")
-    
+
     structured_logger.log_event(
         "apk.download.success",
         build_id=apk.id,
@@ -8399,7 +9403,7 @@ async def download_apk_build_admin(
         source="admin",
         file_size=file_size
     )
-    
+
     download_event = ApkDownloadEvent(
         build_id=apk.id,
         source="admin",
@@ -8409,12 +9413,12 @@ async def download_apk_build_admin(
     )
     db.add(download_event)
     db.commit()
-    
+
     metrics.inc_counter("apk_download_total", {
         "build_type": apk.build_type or "unknown",
         "source": "admin"
     })
-    
+
     return Response(
         content=file_data,
         media_type="application/vnd.android.package-archive",
@@ -8437,13 +9441,13 @@ async def delete_apk_build(
     """
     if not verify_admin_key(x_admin or ""):
         raise HTTPException(status_code=403, detail="Admin key required")
-    
+
     apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK build not found")
-    
+
     file_path = apk.file_path
-    
+
     # Delete from App Storage
     file_deleted = False
     if file_path:
@@ -8452,11 +9456,11 @@ async def delete_apk_build(
             file_deleted = storage.delete_file(file_path)
         except Exception as e:
             print(f"[APK DELETE] Failed to delete file from storage {file_path}: {e}")
-    
+
     # Mark as inactive in database
     apk.is_active = False
     db.commit()
-    
+
     structured_logger.log_event(
         "apk.delete",
         build_id=build_id,
@@ -8465,11 +9469,11 @@ async def delete_apk_build(
         build_type=apk.build_type or "unknown",
         file_deleted=file_deleted
     )
-    
+
     metrics.inc_counter("apk_delete_total", {
         "build_type": apk.build_type or "unknown"
     })
-    
+
     return {
         "success": True,
         "build_id": build_id,
@@ -8485,7 +9489,7 @@ async def get_battery_whitelist(
 ):
     """Get all battery optimization whitelist entries"""
     whitelist = db.query(BatteryWhitelist).order_by(BatteryWhitelist.added_at.desc()).all()
-    
+
     return [{
         "id": entry.id,
         "package_name": entry.package_name,
@@ -8509,21 +9513,21 @@ async def add_battery_whitelist(
     existing = db.query(BatteryWhitelist).filter(
         BatteryWhitelist.package_name == payload.package_name
     ).first()
-    
+
     if existing:
         raise HTTPException(status_code=400, detail="Package already in whitelist")
-    
+
     new_entry = BatteryWhitelist(
         package_name=payload.package_name,
         app_name=payload.app_name,
         enabled=True,
         added_by=current_user.username
     )
-    
+
     db.add(new_entry)
     db.commit()
     db.refresh(new_entry)
-    
+
     return {
         "id": new_entry.id,
         "package_name": new_entry.package_name,
@@ -8541,13 +9545,13 @@ async def delete_battery_whitelist(
 ):
     """Remove app from battery optimization whitelist"""
     entry = db.query(BatteryWhitelist).filter(BatteryWhitelist.id == whitelist_id).first()
-    
+
     if not entry:
         raise HTTPException(status_code=404, detail="Whitelist entry not found")
-    
+
     db.delete(entry)
     db.commit()
-    
+
     return {"ok": True, "message": f"Removed {entry.app_name} from whitelist"}
 
 @app.post("/v1/devices/apply-battery-whitelist")
@@ -8559,40 +9563,40 @@ async def apply_battery_whitelist_to_fleet(
     """Apply battery whitelist to all devices or specific devices via FCM"""
     print(f"[BATTERY-WHITELIST] Endpoint called by user: {current_user.username}")
     print(f"[BATTERY-WHITELIST] Device IDs filter: {device_ids}")
-    
+
     whitelist = db.query(BatteryWhitelist).filter(BatteryWhitelist.enabled == True).all()
-    
+
     if not whitelist:
         print("[BATTERY-WHITELIST] ERROR: No enabled whitelist entries found")
         raise HTTPException(status_code=400, detail="No enabled whitelist entries found")
-    
+
     package_names = [entry.package_name for entry in whitelist]
     print(f"[BATTERY-WHITELIST] Packages to apply: {package_names}")
-    
+
     if device_ids:
         devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
         print(f"[BATTERY-WHITELIST] Filtered to {len(devices)} specific devices")
     else:
         devices = db.query(Device).all()
         print(f"[BATTERY-WHITELIST] Applying to all {len(devices)} devices")
-    
+
     devices_with_fcm = [d for d in devices if d.fcm_token]
     print(f"[BATTERY-WHITELIST] Found {len(devices_with_fcm)} devices with FCM tokens")
-    
+
     if not devices_with_fcm:
         print("[BATTERY-WHITELIST] ERROR: No devices with FCM tokens found")
         raise HTTPException(status_code=400, detail="No devices with FCM tokens found")
-    
+
     success_count = 0
     failed_count = 0
-    
+
     for device in devices_with_fcm:
         try:
             print(f"[BATTERY-WHITELIST] Sending FCM to device: {device.alias} ({device.id})")
             access_token = get_access_token()
             project_id = get_firebase_project_id()
             fcm_url = build_fcm_v1_url(project_id)
-            
+
             message = {
                 "message": {
                     "token": device.fcm_token,
@@ -8605,17 +9609,17 @@ async def apply_battery_whitelist_to_fleet(
                     }
                 }
             }
-            
+
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json"
             }
-            
+
             import httpx
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(fcm_url, json=message, headers=headers)
                 print(f"[BATTERY-WHITELIST] FCM response for {device.alias}: {response.status_code}")
-                
+
                 if response.status_code == 200:
                     success_count += 1
                     print(f"[BATTERY-WHITELIST] SUCCESS: Applied to {device.alias}")
@@ -8629,9 +9633,9 @@ async def apply_battery_whitelist_to_fleet(
         except Exception as e:
             print(f"[BATTERY-WHITELIST] EXCEPTION for {device.id}: {e}")
             failed_count += 1
-    
+
     db.commit()
-    
+
     return {
         "ok": True,
         "total_devices": len(devices_with_fcm),
@@ -8648,25 +9652,25 @@ async def apply_battery_whitelist_to_device(
 ):
     """Apply battery whitelist to a specific device via FCM"""
     device = db.query(Device).filter(Device.id == device_id).first()
-    
+
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not device.fcm_token:
         raise HTTPException(status_code=400, detail="Device has no FCM token")
-    
+
     whitelist = db.query(BatteryWhitelist).filter(BatteryWhitelist.enabled == True).all()
-    
+
     if not whitelist:
         raise HTTPException(status_code=400, detail="No enabled whitelist entries found")
-    
+
     package_names = [entry.package_name for entry in whitelist]
-    
+
     try:
         access_token = get_access_token()
         project_id = get_firebase_project_id()
         fcm_url = build_fcm_v1_url(project_id)
-        
+
         message = {
             "message": {
                 "token": device.fcm_token,
@@ -8679,25 +9683,24 @@ async def apply_battery_whitelist_to_device(
                 }
             }
         }
-        
+
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
-        
+
         import httpx
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(fcm_url, json=message, headers=headers)
-            
             if response.status_code != 200:
                 raise HTTPException(status_code=500, detail=f"FCM failed: {response.text}")
-        
+
         log_device_event(db, device.id, "battery_whitelist_applied", {
             "packages": package_names,
             "count": len(package_names)
         })
         db.commit()
-        
+
         return {
             "ok": True,
             "device_id": device_id,
@@ -8705,809 +9708,3 @@ async def apply_battery_whitelist_to_device(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send FCM: {str(e)}")
-
-@app.get("/v1/apk/download-optimized/{apk_id}")
-async def download_apk_optimized_endpoint(
-    apk_id: int,
-    request: Request,
-    x_device_token: Optional[str] = Header(None),
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
-    installation_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """
-    Optimized APK download endpoint with caching and telemetry.
-    
-    Features:
-    - In-memory caching (200MB, 1hr TTL)
-    - Download telemetry tracking  
-    - SHA-256 in response headers for client-side caching
-    - No rate limiting for deployments
-    
-    Requires device token or admin key authentication.
-    """
-    device = None
-    device_id = None
-    
-    # Authenticate
-    if x_admin_key and verify_admin_key(x_admin_key):
-        pass  # Admin authenticated
-    elif x_device_token:
-        device = get_device_by_token(x_device_token, db)
-        if device:
-            device_id = device.id
-        else:
-            raise HTTPException(status_code=401, detail="Invalid device token")
-    else:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    # Use optimized download service
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        device_id=device_id,
-        installation_id=installation_id,
-        use_cache=True
-    )
-
-def build_batch_bloatware_disable_command(package_names: list[str]) -> str:
-    """
-    Build a shell script that disables a list of packages gracefully.
-    Uses a loop over a temp file to avoid command-line length limits.  
-    Skips packages that don't exist or are already disabled.
-    
-    Returns the complete shell script as a single string.
-    
-    Note: Does NOT wrap in 'sh -c' because the Android app adds that wrapper automatically.
-    """
-    # Use variable-based approach that matches validation expectations
-    script = """TMP_DIR="/data/data/com.nexmdm/files"
-LIST_FILE="$TMP_DIR/bloat_list.txt"
-
-mkdir -p "$TMP_DIR"
-cat > "$LIST_FILE" << 'EOF'
-{chr(10).join(package_names)}
-EOF
-
-count=0
-failed=0
-while IFS= read -r pkg; do
-  if [ -z "$pkg" ]; then
-    continue
-  fi
-  if pm disable-user --user 0 "$pkg" 2>/dev/null; then
-    count=$((count + 1))
-  else
-    failed=$((failed + 1))
-  fi
-done < "$LIST_FILE"
-
-rm -f "$LIST_FILE"
-
-echo "Disabled $count packages ($failed skipped or failed)" """
-    
-    return script
-def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
-    """
-    Validate a single shell command (without && chaining).
-    Returns (is_valid, error_message)
-    """
-    import re
-    import shlex
-    
-    cmd = cmd.strip()
-    if not cmd:
-        return False, "Command is empty"
-    
-    # Tokenize the command safely
-    try:
-        tokens = shlex.split(cmd)
-    except ValueError:
-        return False, "Invalid command syntax"
-    
-    if not tokens:
-        return False, "Command is empty"
-    
-    # Special handling for cmd jobscheduler (token-based validation)
-    if len(tokens) >= 4 and tokens[0] == "cmd" and tokens[1] == "jobscheduler" and tokens[2] == "run":
-        # Extract tokens after "cmd jobscheduler run"
-        remaining = tokens[3:]
-        
-        # Check for -f flag
-        has_f_flag = False
-        if remaining and remaining[0] == "-f":
-            has_f_flag = True
-            remaining = remaining[1:]
-        
-        # Must have at least service and job_id
-        if len(remaining) < 2:
-            return False, "Invalid jobscheduler command format"
-        
-        service_name = remaining[0]
-        job_id = remaining[1]
-        
-        # Verify no extra arguments
-        if len(remaining) > 2:
-            return False, "Unexpected arguments in jobscheduler command"
-        
-        # Validate service name (only SystemUpdateService allowed)
-        if service_name != "android/com.android.server.update.SystemUpdateService":
-            return False, "Only SystemUpdateService is allowed for jobscheduler"
-        
-        # Validate job_id is numeric
-        if not job_id.isdigit():
-            return False, "Job ID must be numeric"
-        
-        return True, None
-    
-    # Special handling for getprop (token-based validation)
-    if len(tokens) == 2 and tokens[0] == "getprop":
-        allowed_props = ["ro.build.version.release", "ro.build.version.security_patch"]
-        if tokens[1] in allowed_props:
-            return True, None
-        return False, f"Only {', '.join(allowed_props)} are allowed for getprop"
-    
-    # Allow disabling packages that are in the managed bloatware list
-    disable_match = re.match(r'^pm\s+disable-user\s+--user\s+0\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)$', cmd)
-    if disable_match:
-        package_name = disable_match.group(1)
-        db = None
-        try:
-            db = SessionLocal()
-            exists = (
-                db.query(BloatwarePackage)
-                .filter(
-                    BloatwarePackage.package_name == package_name,
-                    BloatwarePackage.enabled == True
-                )
-                .first()
-                is not None
-            )
-        except Exception as e:
-            print(f"[REMOTE-EXEC] Failed to validate bloatware package {package_name}: {e}")
-            exists = False
-        finally:
-            if db:
-                db.close()
-        
-        if exists:
-            return True, None
-        return False, f"Package {package_name} is not in the enabled bloatware list"
-    
-    # Regex-based validation for other commands
-    allow_patterns = [
-        r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
-        r'^am\s+force-stop\s+[A-Za-z0-9._]+$',
-        r'^cmd\s+package\s+(list|resolve-activity)\s+[A-Za-z0-9._\s-]*$',  # More restrictive
-        r'^settings\s+(get|put)\s+(secure|system|global)\s+[A-Za-z0-9._]+(\s+[A-Za-z0-9._]+)?$',  # More restrictive
-        r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
-        r'^svc\s+(wifi|data)\s+(enable|disable)$',
-        r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
-    ]
-    
-    for pattern in allow_patterns:
-        if re.match(pattern, cmd):
-            return True, None
-    
-    return False, "Command not in allow-list. Only safe, pre-approved commands are permitted."
-def validate_batch_bloatware_script(command: str) -> tuple[bool, Optional[str]]:
-    """
-    Validate a batch bloatware disable script.
-    These scripts use heredoc syntax and variables, which requires more specific validation
-    than the generic shell command checks.
-    
-    Returns (is_valid, error_message)
-    """
-    import re
-
-    # --- Structure and Security Checks ---
-    
-    # 1. Check for key components of the script
-    required_substrings = [
-        'mkdir -p',
-        'cat >',
-        "<< 'EOF'",
-        'while IFS= read -r pkg',
-        'pm disable-user --user 0',
-        'done <',
-        'rm -f'
-    ]
-    for sub in required_substrings:
-        if sub not in command:
-            return False, f"Invalid batch script: missing required component '{sub}'"
-
-    # 2. Extract and validate variable definitions (if present)
-    lines = command.split('\n')
-    
-    # Check for TMP_DIR variable or hardcoded path
-    tmp_dir_match = re.search(r'TMP_DIR=(["\']?)(.*?)\1', command)
-    if tmp_dir_match:
-        tmp_dir = tmp_dir_match.group(2)
-        # Validate that TMP_DIR is an allowed path
-        allowed_dirs = ["/data/local/tmp", "/data/data/com.nexmdm/files"]
-        if tmp_dir not in allowed_dirs:
-            return False, f"TMP_DIR ('{tmp_dir}') is not in an allowed directory"
-    else:
-        # Check for hardcoded path
-        if '/data/data/com.nexmdm/files' not in command:
-            return False, "Script must use /data/data/com.nexmdm/files directory"
-    
-    # 3. Verify consistent use of paths
-    if tmp_dir_match:
-        # Variable-based script - check for consistent variable usage
-        expected_patterns = [
-            rf'mkdir -p ["\']?\$TMP_DIR["\']?',
-            rf'cat > ["\']?\$LIST_FILE["\']?',
-            rf'done < ["\']?\$LIST_FILE["\']?',
-            rf'rm -f ["\']?\$LIST_FILE["\']?'
-        ]
-        for pattern in expected_patterns:
-            if not re.search(pattern, command):
-                return False, f"Script validation failed: inconsistent variable usage or missing pattern '{pattern}'"
-    else:
-        # Hardcoded path script - check for consistent path usage
-        expected_patterns = [
-            r'mkdir -p ["\']?/data/data/com\.nexmdm/files["\']?',
-            r'cat > ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
-            r'done < ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?',
-            r'rm -f ["\']?/data/data/com\.nexmdm/files/bloat_list\.txt["\']?'
-        ]
-        for pattern in expected_patterns:
-            if not re.search(pattern, command):
-                return False, f"Script validation failed: inconsistent path usage or missing pattern '{pattern}'"
-            
-    # 4. Check for the pm disable command (accept both with and without output capturing)
-    pm_command_patterns = [
-        r'pm disable-user --user 0 ["\']?\$pkg["\']? 2>/dev/null',
-        r'output=\$\(pm disable-user --user 0 ["\']?\$pkg["\']? 2>&1\)'
-    ]
-    if not any(re.search(pattern, command) for pattern in pm_command_patterns):
-        return False, "Script does not use the expected 'pm disable-user' command"
-
-    # --- Package List Validation ---
-
-    # 5. Extract package names from the heredoc
-    eof_pattern = r"<< 'EOF'\n(.*?)\nEOF"
-    match = re.search(eof_pattern, command, re.DOTALL)
-    if not match:
-        return False, "Invalid script format: could not find package list in heredoc"
-    
-    package_list_text = match.group(1)
-    packages = [line.strip() for line in package_list_text.split('\n') if line.strip()]
-    
-    if not packages:
-        return False, "No packages found in script"
-
-    # 6. Verify all packages are in the enabled bloatware database
-    db = None
-    try:
-        db = SessionLocal()
-        for package_name in packages:
-            if not re.match(r'^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$', package_name):
-                return False, f"Invalid package name format: {package_name}"
-            
-            exists = db.query(BloatwarePackage).filter(
-                BloatwarePackage.package_name == package_name,
-                BloatwarePackage.enabled == True
-            ).first() is not None
-            
-            if not exists:
-                return False, f"Package '{package_name}' is not in the enabled bloatware list"
-        
-        db.close()
-    except Exception as e:
-        if db:
-            db.close()
-        return False, f"Database error during package validation: {str(e)}"
-    
-    return True, None
-
-def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
-    """
-    Validate shell command against allow-list, supporting && chaining.
-    Returns (is_valid, error_message)
-    """
-    command = command.strip()
-    if not command:
-        return False, "Command is empty"
-    
-    # Heuristic to detect bloatware batch scripts before applying generic security checks
-    # Look for key patterns: heredoc syntax, pm disable-user, and file operations
-    looks_like_bloatware_script = (
-        'cat >' in command and
-        "<< 'EOF'" in command and
-        'pm disable-user' in command and
-        ('done <' in command or 'while' in command)
-    )
-    
-    # If it looks like a bloatware script, validate it with the specialized validator
-    if looks_like_bloatware_script:
-        is_batch_script, batch_error = validate_batch_bloatware_script(command)
-        if is_batch_script:
-            # This is a valid batch bloatware script, allow it
-            return True, None
-        else:
-            # It looked like a bloatware script but validation failed, return specific error
-            return False, batch_error or "Invalid bloatware batch script"
-    
-    # For non-batch commands, apply standard validation
-    # Detect dangerous shell metacharacters (but allow &&)
-    # Block: |, ;, >, <, `, $, newlines, and single & (but allow &&)
-    dangerous_chars = ['|', ';', '>', '<', '`', '$', '\n', '\r']
-    if any(char in command for char in dangerous_chars):
-        return False, "Dangerous shell metacharacters not allowed"
-    
-    # Check for single & (not &&) - this prevents & for backgrounding
-    if '&' in command and '&&' not in command:
-        return False, "Single & not allowed (only && for chaining)"
-    
-    # If command contains &&, split and validate each subcommand
-    if '&&' in command:
-        subcommands = command.split('&&')
-        for i, subcmd in enumerate(subcommands):
-            is_valid, error_msg = validate_single_command(subcmd)
-            if not is_valid:
-                return False, f"Subcommand {i+1} failed validation: {error_msg}"
-        return True, None
-    else:
-        # Single command, validate directly
-        return validate_single_command(command)
-
-@app.post("/v1/remote-exec")
-async def create_remote_exec(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Execute remote command (FCM or Shell) on devices with dry-run support
-    """
-    body = await request.json()
-    mode = body.get("mode")
-    targets = body.get("targets", {})
-    payload = body.get("payload")
-    command = body.get("command")
-    dry_run = body.get("dry_run", False)
-    
-    if mode not in ["fcm", "shell"]:
-        raise HTTPException(status_code=400, detail="Mode must be 'fcm' or 'shell'")
-    
-    if mode == "fcm" and not payload:
-        raise HTTPException(status_code=400, detail="FCM mode requires 'payload' field")
-    
-    if mode == "shell" and not command:
-        raise HTTPException(status_code=400, detail="Shell mode requires 'command' field")
-    
-    if mode == "shell":
-        is_valid, error_msg = validate_shell_command(command)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=error_msg)
-    
-    query = db.query(Device)
-    
-    if targets.get("all"):
-        pass
-    elif targets.get("filter"):
-        filters = targets["filter"]
-        
-        if filters.get("online") is not None:
-            if filters["online"]:
-                cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
-                query = query.filter(Device.last_seen >= cutoff)
-        
-        if filters.get("android_version"):
-            versions = filters["android_version"]
-            if isinstance(versions, list) and versions:
-                query = query.filter(Device.android_version.in_(versions))
-    
-    elif targets.get("aliases"):
-        aliases_list = targets["aliases"]
-        if not aliases_list:
-            raise HTTPException(status_code=400, detail="aliases list is empty")
-        query = query.filter(Device.alias.in_(aliases_list))
-    
-    else:
-        raise HTTPException(status_code=400, detail="Must specify targets: all, filter, or aliases")
-    
-    devices = query.filter(Device.fcm_token.isnot(None)).all()
-    
-    # Validate that we have devices after filtering
-    if not devices:
-        raise HTTPException(
-            status_code=400, 
-            detail="No devices match the specified criteria or no devices have FCM tokens registered"
-        )
-    
-    if dry_run:
-        return {
-            "dry_run": True,
-            "estimated_count": len(devices),
-            "sample_aliases": [{"id": d.id, "alias": d.alias} for d in devices[:20]]
-        }
-    
-    import hashlib
-    payload_str = json.dumps(payload if mode == "fcm" else {"command": command}, sort_keys=True)
-    payload_hash = hashlib.sha256(payload_str.encode()).hexdigest()
-    
-    client_ip = request.client.host if request.client else None
-    
-    exec_record = RemoteExec(
-        mode=mode,
-        raw_request=json.dumps(body),
-        targets=json.dumps(targets),
-        created_by=current_user.username if current_user else "admin",
-        created_by_ip=client_ip,
-        payload_hash=payload_hash,
-        total_targets=len(devices),
-        status="processing"
-    )
-    db.add(exec_record)
-    db.commit()
-    db.refresh(exec_record)
-    
-    print(f"[REMOTE-EXEC] Started exec_id={exec_record.id}, mode={mode}, targets={len(devices)}")
-    
-    import httpx
-    
-    try:
-        access_token = get_access_token()
-        project_id = get_firebase_project_id()
-    except Exception as e:
-        exec_record.status = "failed"
-        exec_record.error_count = len(devices)
-        exec_record.completed_at = datetime.now(timezone.utc)
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
-    
-    fcm_url = build_fcm_v1_url(project_id)
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    
-    async with httpx.AsyncClient() as client:
-        for idx, device in enumerate(devices):
-            correlation_id = f"{exec_record.id}-{device.id}"
-            
-            existing = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == exec_record.id,
-                RemoteExecResult.device_id == device.id
-            ).first()
-            
-            if existing:
-                continue
-            
-            timestamp = datetime.now(timezone.utc).isoformat()
-            action = "remote_exec_fcm" if mode == "fcm" else "remote_exec_shell"
-            hmac_signature = compute_hmac_signature(correlation_id, device.id, action, timestamp)
-            
-            message_data = {
-                "action": action,
-                "correlation_id": correlation_id,
-                "device_id": device.id,
-                "ts": timestamp,
-                "hmac": hmac_signature,
-                "exec_id": exec_record.id,
-                "mode": mode
-            }
-            
-            if mode == "fcm":
-                message_data.update({k: str(v) for k, v in payload.items()})
-            else:
-                message_data["command"] = command
-            
-            message = {
-                "message": {
-                    "token": device.fcm_token,
-                    "data": message_data,
-                    "android": {
-                        "priority": "high"
-                    }
-                }
-            }
-            
-            exec_result = RemoteExecResult(
-                exec_id=exec_record.id,
-                device_id=device.id,
-                alias=device.alias,
-                correlation_id=correlation_id,
-                status="sending"
-            )
-            db.add(exec_result)
-            
-            try:
-                response = await client.post(fcm_url, json=message, headers=headers, timeout=5.0)
-                
-                if response.status_code == 200:
-                    exec_result.status = "sent"
-                    exec_record.sent_count += 1
-                    print(f"[REMOTE-EXEC] ✓ Sent to {device.alias}")
-                else:
-                    exec_result.status = "failed"
-                    exec_result.error = f"FCM error: {response.status_code}"
-                    exec_record.error_count += 1
-                    print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: FCM {response.status_code}")
-            
-            except httpx.TimeoutException:
-                exec_result.status = "failed"
-                exec_result.error = "FCM request timeout"
-                exec_record.error_count += 1
-                print(f"[REMOTE-EXEC] ✗ Timeout {device.alias}")
-            
-            except Exception as e:
-                exec_result.status = "failed"
-                exec_result.error = str(e)
-                exec_record.error_count += 1
-                print(f"[REMOTE-EXEC] ✗ Failed {device.alias}: {str(e)}")
-            
-            db.commit()
-            
-            if idx < len(devices) - 1:
-                await asyncio.sleep(0.05)
-    
-    exec_record.status = "completed"
-    exec_record.completed_at = datetime.now(timezone.utc)
-    db.commit()
-    
-    print(f"[REMOTE-EXEC] Complete: {exec_record.sent_count}/{len(devices)} sent, {exec_record.error_count} errors")
-    
-    return {
-        "ok": True,
-        "exec_id": exec_record.id,
-        "mode": mode,
-        "total_targets": len(devices),
-        "sent_count": exec_record.sent_count,
-        "error_count": exec_record.error_count
-    }
-
-@app.get("/v1/remote-exec/{exec_id}")
-async def get_remote_exec_status(
-    exec_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Get execution status and per-device results"""
-    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
-    
-    if not exec_record:
-        raise HTTPException(status_code=404, detail="Execution not found")
-    
-    results = db.query(RemoteExecResult).filter(
-        RemoteExecResult.exec_id == exec_id
-    ).all()
-    
-    result_list = []
-    for result in results:
-        result_list.append({
-            "device_id": result.device_id,
-            "alias": result.alias,
-            "status": result.status,
-            "exit_code": result.exit_code,
-            "output": result.output_preview,
-            "error": result.error,
-            "sent_at": result.sent_at.isoformat() if result.sent_at else None,
-            "updated_at": result.updated_at.isoformat() if result.updated_at else None
-        })
-    
-    return {
-        "exec_id": exec_record.id,
-        "mode": exec_record.mode,
-        "status": exec_record.status,
-        "created_at": exec_record.created_at.isoformat(),
-        "created_by": exec_record.created_by,
-        "completed_at": exec_record.completed_at.isoformat() if exec_record.completed_at else None,
-        "stats": {
-            "total_targets": exec_record.total_targets,
-            "sent_count": exec_record.sent_count,
-            "acked_count": exec_record.acked_count,
-            "error_count": exec_record.error_count
-        },
-        "results": result_list
-    }
-
-@app.get("/v1/remote-exec")
-async def list_recent_executions(
-    limit: int = Query(default=10, le=100),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """List recent remote executions"""
-    executions = db.query(RemoteExec).order_by(
-        RemoteExec.created_at.desc()
-    ).limit(limit).all()
-    
-    exec_list = []
-    for exec in executions:
-        exec_list.append({
-            "exec_id": exec.id,
-            "mode": exec.mode,
-            "status": exec.status,
-            "created_at": exec.created_at.isoformat(),
-            "created_by": exec.created_by,
-            "stats": {
-                "total_targets": exec.total_targets,
-                "sent_count": exec.sent_count,
-                "acked_count": exec.acked_count,
-                "error_count": exec.error_count
-            }
-        })
-    
-    return {
-        "executions": exec_list,
-        "count": len(exec_list)
-    }
-
-@app.post("/v1/remote-exec/ack")
-async def remote_exec_ack(
-    request: Request,
-    db: Session = Depends(get_db)
-):
-    """Receive ACK from device for remote execution"""
-    # Authenticate device via token
-    x_device_token = request.headers.get("X-Device-Token")
-    if not x_device_token:
-        raise HTTPException(status_code=401, detail="Missing X-Device-Token header")
-    
-    device = get_device_by_token(x_device_token, db)
-    if not device:
-        raise HTTPException(status_code=401, detail="Invalid device token")
-    
-    body = await request.json()
-    
-    exec_id = body.get("exec_id")
-    device_id = body.get("device_id")
-    correlation_id = body.get("correlation_id")
-    status = body.get("status")
-    exit_code = body.get("exit_code")
-    output = body.get("output", "")
-    
-    if not all([exec_id, device_id, correlation_id, status]):
-        missing_fields = []
-        if not exec_id: missing_fields.append("exec_id")
-        if not device_id: missing_fields.append("device_id")
-        if not correlation_id: missing_fields.append("correlation_id")
-        if not status: missing_fields.append("status")
-        
-        error_msg = f"Missing required fields: {', '.join(missing_fields)}"
-        structured_logger.log_event(
-            "remote_exec.ack.validation_error",
-            level="WARN",
-            device_id=device_id,
-            missing_fields=missing_fields
-        )
-        raise HTTPException(status_code=400, detail=error_msg)
-    
-    # Validate device_id matches authenticated device
-    if device_id != device.id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Device ID in payload does not match authenticated device"
-        )
-    
-    # Validate correlation_id format and ownership
-    expected_correlation_id = f"{exec_id}-{device.id}"
-    if correlation_id != expected_correlation_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Correlation ID does not match expected format or device"
-        )
-    
-    result = db.query(RemoteExecResult).filter(
-        RemoteExecResult.correlation_id == correlation_id
-    ).first()
-    
-    if not result:
-        structured_logger.log_event(
-            "remote_exec.ack.result_not_found",
-            level="WARN",
-            correlation_id=correlation_id,
-            device_id=device_id
-        )
-        return {"ok": False, "error": "Result not found"}
-    
-    # Additional validation: verify result belongs to authenticated device
-    if result.device_id != device.id:
-        raise HTTPException(
-            status_code=403,
-            detail="Correlation ID does not belong to authenticated device"
-        )
-    
-    try:
-        # Update result record
-        result.status = status.upper()
-        result.exit_code = exit_code
-        result.output_preview = output[:2000] if output else None
-        result.error = body.get("error")
-        result.updated_at = datetime.now(timezone.utc)
-        
-        # Use atomic SQL updates to prevent race conditions
-        from sqlalchemy import update
-        if status.upper() == "OK":
-            db.execute(
-                update(RemoteExec)
-                .where(RemoteExec.id == exec_id)
-                .values(acked_count=RemoteExec.acked_count + 1)
-            )
-        elif status.upper() in ["FAILED", "DENIED", "TIMEOUT"]:
-            db.execute(
-                update(RemoteExec)
-                .where(RemoteExec.id == exec_id)
-                .values(error_count=RemoteExec.error_count + 1)
-            )
-        
-        # Single commit after all operations
-        db.commit()
-        
-        structured_logger.log_event(
-            "remote_exec.ack.success",
-            level="INFO",
-            device_id=device_id,
-            exec_id=exec_id,
-            status=status.upper(),
-            exit_code=exit_code
-        )
-        
-        return {"ok": True}
-    except Exception as e:
-        db.rollback()
-        structured_logger.log_event(
-            "remote_exec.ack.error",
-            level="ERROR",
-            device_id=device_id,
-            exec_id=exec_id,
-            error=str(e),
-            error_type=type(e).__name__
-        )
-        raise HTTPException(status_code=500, detail="Failed to process ACK")
-
-@app.get("/admin/cache/stats")
-async def get_apk_cache_stats(
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
-):
-    """Get APK cache statistics for monitoring"""
-    if not x_admin_key or not verify_admin_key(x_admin_key):
-        raise HTTPException(status_code=401, detail="Admin key required")
-    
-    stats = get_cache_statistics()
-    return {
-        "cache_stats": stats,
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z"
-    }
-
-@app.get("/download/nexmdm.apk")
-async def download_apk():
-    apk_path = os.path.join(os.path.dirname(__file__), "..", "downloads", "nexmdm.apk")
-    
-    if not os.path.exists(apk_path):
-        raise HTTPException(
-            status_code=404, 
-            detail="APK not found. Please build and place the APK in the downloads directory."
-        )
-    
-    return FileResponse(
-        apk_path,
-        media_type="application/vnd.android.package-archive",
-        filename="nexmdm.apk"
-    )
-
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.exists(static_dir):
-    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
-    
-    @app.get("/d/{device_id}")
-    async def device_detail_page(device_id: str):
-        index_file = os.path.join(static_dir, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        return {"message": "Dashboard not built yet"}
-    
-    @app.get("/")
-    async def dashboard():
-        index_file = os.path.join(static_dir, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        return {"message": "Dashboard not built yet"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
