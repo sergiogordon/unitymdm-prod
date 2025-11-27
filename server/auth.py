@@ -14,7 +14,7 @@ from models import Device, User, Session as SessionModel, get_db
 from typing import Optional
 from observability import structured_logger, metrics
 from collections import defaultdict
-import time
+from config import config
 
 security = HTTPBearer(auto_error=False)
 
@@ -48,14 +48,23 @@ invalid_token_limiter = InvalidTokenRateLimiter(max_attempts=5, window_seconds=6
 
 # IP-based rate limiter to block flooding clients entirely
 class IPRateLimiter:
-    def __init__(self, max_failures=20, window_seconds=300, block_duration=3600):
+    def __init__(self, max_failures=20, window_seconds=300, block_duration=3600, whitelist_ips=None):
         self.max_failures = max_failures
         self.window_seconds = window_seconds
         self.block_duration = block_duration  # How long to block after hitting limit
         self.failures = defaultdict(list)
         self.blocked_until = {}  # IP -> timestamp when block expires
+        self.whitelist_ips = set(whitelist_ips or [])  # Set of IPs to whitelist
+    
+    def is_whitelisted(self, ip: str) -> bool:
+        """Check if IP is whitelisted (bypasses rate limiting)"""
+        return ip in self.whitelist_ips
     
     def record_failure(self, ip: str):
+        # Skip recording failures for whitelisted IPs
+        if self.is_whitelisted(ip):
+            return False
+            
         now = time.time()
         window_start = now - self.window_seconds
         
@@ -70,14 +79,46 @@ class IPRateLimiter:
         return False
     
     def is_blocked(self, ip: str) -> bool:
+        # Whitelisted IPs are never blocked
+        if self.is_whitelisted(ip):
+            return False
+            
         if ip in self.blocked_until:
             if time.time() < self.blocked_until[ip]:
                 return True
             else:
                 del self.blocked_until[ip]
         return False
+    
+    def reset(self):
+        """Reset rate limiter state (useful for testing)"""
+        self.failures.clear()
+        self.blocked_until.clear()
 
-ip_rate_limiter = IPRateLimiter(max_failures=20, window_seconds=300, block_duration=3600)
+# Initialize rate limiter with localhost whitelist in development mode
+def _get_whitelist_ips():
+    """Get list of IPs to whitelist based on environment"""
+    whitelist = []
+    
+    # Check environment variable override
+    allow_localhost = os.getenv("RATE_LIMIT_ALLOW_LOCALHOST", "").lower()
+    if allow_localhost == "true":
+        whitelist.extend(["127.0.0.1", "localhost", "::1"])
+    elif allow_localhost == "false":
+        pass  # Don't whitelist even in dev
+    else:
+        # Auto-detect: whitelist localhost in development mode only
+        if not config.is_production:
+            whitelist.extend(["127.0.0.1", "localhost", "::1"])
+    
+    return whitelist
+
+ip_rate_limiter = IPRateLimiter(
+    max_failures=20, 
+    window_seconds=300, 
+    block_duration=3600,
+    whitelist_ips=_get_whitelist_ips()
+)
 
 SESSION_DURATION_DAYS = 7
 JWT_SECRET = os.getenv("SESSION_SECRET", "default-secret-change-in-production")
