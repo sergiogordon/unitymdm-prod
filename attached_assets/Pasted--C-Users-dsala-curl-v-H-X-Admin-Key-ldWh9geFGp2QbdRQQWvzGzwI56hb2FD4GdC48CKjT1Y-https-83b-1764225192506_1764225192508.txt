@@ -1,0 +1,59 @@
+
+C:\Users\dsala>curl -v -H "X-Admin-Key: ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=" "https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev/v1/apk/download-latest" -o test_download.apk 2>&1 | more +1
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0* Host 83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev:443 was resolved.
+* IPv6: (none)
+* IPv4: 34.75.151.117
+*   Trying 34.75.151.117:443...
+* Connected to 83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev (34.75.151.117) port 443
+* schannel: disabled automatic use of client certificate
+* ALPN: curl offers http/1.1
+  0     0    0     0    0     0      0      0 --:--:--  0:00:02 --:--:--     0* ALPN: serve-r accepted http/1.1
+* using HTTP/1.x
+> GET /v1/apk/download-latest HTTP/1.1
+> Host: 83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
+> User-Agent: curl/8.9.1
+> Accept: */*
+> X-Admin-Key: ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=
+>
+* Request completely sent off
+* schannel: failed to decrypt data, need more data
+< HTTP/1.1 502 Bad Gateway
+< Cache-Control: no-store
+< Replit-Cluster: worf
+< Replit-Proxy-Error: repl unreachable
+< X-Robots-Tag: none, noindex, noarchive, nofollow, nositelinkssearchbox, noimageindex     
+< Date: Thu, 27 Nov 2025 06:20:14 GMT
+< Content-Type: text/html; charset=utf-8
+< Transfer-Encoding: chunked
+<
+{ [875 bytes data]
+* schannel: failed to decrypt data, need more data
+100   870    0   870    0     0    249      0 --:--:--  0:00:03 --:--:--   250* schannel: f-ailed to decrypt data, need more data
+{ [2358 bytes data]
+* schannel: failed to decrypt data, need more data
+* schannel: failed to decrypt data, need more data
+{ [559 bytes data]
+* schannel: failed to decrypt data, need more data
+{ [3372 bytes data]
+100  7131    0  7131    0     0   1793      0 --:--:--  0:00:03 --:--:--  1795
+* Connection #0 to host 83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev left intact
+
+
+C:\Users\dsala>
+C:\Users\dsala>ls -lh test_download.apk && file test_download.apk
+'ls' is not recognized as an internal or external command,
+operable program or batch file.
+
+C:\Users\dsala>dir test_download.apk && certutil -hashfile test_download.apk MD5
+ Volume in drive C is Windows
+ Volume Serial Number is E490-A675
+
+ Directory of C:\Users\dsala
+
+11/27/2025  12:20 AM             7,131 test_download.apk
+               1 File(s)          7,131 bytes
+               0 Dir(s)  49,180,569,600 bytes free      
+MD5 hash of test_download.apk:
+522266993592c0df981b0837ef5fe847
+CertUtil: -hashfile command completed successfully.
