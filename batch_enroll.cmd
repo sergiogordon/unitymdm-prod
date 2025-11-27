@@ -2,8 +2,9 @@
 setlocal enabledelayedexpansion
 
 REM ==============================================================================
-REM NexMDM Batch Enrollment Script v3.1
+REM NexMDM Batch Enrollment Script v3.2
 REM Automatically enrolls all connected Android devices with sequential D# aliases
+REM Now with Android version compatibility checking
 REM ==============================================================================
 REM 
 REM CONFIGURATION - Update these values before using:
@@ -16,10 +17,12 @@ set SERVER_URL=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.wor
 set ADMIN_KEY=YOUR_ADMIN_KEY_HERE
 set APK_URL=%SERVER_URL%/v1/apk/download-latest
 set PKG=com.nexmdm
+set MIN_SDK=30
 
 echo.
 echo ================================================================================
-echo NexMDM Batch Enrollment - Starting
+echo NexMDM Batch Enrollment v3.2
+echo Supports: Android 11+ (SDK 30+)
 echo ================================================================================
 echo.
 
@@ -32,6 +35,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+echo [OK] ADB found
 
 REM Get list of connected devices
 echo [1/7] Detecting connected devices...
@@ -60,8 +64,29 @@ if %DEVICE_COUNT%==0 (
 echo Found %DEVICE_COUNT% device(s) connected
 echo.
 
+REM Download APK once for all devices
+echo [2/7] Downloading MDM agent APK...
+curl -# -H "X-Admin-Key: %ADMIN_KEY%" -o "%TEMP%\mdm-agent.apk" "%APK_URL%"
+if errorlevel 1 (
+    echo [ERROR] Failed to download APK
+    echo Check your ADMIN_KEY and network connection
+    pause
+    exit /b 1
+)
+
+REM Verify APK size (should be > 500KB)
+for %%A in ("%TEMP%\mdm-agent.apk") do set APK_SIZE=%%~zA
+if %APK_SIZE% LSS 500000 (
+    echo [ERROR] APK file too small (%APK_SIZE% bytes) - likely auth error
+    echo Check your ADMIN_KEY is correct
+    pause
+    exit /b 1
+)
+echo [OK] APK downloaded (%APK_SIZE% bytes)
+echo.
+
 REM Fetch last alias from backend
-echo [2/7] Fetching last alias from backend...
+echo [3/7] Fetching last alias from backend...
 curl -s -H "X-Admin-Key: %ADMIN_KEY%" "%SERVER_URL%/v1/devices/last-alias" -o "%TEMP%\last_alias.json"
 
 if errorlevel 1 (
@@ -79,12 +104,13 @@ echo Next alias will be: D!NEXT_NUM!
 echo.
 
 REM Process each device
-echo [3/7] Beginning enrollment for %DEVICE_COUNT% device(s)...
+echo [4/7] Beginning enrollment for %DEVICE_COUNT% device(s)...
 echo.
 
 set CURRENT_NUM=!NEXT_NUM!
 set SUCCESS_COUNT=0
 set FAIL_COUNT=0
+set SKIP_COUNT=0
 
 for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
     if not "%%D"=="" (
@@ -102,46 +128,52 @@ for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
         echo Alias: !ALIAS!
         echo ----------------------------------------
         
+        REM Check Android version compatibility
+        echo [Step 1/9] Checking Android version...
+        for /f "tokens=*" %%V in ('adb -s !SERIAL! shell getprop ro.build.version.sdk 2^>nul') do set DEV_SDK=%%V
+        set DEV_SDK=!DEV_SDK: =!
+        for /f "tokens=*" %%V in ('adb -s !SERIAL! shell getprop ro.build.version.release 2^>nul') do set DEV_VER=%%V
+        set DEV_VER=!DEV_VER: =!
+        
+        echo    Android !DEV_VER! (SDK !DEV_SDK!)
+        
+        if "!DEV_SDK!"=="" (
+            echo [ERROR] Could not detect SDK version
+            set /a FAIL_COUNT+=1
+            goto :next_device
+        )
+        
+        if !DEV_SDK! LSS %MIN_SDK% (
+            echo [SKIP] Incompatible - requires Android 11+ (SDK 30+)
+            echo        This device: Android !DEV_VER! (SDK !DEV_SDK!)
+            set /a SKIP_COUNT+=1
+            goto :next_device
+        )
+        echo [OK] Version compatible
+        
         REM Check if device is already enrolled
-        echo [Step 1/9] Checking enrollment status...
+        echo [Step 2/9] Checking enrollment status...
         adb -s !SERIAL! shell pm list packages | findstr "%PKG%" >nul 2>&1
         if not errorlevel 1 (
             echo [SKIP] Device already has MDM agent installed
-            echo.
-            goto :next_device
-        )
-        
-        REM Download APK
-        echo [Step 2/9] Downloading MDM agent APK...
-        curl -# -H "X-Admin-Key: %ADMIN_KEY%" -o "%TEMP%\mdm-agent.apk" "%APK_URL%"
-        if errorlevel 1 (
-            echo [ERROR] Failed to download APK
-            set /a FAIL_COUNT+=1
-            goto :next_device
-        )
-        
-        REM Verify APK size (should be > 1MB)
-        for %%A in ("%TEMP%\mdm-agent.apk") do set APK_SIZE=%%~zA
-        if !APK_SIZE! LSS 1000000 (
-            echo [ERROR] APK file too small - likely download error
-            echo         Check your ADMIN_KEY is correct
-            set /a FAIL_COUNT+=1
+            set /a SKIP_COUNT+=1
             goto :next_device
         )
         
         REM Install APK
         echo [Step 3/9] Installing APK...
-        adb -s !SERIAL! install -r -g "%TEMP%\mdm-agent.apk" >nul 2>&1
+        adb -s !SERIAL! install -r -g "%TEMP%\mdm-agent.apk" 2>&1
         if errorlevel 1 (
             echo [WARN] Install failed, trying with -t flag...
             adb -s !SERIAL! uninstall %PKG% >nul 2>&1
-            adb -s !SERIAL! install -r -g -t "%TEMP%\mdm-agent.apk" >nul 2>&1
+            adb -s !SERIAL! install -r -g -t "%TEMP%\mdm-agent.apk" 2>&1
             if errorlevel 1 (
                 echo [ERROR] Failed to install APK
                 set /a FAIL_COUNT+=1
                 goto :next_device
             )
         )
+        echo [OK] APK installed
         
         REM Grant permissions
         echo [Step 4/9] Granting permissions...
@@ -150,10 +182,11 @@ for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
         adb -s !SERIAL! shell pm grant %PKG% android.permission.CAMERA >nul 2>&1
         adb -s !SERIAL! shell appops set %PKG% RUN_ANY_IN_BACKGROUND allow >nul 2>&1
         adb -s !SERIAL! shell appops set %PKG% GET_USAGE_STATS allow >nul 2>&1
+        echo [OK] Permissions granted
         
         REM Set Device Owner
         echo [Step 5/9] Setting Device Owner mode...
-        adb -s !SERIAL! shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver >nul 2>&1
+        adb -s !SERIAL! shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver 2>&1
         if errorlevel 1 (
             echo [WARNING] Device Owner mode may have failed
             echo          Device may need factory reset
@@ -164,6 +197,7 @@ for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
         adb -s !SERIAL! shell settings put global app_standby_enabled 0 >nul 2>&1
         adb -s !SERIAL! shell settings put global adaptive_battery_management_enabled 0 >nul 2>&1
         adb -s !SERIAL! shell dumpsys deviceidle whitelist +%PKG% >nul 2>&1
+        echo [OK] Optimizations applied
         
         REM Broadcast registration
         echo [Step 7/9] Broadcasting registration intent...
@@ -199,8 +233,11 @@ echo Batch Enrollment Complete
 echo ================================================================================
 echo Total Devices: %DEVICE_COUNT%
 echo Successfully Enrolled: %SUCCESS_COUNT%
+echo Skipped (incompatible/existing): %SKIP_COUNT%
 echo Failed: %FAIL_COUNT%
 echo ================================================================================
+echo.
+echo Compatibility: Android 11+ (SDK 30+)
 echo.
 echo Next Steps:
 echo 1. Check your NexMDM dashboard for device status
