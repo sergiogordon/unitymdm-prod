@@ -45,6 +45,40 @@ class InvalidTokenRateLimiter:
         return False
 
 invalid_token_limiter = InvalidTokenRateLimiter(max_attempts=5, window_seconds=60)
+
+# IP-based rate limiter to block flooding clients entirely
+class IPRateLimiter:
+    def __init__(self, max_failures=20, window_seconds=300, block_duration=3600):
+        self.max_failures = max_failures
+        self.window_seconds = window_seconds
+        self.block_duration = block_duration  # How long to block after hitting limit
+        self.failures = defaultdict(list)
+        self.blocked_until = {}  # IP -> timestamp when block expires
+    
+    def record_failure(self, ip: str):
+        now = time.time()
+        window_start = now - self.window_seconds
+        
+        # Clean old failures
+        self.failures[ip] = [t for t in self.failures[ip] if t > window_start]
+        self.failures[ip].append(now)
+        
+        # Check if over limit
+        if len(self.failures[ip]) >= self.max_failures:
+            self.blocked_until[ip] = now + self.block_duration
+            return True
+        return False
+    
+    def is_blocked(self, ip: str) -> bool:
+        if ip in self.blocked_until:
+            if time.time() < self.blocked_until[ip]:
+                return True
+            else:
+                del self.blocked_until[ip]
+        return False
+
+ip_rate_limiter = IPRateLimiter(max_failures=20, window_seconds=300, block_duration=3600)
+
 SESSION_DURATION_DAYS = 7
 JWT_SECRET = os.getenv("SESSION_SECRET", "default-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
@@ -86,7 +120,17 @@ async def verify_device_token(
     else:
         client_ip = "unknown"
     
+    # Check if IP is blocked due to excessive failures
+    if ip_rate_limiter.is_blocked(client_ip):
+        metrics.inc_counter("device_auth_failures_total", {"reason": "ip_blocked"})
+        raise HTTPException(
+            status_code=429, 
+            detail="Too many authentication failures. Try again later.",
+            headers={"Retry-After": "3600"}
+        )
+    
     if not credentials:
+        ip_rate_limiter.record_failure(client_ip)
         metrics.inc_counter("device_auth_failures_total", {"reason": "missing_header"})
         structured_logger.log_event(
             "auth.device_token.failed",
@@ -178,6 +222,9 @@ async def verify_device_token(
                 matched_device_alias = device_by_ip.alias
                 last_heartbeat_ts = recent_hb.ts.isoformat() if recent_hb.ts else None
     
+    # Record IP failure for rate limiting
+    ip_rate_limiter.record_failure(client_ip)
+    
     metrics.inc_counter("device_auth_failures_total", {"reason": "token_not_found"})
     
     # Rate limit logging for repeated invalid token attempts
@@ -189,7 +236,8 @@ async def verify_device_token(
             "client_ip": client_ip,
             "device_found_by_token_id": False,
             "legacy_devices_checked": legacy_count,
-            "token_length": token_length
+            "token_length": token_length,
+            "user_agent": request.headers.get("user-agent", "unknown")  # Add user-agent to identify source
         }
         
         if matched_device_id:
@@ -198,6 +246,15 @@ async def verify_device_token(
             log_data["last_heartbeat_ts"] = last_heartbeat_ts
         
         structured_logger.log_event("auth.device_token.failed", **log_data)
+    else:
+        # Log once when rate limit kicks in
+        structured_logger.log_event(
+            "auth.device_token.rate_limited",
+            level="INFO",
+            token_id_prefix=token_id_prefix,
+            client_ip=client_ip,
+            message="Suppressing repeated invalid token logs"
+        )
     
     raise HTTPException(status_code=401, detail="Invalid device token")
 
