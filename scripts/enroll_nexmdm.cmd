@@ -2,12 +2,16 @@
 setlocal enabledelayedexpansion
 
 REM ====== CONFIG ======
+REM Update these values before using:
+REM   - BASE_URL: Your NexMDM server URL
+REM   - ADMIN_KEY: Your admin key from Settings page (never expires)
+REM   - ALIAS: Device alias name
 set PKG=com.nexmdm
 set ALIAS=test
 set APK_PATH=%TEMP%\nexmdm-latest.apk
 set BASE_URL=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
-set DL_URL=%BASE_URL%/v1/apk/download/latest
-set BEARER=_sDKZuilFJVWi3NkpQdEjmM07v2-HuGa3teb7bGKMro
+set DL_URL=%BASE_URL%/v1/apk/download-latest
+set ADMIN_KEY=YOUR_ADMIN_KEY_HERE
 
 echo [NexMDM Deployment - Device: %ALIAS%]
 echo.
@@ -17,7 +21,7 @@ adb wait-for-device || (echo ❌ No device found & exit /b 2)
 
 echo [Step 1/7] Downloading latest APK...
 echo [DEBUG] URL: %DL_URL%
-curl -L -H "Authorization: Bearer %BEARER%" "%DL_URL%" -o "%APK_PATH%" || (echo ❌ Download failed & exit /b 3)
+curl -L -H "X-Admin-Key: %ADMIN_KEY%" "%DL_URL%" -o "%APK_PATH%" || (echo ❌ Download failed & exit /b 3)
 if not exist "%APK_PATH%" (echo ❌ APK missing at %APK_PATH% & exit /b 3)
 echo ✅ APK downloaded!
 echo.
@@ -86,7 +90,7 @@ echo [Step 6/7] Launch and configure...
 adb shell monkey -p %PKG% -c android.intent.category.LAUNCHER 1 1>nul 2>nul
 timeout /t 2 /nobreak >nul
 echo [DEBUG] Sending CONFIGURE broadcast (foreground)…
-adb shell am broadcast --receiver-foreground -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url "%BASE_URL%" --es token "%BEARER%" --es alias "%ALIAS%"
+adb shell am broadcast --receiver-foreground -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url "%BASE_URL%" --es token "%ADMIN_KEY%" --es alias "%ALIAS%"
 if errorlevel 1 (
   echo ❌ CONFIGURE broadcast failed.
   exit /b 8
@@ -108,6 +112,9 @@ echo ==========================================
 echo ✅ ENROLLMENT COMPLETE
 echo ==========================================
 echo 📱 "%ALIAS%" should appear in the dashboard within ~60s.
+echo.
+echo NOTE: For best results, generate a fresh script from the
+echo       ADB Setup page in your NexMDM dashboard.
 echo.
 
 endlocal

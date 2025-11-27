@@ -2,17 +2,24 @@
 setlocal enabledelayedexpansion
 
 REM ==============================================================================
-REM UnityMDM Batch Enrollment Script v3.0
+REM NexMDM Batch Enrollment Script v3.1
 REM Automatically enrolls all connected Android devices with sequential D# aliases
 REM ==============================================================================
+REM 
+REM CONFIGURATION - Update these values before using:
+REM   SERVER_URL: Your NexMDM server URL
+REM   ADMIN_KEY: Your admin key from Settings page (never expires)
+REM
+REM ==============================================================================
 
-set SERVER_URL=https://unitymdm.replit.app
-set ADMIN_KEY=ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y=
-set APK_URL=%SERVER_URL%/download/mdm-agent.apk
+set SERVER_URL=https://83b071bb-c5cb-4eda-b79c-d276873904c2-00-2ha4ytvejclnm.worf.replit.dev
+set ADMIN_KEY=YOUR_ADMIN_KEY_HERE
+set APK_URL=%SERVER_URL%/v1/apk/download-latest
+set PKG=com.nexmdm
 
 echo.
 echo ================================================================================
-echo UnityMDM Batch Enrollment - Starting
+echo NexMDM Batch Enrollment - Starting
 echo ================================================================================
 echo.
 
@@ -55,7 +62,7 @@ echo.
 
 REM Fetch last alias from backend
 echo [2/7] Fetching last alias from backend...
-curl -s -H "X-Admin-Key: %ADMIN_KEY%" "%SERVER_URL%/admin/devices/last-alias" -o "%TEMP%\last_alias.json"
+curl -s -H "X-Admin-Key: %ADMIN_KEY%" "%SERVER_URL%/v1/devices/last-alias" -o "%TEMP%\last_alias.json"
 
 if errorlevel 1 (
     echo [WARNING] Could not fetch last alias from server, starting from D01
@@ -65,6 +72,7 @@ if errorlevel 1 (
     for /f "tokens=2 delims=:, " %%N in ('findstr "next_number" "%TEMP%\last_alias.json"') do (
         set NEXT_NUM=%%N
     )
+    if not defined NEXT_NUM set NEXT_NUM=1
 )
 
 echo Next alias will be: D!NEXT_NUM!
@@ -96,7 +104,7 @@ for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
         
         REM Check if device is already enrolled
         echo [Step 1/9] Checking enrollment status...
-        adb -s !SERIAL! shell pm list packages | findstr "com.nexmdm.agent" >nul 2>&1
+        adb -s !SERIAL! shell pm list packages | findstr "%PKG%" >nul 2>&1
         if not errorlevel 1 (
             echo [SKIP] Device already has MDM agent installed
             echo.
@@ -105,58 +113,74 @@ for /f "skip=1 tokens=1" %%D in (%TEMP%\adb_devices.txt) do (
         
         REM Download APK
         echo [Step 2/9] Downloading MDM agent APK...
-        curl -# -o "%TEMP%\mdm-agent.apk" "%APK_URL%"
+        curl -# -H "X-Admin-Key: %ADMIN_KEY%" -o "%TEMP%\mdm-agent.apk" "%APK_URL%"
         if errorlevel 1 (
             echo [ERROR] Failed to download APK
             set /a FAIL_COUNT+=1
             goto :next_device
         )
         
-        REM Install APK
-        echo [Step 3/9] Installing APK...
-        adb -s !SERIAL! install -r "%TEMP%\mdm-agent.apk" >nul 2>&1
-        if errorlevel 1 (
-            echo [ERROR] Failed to install APK
+        REM Verify APK size (should be > 1MB)
+        for %%A in ("%TEMP%\mdm-agent.apk") do set APK_SIZE=%%~zA
+        if !APK_SIZE! LSS 1000000 (
+            echo [ERROR] APK file too small - likely download error
+            echo         Check your ADMIN_KEY is correct
             set /a FAIL_COUNT+=1
             goto :next_device
         )
         
+        REM Install APK
+        echo [Step 3/9] Installing APK...
+        adb -s !SERIAL! install -r -g "%TEMP%\mdm-agent.apk" >nul 2>&1
+        if errorlevel 1 (
+            echo [WARN] Install failed, trying with -t flag...
+            adb -s !SERIAL! uninstall %PKG% >nul 2>&1
+            adb -s !SERIAL! install -r -g -t "%TEMP%\mdm-agent.apk" >nul 2>&1
+            if errorlevel 1 (
+                echo [ERROR] Failed to install APK
+                set /a FAIL_COUNT+=1
+                goto :next_device
+            )
+        )
+        
         REM Grant permissions
         echo [Step 4/9] Granting permissions...
-        adb -s !SERIAL! shell pm grant com.nexmdm.agent android.permission.READ_PHONE_STATE >nul 2>&1
-        adb -s !SERIAL! shell pm grant com.nexmdm.agent android.permission.ACCESS_FINE_LOCATION >nul 2>&1
-        adb -s !SERIAL! shell pm grant com.nexmdm.agent android.permission.READ_EXTERNAL_STORAGE >nul 2>&1
-        adb -s !SERIAL! shell pm grant com.nexmdm.agent android.permission.WRITE_EXTERNAL_STORAGE >nul 2>&1
+        adb -s !SERIAL! shell pm grant %PKG% android.permission.POST_NOTIFICATIONS >nul 2>&1
+        adb -s !SERIAL! shell pm grant %PKG% android.permission.ACCESS_FINE_LOCATION >nul 2>&1
+        adb -s !SERIAL! shell pm grant %PKG% android.permission.CAMERA >nul 2>&1
+        adb -s !SERIAL! shell appops set %PKG% RUN_ANY_IN_BACKGROUND allow >nul 2>&1
+        adb -s !SERIAL! shell appops set %PKG% GET_USAGE_STATS allow >nul 2>&1
         
         REM Set Device Owner
         echo [Step 5/9] Setting Device Owner mode...
-        adb -s !SERIAL! shell dpm set-device-owner com.nexmdm.agent/.DeviceAdminReceiver >nul 2>&1
+        adb -s !SERIAL! shell dpm set-device-owner %PKG%/.NexDeviceAdminReceiver >nul 2>&1
         if errorlevel 1 (
-            echo [WARNING] Device Owner mode may have failed - check manually
+            echo [WARNING] Device Owner mode may have failed
+            echo          Device may need factory reset
         )
         
         REM System tweaks
         echo [Step 6/9] Applying system optimizations...
         adb -s !SERIAL! shell settings put global app_standby_enabled 0 >nul 2>&1
-        adb -s !SERIAL! shell settings put global app_auto_restriction_enabled false >nul 2>&1
-        adb -s !SERIAL! shell dumpsys deviceidle whitelist +com.nexmdm.agent >nul 2>&1
+        adb -s !SERIAL! shell settings put global adaptive_battery_management_enabled 0 >nul 2>&1
+        adb -s !SERIAL! shell dumpsys deviceidle whitelist +%PKG% >nul 2>&1
         
         REM Broadcast registration
         echo [Step 7/9] Broadcasting registration intent...
-        adb -s !SERIAL! shell am broadcast -a com.nexmdm.agent.ENROLL --es alias "!ALIAS!" --es server_url "%SERVER_URL%" >nul 2>&1
+        adb -s !SERIAL! shell am broadcast --receiver-foreground -a %PKG%.CONFIGURE -n %PKG%/.ConfigReceiver --es server_url "%SERVER_URL%" --es token "%ADMIN_KEY%" --es alias "!ALIAS!" >nul 2>&1
         
         REM Launch app
         echo [Step 8/9] Launching MDM agent...
-        adb -s !SERIAL! shell am start -n com.nexmdm.agent/.MainActivity >nul 2>&1
+        adb -s !SERIAL! shell monkey -p %PKG% -c android.intent.category.LAUNCHER 1 >nul 2>&1
         
         REM Verify enrollment
         echo [Step 9/9] Verifying enrollment...
-        timeout /t 3 /nobreak >nul
+        timeout /t 5 /nobreak >nul
         
-        curl -s -H "X-Admin-Key: %ADMIN_KEY%" "%SERVER_URL%/admin/devices?alias=!ALIAS!" -o "%TEMP%\verify_!ALIAS!.json"
+        curl -s -H "X-Admin-Key: %ADMIN_KEY%" "%SERVER_URL%/v1/devices?alias=!ALIAS!" -o "%TEMP%\verify_!ALIAS!.json"
         findstr "!ALIAS!" "%TEMP%\verify_!ALIAS!.json" >nul 2>&1
         if errorlevel 1 (
-            echo [WARNING] Device not yet visible in backend (may take 1-2 minutes)
+            echo [INFO] Device not yet visible in backend (may take 1-2 minutes)
         ) else (
             echo [SUCCESS] Device enrolled as !ALIAS!
         )
@@ -179,8 +203,11 @@ echo Failed: %FAIL_COUNT%
 echo ================================================================================
 echo.
 echo Next Steps:
-echo 1. Check https://unitymdm.replit.app dashboard for device status
+echo 1. Check your NexMDM dashboard for device status
 echo 2. Devices should appear within 1-2 minutes
 echo 3. Look for aliases: D%NEXT_NUM% through D!CURRENT_NUM!
+echo.
+echo NOTE: For best results, generate scripts from the ADB Setup page
+echo       in your NexMDM dashboard - the admin key never expires.
 echo.
 pause
