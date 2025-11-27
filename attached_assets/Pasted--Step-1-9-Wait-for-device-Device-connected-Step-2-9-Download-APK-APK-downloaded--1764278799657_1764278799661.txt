@@ -1,0 +1,112 @@
+
+[Step 1/9] Wait for device...
+✅ Device connected
+
+[Step 2/9] Download APK...
+✅ APK downloaded
+
+[Step 3/9] Install APK...
+✅ APK installed
+
+[Step 4/9] Set Device Owner...
+❌ Device Owner failed - Factory reset required
+
+[Step 5/9] Grant permissions...
+✅ Permissions granted
+
+[Step 6/9] Disable bloatware...
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+✅ Disabled bloatware packages
+
+[Step 7/9] Apply system tweaks...
+✅ System tweaks applied
+
+[Step 8/9] Auto-enroll and launch...
+✅ Auto-enrollment initiated
+
+[Step 9/9] Verify service...
+✅ Service running
+
+Verify registration...
+Waiting 10 seconds for first heartbeat...
+Checking backend for device "D46"...
+✅ Device registered!
+
+============================================
+✅✅✅ ENROLLMENT SUCCESS ✅✅✅
+============================================
+Device: D46 enrolled and verified!
+Check dashboard - device should be online
+============================================
+
+Window will stay open - Type 'exit' to close"
