@@ -5878,7 +5878,38 @@ if not defined DEVICE_FOUND (
 )
 echo.
 
-echo [Step 2/7] Download latest APK...
+echo [Step 2/10] Check Android version compatibility...
+set MIN_SDK=30
+for /f "tokens=*" %%A in ('adb shell getprop ro.build.version.sdk 2^>nul') do set DEVICE_SDK=%%A
+set DEVICE_SDK=!DEVICE_SDK: =!
+for /f "tokens=*" %%A in ('adb shell getprop ro.build.version.release 2^>nul') do set DEVICE_VER=%%A
+set DEVICE_VER=!DEVICE_VER: =!
+
+echo    Device SDK: !DEVICE_SDK! (Android !DEVICE_VER!)
+echo    Required: SDK !MIN_SDK!+ (Android 11+)
+
+if "!DEVICE_SDK!"=="" (
+    echo ❌ Could not detect device SDK version
+    set EXITCODE=2
+    goto :end
+)
+
+if !DEVICE_SDK! LSS !MIN_SDK! (
+    echo.
+    echo ❌ INCOMPATIBLE DEVICE
+    echo    This device runs Android !DEVICE_VER! (SDK !DEVICE_SDK!)
+    echo    NexMDM requires Android 11+ (SDK 30+)
+    echo.
+    echo    Options:
+    echo    1. Use a device with Android 11 or newer
+    echo    2. Update this device's OS if possible
+    set EXITCODE=2
+    goto :end
+)
+echo ✅ Android version compatible
+echo.
+
+echo [Step 3/10] Download latest APK...
 curl -L -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/apk/download-latest" -o "!APK_PATH!" >nul 2>&1
 if errorlevel 1 (
     echo ❌ Download failed
@@ -5896,7 +5927,7 @@ if not exist "!APK_PATH!" (
 echo ✅ APK downloaded
 echo.
 
-echo [Step 3/7] Install APK...
+echo [Step 4/10] Install APK...
 adb install -r -g "!APK_PATH!" >nul 2>&1
 if errorlevel 1 (
     echo    Retry: Uninstalling existing version...
@@ -5913,7 +5944,7 @@ if errorlevel 1 (
 echo ✅ APK installed
 echo.
 
-echo [Step 4/7] Set Device Owner...
+echo [Step 5/10] Set Device Owner...
 REM Check if device is provisioned
 for /f "tokens=*" %%A in ('adb shell settings get secure user_setup_complete 2^>nul') do set SETUP=%%A
 set SETUP=!SETUP:~0,1!
@@ -5943,7 +5974,7 @@ if errorlevel 1 (
 echo ✅ Device Owner confirmed
 echo.
 
-echo [Step 5/9] Grant core permissions...
+echo [Step 6/10] Grant core permissions...
 adb shell pm grant !PKG! android.permission.POST_NOTIFICATIONS >nul 2>&1
 adb shell pm grant !PKG! android.permission.ACCESS_FINE_LOCATION >nul 2>&1
 adb shell pm grant !PKG! android.permission.CAMERA >nul 2>&1
@@ -5953,7 +5984,7 @@ adb shell dumpsys deviceidle whitelist +!PKG! >nul 2>&1
 echo ✅ Permissions granted
 echo.
 
-echo [Step 6/9] Disable bloatware (optional)...
+echo [Step 7/10] Disable bloatware (optional)...
 echo    This may take 30-60 seconds...
 set BLOAT_COUNT=0
 for %%P in (^
@@ -5985,7 +6016,7 @@ for %%P in (^
 echo ✅ Disabled !BLOAT_COUNT! bloatware packages
 echo.
 
-echo [Step 7/9] Apply system tweaks...
+echo [Step 8/10] Apply system tweaks...
 adb shell settings put global app_standby_enabled 0 >nul 2>&1
 adb shell settings put global battery_tip_constants app_restriction_enabled=false >nul 2>&1
 adb shell settings put system screen_brightness_mode 0 >nul 2>&1
@@ -5994,7 +6025,7 @@ adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1
 echo ✅ System tweaks applied
 echo.
 
-echo [Step 8/10] Check WiFi configuration...
+echo [Step 9/10] Check WiFi configuration...
 set WIFI_FILE=!TEMP!\mdm_wifi_check.txt
 curl -s -H "X-Admin-Key: !ADMIN_KEY!" "!BASE_URL!/v1/settings/wifi" -o "!WIFI_FILE!" 2>nul
 if not errorlevel 1 (
@@ -6028,7 +6059,7 @@ if not errorlevel 1 (
 del "!WIFI_FILE!" >nul 2>&1
 echo.
 
-echo [Step 9/10] Auto-enroll and launch...
+echo [Step 10/10] Auto-enroll and launch...
 REM Send configuration broadcast first with receiver-foreground flag
 adb shell am broadcast -a com.nexmdm.CONFIGURE -n !PKG!/.ConfigReceiver --receiver-foreground --es server_url "!BASE_URL!" --es admin_key "!ADMIN_KEY!" --es alias "!DEVICE_ALIAS!" >nul 2>&1
 if errorlevel 1 (
@@ -6047,7 +6078,7 @@ REM Launch app
 adb shell monkey -p !PKG! -c android.intent.category.LAUNCHER 1 >nul 2>&1
 echo.
 
-echo [Step 10/10] Verify service...
+echo [Verify] Checking service...
 timeout /t 3 /nobreak >nul
 adb shell pidof !PKG! >nul 2>&1
 if errorlevel 1 (
@@ -6059,7 +6090,7 @@ if errorlevel 1 (
 echo ✅ Service running
 echo.
 
-echo [Step 10/10] Verify registration and WiFi...
+echo [Verify] Registration and WiFi...
 echo    Waiting 10 seconds for first heartbeat...
 timeout /t 10 /nobreak >nul
 
@@ -6217,7 +6248,7 @@ echo "Device: $ALIAS"
 echo "================================================"
 echo
 
-echo "[Step 0/7] Checking prerequisites..."
+echo "[Step 0/10] Checking prerequisites..."
 echo "   Checking for ADB..."
 if ! command -v adb &> /dev/null; then
     echo "❌ ADB not found in PATH"
@@ -6238,7 +6269,7 @@ echo "   Listing devices..."
 adb devices -l
 echo
 
-echo "[Step 1/7] Wait for device..."
+echo "[Step 1/10] Wait for device..."
 echo "   Waiting up to 60 seconds for device connection..."
 if ! adb wait-for-device; then
     echo "❌ No device found"
@@ -6264,7 +6295,34 @@ DEVICE_SERIAL=$(adb devices | grep "device$" | head -1 | awk '{{print $1}}')
 echo "✅ Device connected: $DEVICE_SERIAL"
 echo
 
-echo "[Step 2/7] Download latest APK..."
+echo "[Step 2/10] Check Android version compatibility..."
+MIN_SDK=30
+DEVICE_SDK=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\\r')
+DEVICE_VER=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\\r')
+
+echo "   Device SDK: $DEVICE_SDK (Android $DEVICE_VER)"
+echo "   Required: SDK $MIN_SDK+ (Android 11+)"
+
+if [ -z "$DEVICE_SDK" ]; then
+    echo "❌ Could not detect device SDK version"
+    exit 2
+fi
+
+if [ "$DEVICE_SDK" -lt "$MIN_SDK" ] 2>/dev/null; then
+    echo
+    echo "❌ INCOMPATIBLE DEVICE"
+    echo "   This device runs Android $DEVICE_VER (SDK $DEVICE_SDK)"
+    echo "   NexMDM requires Android 11+ (SDK 30+)"
+    echo
+    echo "   Options:"
+    echo "   1. Use a device with Android 11 or newer"
+    echo "   2. Update this device's OS if possible"
+    exit 2
+fi
+echo "✅ Android version compatible"
+echo
+
+echo "[Step 3/10] Download latest APK..."
 if ! curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK_PATH" 2>/dev/null; then
     echo "❌ Download failed"
     echo "   Fix: Check network, verify SERVER_URL: $BASE_URL"
@@ -6279,7 +6337,7 @@ fi
 echo "✅ APK downloaded"
 echo
 
-echo "[Step 3/7] Install APK..."
+echo "[Step 4/10] Install APK..."
 if ! adb install -r -g "$APK_PATH" 2>/dev/null; then
     echo "   Retry: Uninstalling existing version..."
     adb uninstall "$PKG" 2>/dev/null || true
@@ -6293,7 +6351,7 @@ fi
 echo "✅ APK installed"
 echo
 
-echo "[Step 4/7] Set Device Owner..."
+echo "[Step 5/10] Set Device Owner..."
 # Check if device is provisioned
 SETUP=$(adb shell settings get secure user_setup_complete 2>/dev/null | tr -d '\\r\\n')
 
@@ -6318,7 +6376,7 @@ fi
 echo "✅ Device Owner confirmed"
 echo
 
-echo "[Step 5/9] Grant core permissions..."
+echo "[Step 6/10] Grant core permissions..."
 adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
 adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
 adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null || true
@@ -6328,7 +6386,7 @@ adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null || true
 echo "✅ Permissions granted"
 echo
 
-echo "[Step 6/9] Disable bloatware (optional)..."
+echo "[Step 7/10] Disable bloatware (optional)..."
 echo "   This may take 30-60 seconds..."
 BLOAT_COUNT=0
 BLOAT_PACKAGES=(
@@ -6361,7 +6419,7 @@ for PKG_TO_DISABLE in "${{BLOAT_PACKAGES[@]}}"; do
 done
 echo "✅ Disabled $BLOAT_COUNT bloatware packages"
 echo
-echo "[Step 7/9] Apply system tweaks..."
+echo "[Step 8/10] Apply system tweaks..."
 adb shell settings put global app_standby_enabled 0 2>/dev/null || true
 adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null || true
 adb shell settings put system screen_brightness_mode 0 2>/dev/null || true
@@ -6370,7 +6428,7 @@ adb shell settings put system ambient_touch_to_wake 1 2>/dev/null || true
 echo "✅ System tweaks applied"
 echo
 
-echo "[Step 8/9] Auto-enroll and launch..."
+echo "[Step 9/10] Auto-enroll and launch..."
 # Send configuration broadcast first with receiver-foreground flag
 if ! adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$DEVICE_ALIAS" 2>/dev/null; then
     echo "❌ Configuration broadcast failed"
@@ -6384,7 +6442,7 @@ echo "✅ Auto-enrollment initiated"
 adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 echo
 
-echo "[Step 9/9] Verify service..."
+echo "[Step 10/10] Verify service..."
 sleep 3
 if ! adb shell pidof "$PKG" 2>/dev/null; then
     echo "❌ Service not running"
@@ -6403,7 +6461,7 @@ if ! adb shell pidof "$PKG" 2>/dev/null; then
 fi
 echo "✅ Service running"
 echo
-echo "[Step 9/9] Verify registration..."
+echo "[Verify] Registration check..."
 echo "   Waiting 10 seconds for first heartbeat..."
 sleep 10
 echo "   Checking backend for device \"$ALIAS\"..."
@@ -6523,7 +6581,7 @@ async def get_windows_one_liner_script(
     # One-liner downloads bloatware list from server and processes it
     # Note: FOR /F "delims=" reads entire lines without tokenization
     # Use single % for command-line one-liners (not %% which is for batch files)
-    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment v2 - {alias} & echo ============================================ & echo. & echo [Step 0/9] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/9] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/9] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download-latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/9] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/9] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/9] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/9] Disable bloatware... & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/bloatware-list^" -o ^"{bloat_file}^" >nul 2>&1 && (set BLOAT_COUNT=0 & for /f "delims=" %P in ({bloat_file}) do @(adb shell pm disable-user --user 0 %P >nul 2>&1 ^& set /a BLOAT_COUNT+=1) & echo ✅ Disabled bloatware packages & del ^"{bloat_file}^" >nul 2>&1) || (echo ⚠️  Bloatware list download failed - continuing) & echo. & echo [Step 7/9] Apply system tweaks... & adb shell settings put global app_standby_enabled 0 >nul 2>&1 & adb shell settings put global battery_tip_constants app_restriction_enabled=false >nul 2>&1 & adb shell settings put system screen_brightness_mode 0 >nul 2>&1 & adb shell settings put system ambient_tilt_to_wake 1 >nul 2>&1 & adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1 & echo ✅ System tweaks applied & echo. & echo [Step 8/9] Auto-enroll and launch... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1) || (echo ❌ Broadcast failed) & echo. & echo [Step 9/9] Verify service... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 8) & echo. & echo Verify registration... & echo Waiting 10 seconds for first heartbeat... & timeout /t 10 /nobreak >nul & echo Checking backend for device ^"{alias}^"... & set API_FILE=%TEMP%\\mdm_verify.txt & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/devices?alias={alias}^" -o %API_FILE% 2>nul & findstr /C:^"\\"alias\\":\\"{alias}\\"^" %API_FILE% >nul 2>&1 && (echo ✅ Device registered! & echo. & echo ============================================ & echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅ & echo ============================================ & echo Device: {alias} enrolled and verified! & echo Check dashboard - device should be online & echo ============================================) || (echo ❌ Device NOT found in backend & type %API_FILE% & del %API_FILE% >nul 2>&1 & echo. & echo ============================================ & echo ❌❌❌ ENROLLMENT FAILED ❌❌❌ & echo ============================================ & echo Device: {alias} did not register & echo Check server logs & echo ============================================ & exit /b 9) & del %API_FILE% >nul 2>&1 & echo. & echo Window will stay open - Type 'exit' to close"'''
+    one_liner = f'''cmd.exe /K "echo ============================================ & echo UnityMDM Zero-Tap Enrollment v3 - {alias} & echo Supports: Android 11+ (SDK 30+) & echo ============================================ & echo. & echo [Step 0/10] Check prerequisites... & where adb >nul 2>&1 && (echo ✅ ADB found & for /f ^"tokens=*^" %A in ('adb version 2^^^>nul ^^^| findstr Bridge') do @echo %A) || (echo ❌ ADB not found in PATH & echo Fix: Install Android Platform Tools & echo Download: https://developer.android.com/tools/releases/platform-tools) & echo Listing devices: & adb devices -l & echo. & echo [Step 1/10] Wait for device... & adb wait-for-device >nul 2>&1 && (echo ✅ Device connected) || (echo ❌ No device - Check USB cable & adb devices -l) & echo. & echo [Step 2/10] Check Android version... & for /f ^"tokens=*^" %V in ('adb shell getprop ro.build.version.release 2^^^>nul') do @set ANDROID_VER=%V & for /f ^"tokens=*^" %S in ('adb shell getprop ro.build.version.sdk 2^^^>nul') do @(echo Device: Android %V (SDK %S) & if %S LSS 30 (echo ❌ INCOMPATIBLE - Requires Android 11+ SDK 30+ & exit /b 2) else (echo ✅ Compatible)) & echo. & echo [Step 3/10] Download APK... & curl -L -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/v1/apk/download-latest^" -o ^"{apk_path}^" >nul 2>&1 && (echo ✅ APK downloaded) || (echo ❌ Download failed - Check network) & echo. & echo [Step 3/9] Install APK... & (adb install -r -g ^"{apk_path}^" >nul 2>&1 || (adb uninstall {agent_pkg} >nul 2>&1 & adb install -r -g -t ^"{apk_path}^" >nul 2>&1)) && (echo ✅ APK installed) || (echo ❌ Install failed) & echo. & echo [Step 4/9] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver >nul 2>&1 && (echo ✅ Device Owner confirmed) || (echo ❌ Device Owner failed - Factory reset required) & echo. & echo [Step 5/9] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION >nul 2>&1 & adb shell pm grant {agent_pkg} android.permission.CAMERA >nul 2>&1 & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow >nul 2>&1 & adb shell appops set {agent_pkg} GET_USAGE_STATS allow >nul 2>&1 & adb shell dumpsys deviceidle whitelist +{agent_pkg} >nul 2>&1 & echo ✅ Permissions granted & echo. & echo [Step 6/9] Disable bloatware... & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/bloatware-list^" -o ^"{bloat_file}^" >nul 2>&1 && (set BLOAT_COUNT=0 & for /f "delims=" %P in ({bloat_file}) do @(adb shell pm disable-user --user 0 %P >nul 2>&1 ^& set /a BLOAT_COUNT+=1) & echo ✅ Disabled bloatware packages & del ^"{bloat_file}^" >nul 2>&1) || (echo ⚠️  Bloatware list download failed - continuing) & echo. & echo [Step 7/9] Apply system tweaks... & adb shell settings put global app_standby_enabled 0 >nul 2>&1 & adb shell settings put global battery_tip_constants app_restriction_enabled=false >nul 2>&1 & adb shell settings put system screen_brightness_mode 0 >nul 2>&1 & adb shell settings put system ambient_tilt_to_wake 1 >nul 2>&1 & adb shell settings put system ambient_touch_to_wake 1 >nul 2>&1 & echo ✅ System tweaks applied & echo. & echo [Step 8/9] Auto-enroll and launch... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url ^"{server_url}^" --es admin_key ^"{admin_key}^" --es alias ^"{alias}^" >nul 2>&1 && (echo ✅ Auto-enrollment initiated & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 >nul 2>&1) || (echo ❌ Broadcast failed) & echo. & echo [Step 9/9] Verify service... & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} >nul 2>&1 && (echo ✅ Service running) || (echo ❌ Service not running & exit /b 8) & echo. & echo Verify registration... & echo Waiting 10 seconds for first heartbeat... & timeout /t 10 /nobreak >nul & echo Checking backend for device ^"{alias}^"... & set API_FILE=%TEMP%\\mdm_verify.txt & curl -s -H ^"X-Admin-Key: {admin_key}^" ^"{server_url}/admin/devices?alias={alias}^" -o %API_FILE% 2>nul & findstr /C:^"\\"alias\\":\\"{alias}\\"^" %API_FILE% >nul 2>&1 && (echo ✅ Device registered! & echo. & echo ============================================ & echo ✅✅✅ ENROLLMENT SUCCESS ✅✅✅ & echo ============================================ & echo Device: {alias} enrolled and verified! & echo Check dashboard - device should be online & echo ============================================) || (echo ❌ Device NOT found in backend & type %API_FILE% & del %API_FILE% >nul 2>&1 & echo. & echo ============================================ & echo ❌❌❌ ENROLLMENT FAILED ❌❌❌ & echo ============================================ & echo Device: {alias} did not register & echo Check server logs & echo ============================================ & exit /b 9) & del %API_FILE% >nul 2>&1 & echo. & echo Window will stay open - Type 'exit' to close"'''
     
     return Response(
         content=one_liner,
@@ -6577,7 +6635,8 @@ async def get_bash_one_liner_script(
     metrics.inc_counter("script_oneliner_copies_total", {"platform": "bash", "alias": alias})
     
     # Create Bash one-liner that downloads bloatware list from server
-    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" BLOAT_FILE="/tmp/mdm_bloatware.txt" && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment v2 - $ALIAS" && echo "================================================" && echo && echo "[Step 0/9] Check prerequisites..." && (command -v adb &>/dev/null && echo "✅ ADB found: $(adb version 2>&1 | head -1)") || (echo "❌ ADB not found in PATH" && echo "Fix: Install Android Platform Tools" && echo "Download: https://developer.android.com/tools/releases/platform-tools" && exit 1) && echo "Listing devices:" && adb devices -l && echo && echo "[Step 1/9] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && adb devices -l && exit 2) && echo && echo "[Step 2/9] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 3/9] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 4/9] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 5/9] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 6/9] Disable bloatware..." && curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/bloatware-list" -o "$BLOAT_FILE" 2>/dev/null && (BLOAT_COUNT=0 && while IFS= read -r PKG_TO_DISABLE; do [ -n "$PKG_TO_DISABLE" ] && adb shell pm disable-user --user 0 "$PKG_TO_DISABLE" 2>/dev/null && BLOAT_COUNT=$((BLOAT_COUNT+1)); done < "$BLOAT_FILE" && echo "✅ Disabled $BLOAT_COUNT bloatware packages" && rm -f "$BLOAT_FILE") || echo "⚠️  Bloatware list download failed - continuing" && echo && echo "[Step 7/9] Apply system tweaks..." && adb shell settings put global app_standby_enabled 0 2>/dev/null; adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null; adb shell settings put system screen_brightness_mode 0 2>/dev/null; adb shell settings put system ambient_tilt_to_wake 1 2>/dev/null; adb shell settings put system ambient_touch_to_wake 1 2>/dev/null && echo "✅ System tweaks applied" && echo && echo "[Step 8/9] Auto-enroll and launch..." && (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated" && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 9/9] Verify service..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "Verify registration..." && echo "Waiting 10 seconds for first heartbeat..." && sleep 10 && echo "Checking backend for device \\"$ALIAS\\"..." && API_RESP=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$ALIAS" 2>/dev/null) && if echo "$API_RESP" | grep -q "\\"alias\\":\\"$ALIAS\\""; then echo "✅ Device registered!" && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" enrolled and verified!" && echo "🔍 Check dashboard - device should be online" && echo "================================================"; else echo "❌ Device NOT found in backend" && echo "API Response: $API_RESP" && echo && echo "================================================" && echo "❌❌❌ ENROLLMENT FAILED ❌❌❌" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" did not register" && echo "🔍 Check server logs" && echo "================================================" && exit 9; fi'''
+    # v3: Added SDK version checking for Android 11+ (SDK 30+) compatibility
+    one_liner = f'''PKG="{agent_pkg}" ALIAS="{alias}" BASE_URL="{server_url}" ADMIN_KEY="{admin_key}" APK="/tmp/unitymdm.apk" BLOAT_FILE="/tmp/mdm_bloatware.txt" MIN_SDK=30 && echo "================================================" && echo "UnityMDM Zero-Tap Enrollment v3 - $ALIAS" && echo "Supports: Android 11+ (SDK 30+)" && echo "================================================" && echo && echo "[Step 0/10] Check prerequisites..." && (command -v adb &>/dev/null && echo "✅ ADB found: $(adb version 2>&1 | head -1)") || (echo "❌ ADB not found in PATH" && echo "Fix: Install Android Platform Tools" && echo "Download: https://developer.android.com/tools/releases/platform-tools" && exit 1) && echo "Listing devices:" && adb devices -l && echo && echo "[Step 1/10] Wait for device..." && (adb wait-for-device 2>/dev/null && echo "✅ Device connected") || (echo "❌ No device found. Fix: Check USB cable" && adb devices -l && exit 2) && echo && echo "[Step 2/10] Check Android version..." && DEVICE_SDK=$(adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\\r') && DEVICE_VER=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\\r') && echo "Device: Android $DEVICE_VER (SDK $DEVICE_SDK)" && echo "Required: SDK $MIN_SDK+ (Android 11+)" && ([ "$DEVICE_SDK" -ge "$MIN_SDK" ] 2>/dev/null && echo "✅ Compatible") || (echo "❌ INCOMPATIBLE - Requires Android 11+ (SDK 30+)" && exit 2) && echo && echo "[Step 3/10] Download latest APK..." && (curl -L -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/v1/apk/download-latest" -o "$APK" 2>/dev/null && echo "✅ APK downloaded") || (echo "❌ Download failed. Fix: Check network" && exit 3) && echo && echo "[Step 4/10] Install APK..." && (adb install -r -g "$APK" 2>/dev/null && echo "✅ APK installed") || (adb uninstall "$PKG" 2>/dev/null; (adb install -r -g -t "$APK" 2>/dev/null && echo "✅ APK installed") || (echo "❌ Install failed" && exit 4)) && echo && echo "[Step 5/10] Set Device Owner..." && (adb shell dpm set-device-owner "$PKG/.NexDeviceAdminReceiver" 2>/dev/null && echo "✅ Device Owner confirmed") || (echo "❌ Device Owner failed. Fix: Factory reset device" && exit 5) && echo && echo "[Step 6/10] Grant permissions..." && adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS 2>/dev/null; adb shell pm grant "$PKG" android.permission.ACCESS_FINE_LOCATION 2>/dev/null; adb shell pm grant "$PKG" android.permission.CAMERA 2>/dev/null; adb shell appops set "$PKG" RUN_ANY_IN_BACKGROUND allow 2>/dev/null; adb shell appops set "$PKG" GET_USAGE_STATS allow 2>/dev/null; adb shell dumpsys deviceidle whitelist +"$PKG" 2>/dev/null && echo "✅ Permissions granted" && echo && echo "[Step 7/10] Disable bloatware..." && curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/bloatware-list" -o "$BLOAT_FILE" 2>/dev/null && (BLOAT_COUNT=0 && while IFS= read -r PKG_TO_DISABLE; do [ -n "$PKG_TO_DISABLE" ] && adb shell pm disable-user --user 0 "$PKG_TO_DISABLE" 2>/dev/null && BLOAT_COUNT=$((BLOAT_COUNT+1)); done < "$BLOAT_FILE" && echo "✅ Disabled $BLOAT_COUNT bloatware packages" && rm -f "$BLOAT_FILE") || echo "⚠️  Bloatware list download failed - continuing" && echo && echo "[Step 8/10] Apply system tweaks..." && adb shell settings put global app_standby_enabled 0 2>/dev/null; adb shell settings put global battery_tip_constants app_restriction_enabled=false 2>/dev/null; adb shell settings put system screen_brightness_mode 0 2>/dev/null; adb shell settings put system ambient_tilt_to_wake 1 2>/dev/null; adb shell settings put system ambient_touch_to_wake 1 2>/dev/null && echo "✅ System tweaks applied" && echo && echo "[Step 9/10] Auto-enroll and launch..." && (adb shell am broadcast -a com.nexmdm.CONFIGURE -n "$PKG/.ConfigReceiver" --receiver-foreground --es server_url "$BASE_URL" --es admin_key "$ADMIN_KEY" --es alias "$ALIAS" 2>/dev/null && echo "✅ Auto-enrollment initiated" && adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1) || (echo "❌ Broadcast failed" && exit 7) && echo && echo "[Step 10/10] Verify service..." && sleep 3 && (adb shell pidof "$PKG" 2>/dev/null && echo "✅ Service running") || (echo "❌ Service not running" && exit 8) && echo && echo "Verify registration..." && echo "Waiting 10 seconds for first heartbeat..." && sleep 10 && echo "Checking backend for device \\"$ALIAS\\"..." && API_RESP=$(curl -s -H "X-Admin-Key: $ADMIN_KEY" "$BASE_URL/admin/devices?alias=$ALIAS" 2>/dev/null) && if echo "$API_RESP" | grep -q "\\"alias\\":\\"$ALIAS\\""; then echo "✅ Device registered!" && echo && echo "================================================" && echo "✅✅✅ ENROLLMENT SUCCESS ✅✅✅" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" enrolled and verified!" && echo "🔍 Check dashboard - device should be online" && echo "================================================"; else echo "❌ Device NOT found in backend" && echo "API Response: $API_RESP" && echo && echo "================================================" && echo "❌❌❌ ENROLLMENT FAILED ❌❌❌" && echo "================================================" && echo "📱 Device \\"$ALIAS\\" did not register" && echo "🔍 Check server logs" && echo "================================================" && exit 9; fi'''
     
     return Response(
         content=one_liner,
