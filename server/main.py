@@ -8833,34 +8833,7 @@ async def get_deployment_stats(
 
     return {
         "build_id": stats.build_id,
-        "total_files = {
-        'file': ('app.apk', open('app-debug.apk', 'rb'), 'application/vnd.android.package-archive')
-    }
-    data = {
-        'build_id': 'build_001',
-        'version_code': '123',
-        'version_name': '1.2.3',
-        'build_type': 'debug',
-        'package_name': 'com.nexmdm.agent'
-    }
-    response = requests.post(
-        'https://your-app.repl.co/admin/apk/upload',
-        headers={'X-Admin': 'your-admin-key'},
-        files=files,
-        data=data
-    )
-    ```
-
-    **Example - curl:**
-    ```bash
-    curl -X POST https://your-app.repl.co/admin/apk/upload \
-      -H "X-Admin: your-admin-key" \
-      -F "file=@app-debug.apk" \
-      -F "build_id=build_001" \
-      -F "version_code=123" \
-      -F "version_name=1.2.3" \
-      -F "build_type=debug" \
-      -F "package_name=com.nexmdm.agent""total_checks": stats.total_checks,
+        "total_checks": stats.total_checks,
         "total_eligible": stats.total_eligible,
         "total_downloads": stats.total_downloads,
         "installs_success": stats.installs_success,
@@ -8869,6 +8842,9 @@ async def get_deployment_stats(
         "last_updated": stats.last_updated.isoformat() if stats.last_updated else None,
         "adoption_rate": round((stats.installs_success / stats.total_eligible * 100), 2) if stats.total_eligible > 0 else 0
     }
+
+class NudgeUpdateRequest(BaseModel):
+    device_ids: Optional[List[str]] = None
 
 @app.post("/v1/apk/nudge-update")
 async def nudge_update_check(
