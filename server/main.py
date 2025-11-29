@@ -8882,6 +8882,83 @@ async def download_latest_apk(
         }
     )
 
+@app.get("/v1/apk/download-latest-unity")
+async def download_latest_unity_apk(
+    request: Request,
+    x_admin_key: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Download the latest Unity APK version (requires X-Admin-Key) - For ADB enrollment scripts"""
+    from models import ApkDownloadEvent
+
+    # Verify admin key
+    if not x_admin_key or not verify_admin_key(x_admin_key):
+        raise HTTPException(status_code=401, detail="Admin key required")
+
+    # Get the latest active APK with package name starting with 'Unity'
+    apk = db.query(ApkVersion).filter(
+        ApkVersion.is_active == True,
+        ApkVersion.package_name.like("Unity%")
+    ).order_by(
+        ApkVersion.uploaded_at.desc()
+    ).first()
+
+    if not apk:
+        raise HTTPException(status_code=404, detail="No Unity APK versions available (package must start with Unity)")
+
+    # Validate that file_path exists (not empty or None)
+    if not apk.file_path or apk.file_path.strip() == "":
+        raise HTTPException(
+            status_code=500,
+            detail=f"APK file path is missing in database. This APK was not uploaded successfully. Please re-upload APK {apk.id}."
+        )
+
+    # Download from App Storage
+    try:
+        storage = get_storage_service()
+        file_data, content_type, file_size = storage.download_file(apk.file_path)
+    except ObjectNotFoundError:
+        raise HTTPException(status_code=404, detail="Unity APK file not found in storage")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download Unity APK: {str(e)}")
+
+    structured_logger.log_event(
+        "apk.download",
+        build_id=apk.id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        token_id="admin",
+        source="enrollment_unity",
+        auth_method="admin_key"
+    )
+
+    download_event = ApkDownloadEvent(
+        build_id=apk.id,
+        source="enrollment_unity",
+        token_id="admin",
+        admin_user="admin_key",
+        ip=request.client.host if request.client else None
+    )
+    db.add(download_event)
+    db.commit()
+
+    metrics.inc_counter("apk_download_total", {
+        "build_type": apk.build_type or "unknown",
+        "source": "enrollment_unity"
+    })
+
+    print(f"[APK UNITY DOWNLOAD] Downloading latest Unity APK {apk.package_name} v{apk.version_code} via admin key")
+
+    return Response(
+        content=file_data,
+        media_type="application/vnd.android.package-archive",
+        headers={
+            "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"',
+            "Content-Length": str(file_size)
+        }
+    )
+
 async def send_fcm_to_device(device, installation, apk, download_url, current_user, db):
     """Send FCM message to a single device (for parallel execution)"""
     message_data = {
