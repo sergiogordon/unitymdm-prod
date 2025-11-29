@@ -8818,15 +8818,16 @@ async def download_latest_apk(
     if not x_admin_key or not verify_admin_key(x_admin_key):
         raise HTTPException(status_code=401, detail="Admin key required")
 
-    # Get the latest active APK
+    # Get the latest active APK with package name starting with 'com.nexmdm'
     apk = db.query(ApkVersion).filter(
-        ApkVersion.is_active == True
+        ApkVersion.is_active == True,
+        ApkVersion.package_name.like("com.nexmdm%")
     ).order_by(
         ApkVersion.uploaded_at.desc()
     ).first()
 
     if not apk:
-        raise HTTPException(status_code=404, detail="No APK versions available")
+        raise HTTPException(status_code=404, detail="No NexMDM APK versions available (package must start with com.nexmdm)")
 
     # Validate that file_path exists (not empty or None)
     if not apk.file_path or apk.file_path.strip() == "":
