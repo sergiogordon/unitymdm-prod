@@ -5238,6 +5238,7 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
         r'^input\s+(keyevent|tap|swipe)\s+[0-9\s]+$',  # Numbers only for input commands
         r'^svc\s+(wifi|data)\s+(enable|disable)$',
         r'^pm\s+list\s+packages(\s+-[a-z]+)*$',  # Allow flags like -s, -d, etc
+        r'^monkey\s+-p\s+[A-Za-z0-9._]+\s+-c\s+android\.intent\.category\.(LAUNCHER|DEFAULT)\s+1$',  # App launch via monkey
     ]
 
     for pattern in allow_patterns:

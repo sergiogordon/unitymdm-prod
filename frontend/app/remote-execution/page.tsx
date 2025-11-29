@@ -54,6 +54,7 @@ const FCM_PRESETS = {
   ping: { type: "ping" },
   ring: { type: "ring", duration: "30" },
   reboot: { type: "reboot", reason: "remote_exec" },
+  launch_unity_app: { type: "launch_app", package_name: "com.unitynetwork.unityapp" },
   launch_app: { type: "launch_app", package_name: "com.example.app" },
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
   enable_dnd: { type: "set_dnd", enable: "true" },
@@ -63,6 +64,9 @@ const FCM_PRESETS = {
 }
 
 const SHELL_PRESETS = {
+  restart_unity_app: "am force-stop com.unitynetwork.unityapp && monkey -p com.unitynetwork.unityapp -c android.intent.category.LAUNCHER 1",
+  force_stop_unity_app: "am force-stop com.unitynetwork.unityapp",
+  launch_unity_app: "monkey -p com.unitynetwork.unityapp -c android.intent.category.LAUNCHER 1",
   suppress_wea: "settings put global zen_mode 2 && settings put global emergency_tone 0 && settings put global emergency_alerts_enabled 0",
   restore_normal: "settings put global zen_mode 0 && settings put global emergency_tone 1 && settings put global emergency_alerts_enabled 1",
   enable_auto_update: "settings put global auto_system_update_policy 1",
@@ -788,7 +792,8 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="ping">Ping</SelectItem>
                           <SelectItem value="ring">Ring</SelectItem>
                           <SelectItem value="reboot">Reboot</SelectItem>
-                          <SelectItem value="launch_app">Launch App</SelectItem>
+                          <SelectItem value="launch_unity_app">🚀 Launch Unity App</SelectItem>
+                          <SelectItem value="launch_app">Launch App (Custom)</SelectItem>
                           <SelectItem value="clear_app_data">Clear App Data</SelectItem>
                           <SelectItem value="enable_dnd">Enable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
@@ -822,6 +827,9 @@ export default function RemoteExecutionPage() {
                           <SelectValue placeholder="Select a preset..." />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="restart_unity_app">🔄 Restart Unity App</SelectItem>
+                          <SelectItem value="force_stop_unity_app">⛔ Force Stop Unity App</SelectItem>
+                          <SelectItem value="launch_unity_app">🚀 Launch Unity App</SelectItem>
                           <SelectItem value="suppress_wea">Suppress WEA & Enable DND</SelectItem>
                           <SelectItem value="restore_normal">Restore Normal Mode</SelectItem>
                           <SelectItem value="enable_auto_update">✅ Enable Auto-Update Policy</SelectItem>
