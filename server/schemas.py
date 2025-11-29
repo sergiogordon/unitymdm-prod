@@ -106,6 +106,7 @@ class UpdateDeviceAliasRequest(BaseModel):
 class DeployApkRequest(BaseModel):
     apk_id: int
     device_ids: Optional[list[str]] = None
+    rollout_percent: Optional[int] = Field(100, ge=1, le=100)
 
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = Field(None, max_length=200)

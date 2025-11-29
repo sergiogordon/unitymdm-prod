@@ -172,12 +172,19 @@ export default function ApkDeployPage() {
         headers['Authorization'] = `Bearer ${token}`
       }
 
+      // Calculate rollout percentage
+      let rolloutPercent = 100
+      if (rolloutStrategy === "25") rolloutPercent = 25
+      else if (rolloutStrategy === "50") rolloutPercent = 50
+      else if (rolloutStrategy === "custom") rolloutPercent = customPercentage
+
       const response = await fetch('/v1/apk/deploy', {
         method: 'POST',
         headers,
         body: JSON.stringify({
           apk_id: parseInt(apkId),
-          device_ids: devicesToDeploy
+          device_ids: Array.from(selectedDevices),
+          rollout_percent: rolloutPercent
         })
       })
 
