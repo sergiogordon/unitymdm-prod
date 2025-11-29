@@ -3445,6 +3445,13 @@ async def get_monitoring_defaults(
 
     return defaults
 
+class ApkDownloadEventRequest(BaseModel):
+    apk_version_id: int
+    status: str
+    downloaded_at: Optional[datetime] = None
+    installed_at: Optional[datetime] = None
+    message: Optional[str] = None
+
 class UpdateMonitoringDefaultsRequest(BaseModel):
     enabled: Optional[bool] = None
     package: Optional[str] = None
@@ -4895,7 +4902,7 @@ async def acknowledge_command(
 
             log_device_event(db, device_id, "launch_app_ack", {
                 "correlation_id": correlation_id,
-                "status":            "status": payload.status,
+                "status": payload.status,
                 "message": payload.message
             })
         else:
@@ -5535,11 +5542,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -5567,9 +5574,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -5823,7 +5830,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -6574,11 +6581,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -6606,9 +6613,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -6862,7 +6869,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -7613,11 +7620,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -7645,9 +7652,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -7901,7 +7908,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -8652,11 +8659,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -8684,9 +8691,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -8940,7 +8947,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -9691,11 +9698,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -9723,9 +9730,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -9979,7 +9986,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -10730,11 +10737,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -10762,9 +10769,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -11018,7 +11025,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
@@ -11769,11 +11776,11 @@ async def download_apk_by_id(
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
+    request: Request,
     apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
     file: UploadFile = File(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -11801,9 +11808,9 @@ async def upload_apk_chunk(
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
+    request: Request,
     apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    request: Request,
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
@@ -12057,7 +12064,7 @@ async def delete_apk_version(
 @app.post("/v1/apk/download")
 async def track_apk_download(
     request: Request,
-    payload: ApkDownloadEvent,
+    payload: ApkDownloadEventRequest,
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):

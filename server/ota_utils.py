@@ -2,7 +2,7 @@ import hashlib
 from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from server.models import ApkVersion, ApkDeploymentStats
+from models import ApkVersion, ApkDeploymentStats
 import logging
 import json
 
