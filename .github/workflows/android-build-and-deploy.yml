@@ -237,7 +237,7 @@ jobs:
             echo "⚠️  Backend returned HTTP $HEALTH_CODE (may still be functional)"
           fi
       
-      - name: Register build with NexMDM backend
+      - name: Upload APK to NexMDM backend
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
@@ -253,108 +253,28 @@ jobs:
             exit 1
           fi
           
-          # Generate unique build_id from CI metadata
           BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
+          APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
           
           echo "================================================"
-          echo "🚀 Registering RELEASE APK with NexMDM backend"
+          echo "🚀 Uploading RELEASE APK to NexMDM backend"
           echo "================================================"
           echo "Build ID: $BUILD_ID"
           echo "Backend URL: $BACKEND_URL"
           echo "Version: ${{ steps.version.outputs.version_name }} (code: ${{ steps.version.outputs.version_code }})"
-          echo "File size: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes"
+          echo "File size: $(stat -c%s "$APK_PATH") bytes"
           echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
           echo "================================================"
           
-          # Create JSON payload
-          # Note: storage_url is set to null - file will be uploaded to local storage
-          PAYLOAD=$(cat <<EOF
-          {
-            "build_id": "$BUILD_ID",
-            "version_code": ${{ steps.version.outputs.version_code }},
-            "version_name": "${{ steps.version.outputs.version_name }}",
-            "build_type": "release",
-            "file_size_bytes": ${{ steps.apk_metadata.outputs.FILE_SIZE }},
-            "sha256": "${{ steps.apk_metadata.outputs.SHA256 }}",
-            "signer_fingerprint": "${{ steps.apk_metadata.outputs.SIGNER_FINGERPRINT }}",
-            "storage_url": null,
-            "ci_run_id": "${{ github.run_id }}",
-            "git_sha": "${{ github.sha }}",
-            "package_name": "com.nexmdm"
-          }
-          EOF
-          )
-          
-          echo "📤 Sending registration request..."
-          echo "Endpoint: $BACKEND_URL/api/proxy/admin/apk/register"
-          echo "Note: Using frontend proxy to reach backend API (Replit routing)"
-          
-          # Make the request with verbose output
-          # Use /api/proxy/ prefix since Replit routes public domain to frontend (port 5000)
-          # -L flag follows redirects (HTTP 301/302)
-          # --post301 preserves POST data when following 301 redirects
-          # Increase timeout to 120 seconds for slow backends
-          HTTP_CODE=$(curl -L --post301 --max-time 120 -v -X POST "$BACKEND_URL/api/proxy/admin/apk/register" \
-            -H "X-Admin: $ADMIN_KEY" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD" \
-            -w "\n%{http_code}" \
-            -o /tmp/response_body.txt \
-            2>&1 | tee /tmp/curl_verbose.txt | tail -n1)
-          
-          # Get response body
-          RESPONSE_BODY=$(cat /tmp/response_body.txt 2>/dev/null || echo "No response body")
-          
-          # Show verbose output for debugging
-          if [ -f /tmp/curl_verbose.txt ]; then
-            echo ""
-            echo "📋 Verbose curl output:"
-            cat /tmp/curl_verbose.txt | head -n 50
-          fi
-          
-          echo ""
-          echo "📥 Response received:"
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response Body: $RESPONSE_BODY"
-          
-          # Validate response
-          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-            echo ""
-            echo "✅ SUCCESS: Release APK metadata registered with backend!"
-            echo "View build at: $BACKEND_URL/apk-management"
-          else
-            echo ""
-            echo "❌ FAILED: Registration returned HTTP $HTTP_CODE"
-            echo "Response: $RESPONSE_BODY"
-            echo ""
-            echo "Troubleshooting:"
-            echo "1. Check that both Backend and Frontend workflows are running in Replit"
-            echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
-            echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
-            echo "4. Check backend logs in Replit console"
-            echo "5. Try accessing $BACKEND_URL/api/proxy/healthz manually"
-            echo "6. Ensure BACKEND_URL environment variable is set in frontend deployment"
-            exit 1
-          fi
-      
-      - name: Upload APK file to backend
-        env:
-          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
-          ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
-        run: |
-          echo "📤 Uploading RELEASE APK binary to backend via Next.js proxy..."
-          APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
-          
+          echo "📤 Uploading via Next.js proxy..."
           echo "📍 Upload URL: $BACKEND_URL/api/apk/upload"
-          echo "📦 APK file: $APK_PATH"
-          echo "📦 File size: $(stat -c%s "$APK_PATH") bytes"
           
-          # Upload through Next.js API route which proxies to backend
-          # This allows us to handle large files (>1MB) properly
-          HTTP_CODE=$(curl -L --post301 -v -X POST "$BACKEND_URL/api/apk/upload" \
+          # Upload through Next.js API route which proxies to backend /admin/apk/upload
+          # This creates the APK record and stores the file in one request
+          HTTP_CODE=$(curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
             -H "X-Admin: $ADMIN_KEY" \
             -F "file=@$APK_PATH" \
-            -F "build_id=gh_${{ github.run_id }}_${{ github.run_number }}" \
+            -F "build_id=$BUILD_ID" \
             -F "version_code=${{ steps.version.outputs.version_code }}" \
             -F "version_name=${{ steps.version.outputs.version_name }}" \
             -F "build_type=release" \
@@ -365,17 +285,34 @@ jobs:
           
           UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "No response")
           
+          # Show verbose output for debugging
+          if [ -f /tmp/upload_verbose.txt ]; then
+            echo ""
+            echo "📋 Verbose curl output:"
+            cat /tmp/upload_verbose.txt | head -n 50
+          fi
+          
           echo ""
           echo "📥 Upload response:"
           echo "HTTP Status: $HTTP_CODE"
           echo "Response: $UPLOAD_RESPONSE"
           
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-            echo "✅ SUCCESS: Release APK file uploaded to backend!"
+            echo ""
+            echo "✅ SUCCESS: Release APK registered and uploaded to backend!"
+            echo "View build at: $BACKEND_URL/apk-management"
           else
-            echo "⚠️  WARNING: File upload failed with HTTP $HTTP_CODE"
-            echo "Build is registered but file download may not work"
-            echo "You can still download the release APK from GitHub Actions artifacts"
+            echo ""
+            echo "❌ FAILED: APK upload returned HTTP $HTTP_CODE"
+            echo "Response: $UPLOAD_RESPONSE"
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Check that both Backend and Frontend workflows are running in Replit"
+            echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
+            echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
+            echo "4. Check backend logs in Replit console"
+            echo "5. Try accessing $BACKEND_URL/api/proxy/healthz manually"
+            exit 1
           fi
       
       - name: Upload Release APK as artifact
