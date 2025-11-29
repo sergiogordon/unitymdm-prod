@@ -244,27 +244,35 @@ class BackgroundTaskManager:
         """
         from datetime import timedelta
         from models import ApkInstallation, Device
+        from sqlalchemy import text
         
         while self._running:
             try:
                 db = SessionLocal()
                 try:
-                    timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=APK_INSTALLATION_TIMEOUT_MINUTES)
+                    timeout_minutes = APK_INSTALLATION_TIMEOUT_MINUTES
                     
                     stale_installations = db.query(ApkInstallation).filter(
                         ApkInstallation.status.in_(['pending', 'downloading', 'installing']),
-                        ApkInstallation.initiated_at < timeout_threshold,
+                        ApkInstallation.initiated_at < text(f"NOW() - INTERVAL '{timeout_minutes} minutes'"),
                         ApkInstallation.completed_at.is_(None)
                     ).all()
                     
                     if stale_installations:
+                        now = datetime.now(timezone.utc)
                         for installation in stale_installations:
                             device = db.query(Device).filter(Device.id == installation.device_id).first()
                             device_alias = device.alias if device else installation.device_id
                             
+                            prev_status = installation.status
                             installation.status = "timeout"
                             installation.error_message = "Installation timed out - no response from device"
-                            installation.completed_at = datetime.now(timezone.utc)
+                            installation.completed_at = now
+                            
+                            initiated_at = installation.initiated_at
+                            if initiated_at.tzinfo is None:
+                                initiated_at = initiated_at.replace(tzinfo=timezone.utc)
+                            age_minutes = round((now - initiated_at).total_seconds() / 60, 1)
                             
                             structured_logger.log_event(
                                 "apk_installation.timeout",
@@ -272,8 +280,8 @@ class BackgroundTaskManager:
                                 device_id=installation.device_id,
                                 device_alias=device_alias,
                                 apk_version_id=installation.apk_version_id,
-                                previous_status=installation.status,
-                                age_minutes=round((datetime.now(timezone.utc) - installation.initiated_at).total_seconds() / 60, 1)
+                                previous_status=prev_status,
+                                age_minutes=age_minutes
                             )
                         
                         db.commit()
