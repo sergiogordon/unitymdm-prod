@@ -6636,8 +6636,10 @@ FCM_DISPATCH_CONCURRENCY = 20  # Max concurrent FCM requests
 
 class RemoteExecRequest(BaseModel):
     mode: str  # "fcm" or "shell"
-    payload: dict  # FCM payload or {"script": "..."} for shell
+    payload: Optional[dict] = None  # FCM payload or {"script": "..."} for shell
+    command: Optional[str] = None  # Alternative: direct command string for shell mode
     scope_type: str = "all"  # "all", "filter", "aliases", "device_ids"
+    targets: Optional[dict] = None  # Alternative: {"aliases": [...]} or {"device_ids": [...]}
     device_ids: Optional[List[str]] = None
     aliases: Optional[List[str]] = None
     online_only: bool = False
@@ -6840,22 +6842,45 @@ async def create_remote_execution(
     if request.mode not in ["fcm", "shell"]:
         raise HTTPException(status_code=422, detail="Mode must be 'fcm' or 'shell'")
     
-    # Validate shell command if in shell mode
+    # Normalize payload - handle both payload.script and direct command field
+    effective_payload = request.payload or {}
     if request.mode == "shell":
-        script = request.payload.get("script")
+        # Support both payload.script and direct command field
+        script = effective_payload.get("script") or request.command
         if not script:
-            raise HTTPException(status_code=422, detail="Shell mode requires 'script' in payload")
+            raise HTTPException(status_code=422, detail="Shell mode requires 'script' in payload or 'command' field")
         is_valid, error_msg = validate_shell_command(script)
         if not is_valid:
             raise HTTPException(status_code=422, detail=f"Invalid shell command: {error_msg}")
+        # Normalize: put script in payload for consistency
+        effective_payload = {"script": script}
     
     # Build target device query
     query = db.query(Device)
     
-    if request.scope_type == "device_ids" and request.device_ids:
-        query = query.filter(Device.id.in_(request.device_ids))
-    elif request.scope_type == "aliases" and request.aliases:
-        query = query.filter(Device.alias.in_(request.aliases))
+    # Handle both old format (scope_type + device_ids/aliases) and new format (targets dict)
+    target_device_ids = request.device_ids
+    target_aliases = request.aliases
+    
+    # If targets dict is provided, extract from there
+    if request.targets:
+        if "device_ids" in request.targets:
+            target_device_ids = request.targets["device_ids"]
+        if "aliases" in request.targets:
+            target_aliases = request.targets["aliases"]
+    
+    # Determine scope type from data if not explicitly set
+    scope_type = request.scope_type
+    if request.targets:
+        if "device_ids" in request.targets:
+            scope_type = "device_ids"
+        elif "aliases" in request.targets:
+            scope_type = "aliases"
+    
+    if scope_type == "device_ids" and target_device_ids:
+        query = query.filter(Device.id.in_(target_device_ids))
+    elif scope_type == "aliases" and target_aliases:
+        query = query.filter(Device.alias.in_(target_aliases))
     # "all" and "filter" scope_types use all devices
     
     # Filter to online only if requested
@@ -6883,14 +6908,14 @@ async def create_remote_execution(
     
     # Create RemoteExec record
     client_ip = req.client.host if req.client else "unknown"
-    payload_hash = hashlib.sha256(json.dumps(request.payload, sort_keys=True).encode()).hexdigest()
+    payload_hash = hashlib.sha256(json.dumps(effective_payload, sort_keys=True).encode()).hexdigest()
     
     exec_record = RemoteExec(
         mode=request.mode,
         raw_request=json.dumps({
             "mode": request.mode,
-            "payload": request.payload,
-            "scope_type": request.scope_type,
+            "payload": effective_payload,
+            "scope_type": scope_type,
             "online_only": request.online_only
         }),
         targets=json.dumps([d.id for d in devices]),
@@ -6951,7 +6976,7 @@ async def create_remote_execution(
                 device=device,
                 exec_id=exec_id,
                 mode=request.mode,
-                payload=request.payload,
+                payload=effective_payload,
                 semaphore=semaphore,
                 client=client,
                 fcm_url=fcm_url,
