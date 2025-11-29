@@ -1,0 +1,46 @@
+[OK] APK downloaded
+
+[Step 4/10] Install APK...
+[OK] APK installed
+
+[Step 5/10] Set Device Owner...
+
+Exception occurred while executing 'set-device-owner':
+java.lang.IllegalArgumentException: Unknown admin: ComponentInfo{com.nexmdm/com.nexmdm.NexDeviceAdminReceiver}
+        at com.android.server.devicepolicy.DevicePolicyManagerService.findAdmin(DevicePolicyManagerService.java:2851)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.setActiveAdmin(DevicePolicyManagerService.java:3357)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.runSetDeviceOwner(DevicePolicyManagerServiceShellCommand.java:256)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.onCommand(DevicePolicyManagerServiceShellCommand.java:89)
+        at com.android.modules.utils.BasicShellCommandHandler.exec(BasicShellCommandHandler.java:97)
+        at android.os.ShellCommand.exec(ShellCommand.java:38)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.onShellCommand(DevicePolicyManagerService.java:9926)
+        at android.os.Binder.shellCommand(Binder.java:1049)
+        at android.os.Binder.onTransact(Binder.java:877)
+        at android.app.admin.IDevicePolicyManager$Stub.onTransact(IDevicePolicyManager.java:6054)
+        at android.os.Binder.execTransactInternal(Binder.java:1285)
+        at android.os.Binder.execTransact(Binder.java:1244)
+
+[Step 6/10] Grant permissions...
+[OK] Permissions granted
+
+[Step 7/10] Disable bloatware...
+Bloatware list downloaded
+
+[Step 8/10] Apply system tweaks...
+[OK] System tweaks applied
+
+[Step 9/10] Auto-enroll and launch...
+Broadcast sent
+[OK] App launched
+
+[Step 10/10] Verify service...
+[WARN] Service check - verify manually
+
+Verify registration...
+Waiting 10 seconds for first heartbeat...
+Check dashboard for device S19
+
+============================================
+Enrollment script complete for S19
+============================================
+Window will stay open - Type exit to close
