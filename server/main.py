@@ -5898,6 +5898,186 @@ async def delete_apk_version(
 
     return {"ok": True, "message": f"APK version '{apk.version_name}' deleted successfully"}
 
+# =============================================================================
+# ⚠️  CRITICAL ENDPOINTS - DO NOT DELETE ⚠️
+# =============================================================================
+# These endpoints are required for the APK Management page and device
+# installation tracking. They were accidentally deleted in commit 6addb18.
+# Deleting these endpoints will break:
+#   - APK Management page (can't list builds)
+#   - Device installation status updates
+#   - Admin APK build management
+# =============================================================================
+
+@app.get("/admin/apk/builds")
+async def list_apk_builds(
+    build_type: Optional[str] = Query(None),
+    limit: int = Query(50, le=200),
+    order: str = Query("desc"),
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
+    
+    List APK builds with optional filtering by build_type.
+    Used by the APK Management frontend to show available builds.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+
+    query = db.query(ApkVersion).filter(ApkVersion.is_active == True)
+
+    if build_type:
+        query = query.filter(ApkVersion.build_type == build_type)
+
+    if order == "asc":
+        query = query.order_by(ApkVersion.uploaded_at.asc())
+    else:
+        query = query.order_by(ApkVersion.uploaded_at.desc())
+
+    apks = query.limit(limit).all()
+
+    builds = []
+    for apk in apks:
+        builds.append({
+            "build_id": apk.id,
+            "filename": f"{apk.package_name}-{apk.version_name}.apk",
+            "version_name": apk.version_name,
+            "version_code": apk.version_code,
+            "file_size_bytes": apk.file_size,
+            "uploaded_at": apk.uploaded_at.isoformat() if apk.uploaded_at else None,
+            "uploaded_by": apk.uploaded_by,
+            "build_type": apk.build_type,
+            "ci_run_id": apk.ci_run_id,
+            "git_sha": apk.git_sha,
+            "signer_fingerprint": apk.signer_fingerprint,
+            "package_name": apk.package_name
+        })
+
+    structured_logger.log_event(
+        "apk.list",
+        build_type=build_type,
+        count=len(builds),
+        limit=limit
+    )
+
+    return {"builds": builds}
+
+@app.delete("/admin/apk/builds/{build_id}")
+async def delete_apk_build(
+    build_id: int,
+    x_admin: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
+    
+    Delete an APK build by ID.
+    Removes the database record and optionally the file.
+    Requires admin authentication.
+    """
+    if not verify_admin_key(x_admin or ""):
+        raise HTTPException(status_code=403, detail="Admin key required")
+
+    apk = db.query(ApkVersion).filter(ApkVersion.id == build_id).first()
+    if not apk:
+        raise HTTPException(status_code=404, detail="APK build not found")
+
+    file_path = apk.file_path
+
+    file_deleted = False
+    if file_path:
+        try:
+            storage = get_storage_service()
+            file_deleted = storage.delete_file(file_path)
+        except Exception as e:
+            print(f"[APK DELETE] Failed to delete file from storage {file_path}: {e}")
+
+    apk.is_active = False
+    db.commit()
+
+    structured_logger.log_event(
+        "apk.delete",
+        build_id=build_id,
+        version_code=apk.version_code,
+        version_name=apk.version_name,
+        build_type=apk.build_type or "unknown",
+        file_deleted=file_deleted
+    )
+
+    metrics.inc_counter("apk_delete_total", {
+        "build_type": apk.build_type or "unknown"
+    })
+
+    return {
+        "success": True,
+        "build_id": build_id,
+        "file_deleted": file_deleted
+    }
+
+class InstallationUpdateRequest(BaseModel):
+    installation_id: int
+    status: str
+    download_progress: Optional[int] = None
+    error_message: Optional[str] = None
+
+@app.post("/v1/apk/installation/update")
+async def update_installation_status(
+    payload: InstallationUpdateRequest,
+    x_device_token: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    """
+    ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
+    
+    Update installation status from device.
+    Used by Android devices to report APK installation progress.
+    """
+    installation = db.query(ApkInstallation).filter(
+        ApkInstallation.id == payload.installation_id
+    ).first()
+
+    if not installation:
+        raise HTTPException(status_code=404, detail="Installation not found")
+
+    device = db.query(Device).filter(Device.id == installation.device_id).first()
+
+    if not device or not verify_token(x_device_token, device.token_hash):
+        raise HTTPException(status_code=401, detail="Invalid device token")
+
+    installation.status = payload.status
+    if payload.download_progress is not None:
+        installation.download_progress = payload.download_progress
+    if payload.error_message:
+        installation.error_message = payload.error_message
+    if payload.status in ["completed", "failed"]:
+        installation.completed_at = datetime.now(timezone.utc)
+
+        event_type = "apk_install_success" if payload.status == "completed" else "apk_install_failed"
+        details = {"installation_id": payload.installation_id, "status": payload.status}
+        if payload.error_message:
+            details["error"] = payload.error_message
+        log_device_event(db, device.id, event_type, details)
+
+    db.commit()
+
+    await manager.broadcast({
+        "type": "installation_update",
+        "device_id": str(device.id),
+        "installation_id": payload.installation_id,
+        "status": payload.status,
+        "progress": payload.download_progress
+    })
+
+    return {"success": True}
+
+# =============================================================================
+# ⚠️  END CRITICAL APK ENDPOINTS ⚠️
+# =============================================================================
+
+
 # --- APK Download Tracking ---
 
 @app.post("/v1/apk/download")
