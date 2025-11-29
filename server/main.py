@@ -6690,7 +6690,7 @@ async def dispatch_fcm_to_device(
                     "exec_id": exec_id,
                     "correlation_id": correlation_id,
                     "device_id": device.id,
-                    "script": payload.get("script", ""),
+                    "command": payload.get("script", ""),
                     "ts": timestamp,
                     "hmac": hmac_signature
                 }
