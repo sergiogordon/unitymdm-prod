@@ -1,0 +1,23 @@
+{"ts": "2025-11-29T21:46:18.680405+00:00", "request_id": "74ce2a89-6c63-4fdb-9e87-8da45d99efc9", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "85186156-f819-450e-b44c-7599a53e3cc4", "device_id": "1547b6a5-1794-46a4-99e4-33937e7ede0c", "status": "FAILED", "exit_code": 0}
+INFO:     127.0.0.1:52740 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+{"ts": "2025-11-29T21:46:18.844382+00:00", "request_id": "a2bebd0a-32f6-4b70-b93a-eb7c448409bc", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "1cf8b053-9f9d-44e6-ac40-c0cf06e12157", "device_id": "25c52f46-654d-4095-bfd7-7f5a2dd826ec", "status": "FAILED", "exit_code": 0}
+{"ts": "2025-11-29T21:46:19.010154+00:00", "request_id": "a01b9a30-e224-40ce-bbf9-eeda2df07586", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "f15d5bb1-d358-43a9-9c31-97bfc3afd4e5", "device_id": "e985b318-420e-48d4-9329-dfd585ea9e1c", "status": "FAILED", "exit_code": 0}
+INFO:     127.0.0.1:52744 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+INFO:     10.83.8.81:0 - "POST /v1/remote-exec HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52746 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+{"ts": "2025-11-29T21:46:19.178704+00:00", "request_id": "149920d3-8537-4860-87b5-be6cf7dcae65", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "195fe719-ac96-4875-bcda-48274b531da1", "device_id": "8b0ba76b-1a33-4bf2-84a7-ceae97aa9617", "status": "FAILED", "exit_code": 0}
+INFO:     127.0.0.1:52786 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52794 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52756 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52766 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+{"ts": "2025-11-29T21:46:19.348555+00:00", "request_id": "f6c11559-2508-4ffc-9736-48ade1d91e48", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "074bf917-db73-4aef-900a-e8a4bea113bb", "device_id": "6377acb3-1880-4024-9f04-4537e35f201a", "status": "FAILED", "exit_code": 0}
+{"ts": "2025-11-29T21:46:19.521374+00:00", "request_id": "17346d40-96e9-45e0-b3ad-ac9d3dc0e0b1", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "ec47a9df-d746-417f-94e0-758f18334ec8", "device_id": "4648374c-6fea-481c-a81e-2298712ac3ff", "status": "FAILED", "exit_code": 0}
+INFO:     127.0.0.1:52810 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52768 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52820 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+{"ts": "2025-11-29T21:46:19.686823+00:00", "request_id": "d8c76636-acd0-4664-80d7-7dc719c2b16e", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "39c2c215-8399-423d-a33a-e3b05182f119", "device_id": "7d93b74b-989c-4865-912b-a7f596c49457", "status": "FAILED", "exit_code": 0}
+{"ts": "2025-11-29T21:46:19.852941+00:00", "request_id": "226345ef-8367-4711-a708-5658c222150c", "level": "INFO", "event": "remote_exec.ack.received", "exec_id": "91d36d51-c1e4-424a-8595-e39fb6d5a55a", "correlation_id": "147b0a76-f0aa-4e2c-8443-c55805807502", "device_id": "9c1cb51e-1064-4322-a1d0-18db90ef153c", "status": "FAILED", "exit_code": 0}
+INFO:     127.0.0.1:52832 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52772 - "POST /v1/remote-exec/ack HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:52840 - "POST /v1/remote-exec/ack HTTP/1.1" 200 OK
+{"ts": "2025-11-29T21:46:20.040476+00:00", "request_id": "a368237f-2eb9-4699-906b-319b
