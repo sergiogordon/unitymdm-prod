@@ -5576,8 +5576,8 @@ async def download_latest_apk(
     else:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # Find the latest APK version
-    latest_apk = db.query(ApkVersion).order_by(ApkVersion.created_at.desc()).first()
+    # Find the latest APK version (use uploaded_at since created_at doesn't exist)
+    latest_apk = db.query(ApkVersion).filter(ApkVersion.is_active == True).order_by(ApkVersion.uploaded_at.desc()).first()
     if not latest_apk:
         raise HTTPException(status_code=404, detail="No APK versions found")
 
@@ -6767,84 +6767,6 @@ async def deploy_apk(
         ],
         "failed_devices": failed_devices
     }
-
-@app.get("/v1/apk/download-latest")
-async def download_latest_apk(
-    request: Request,
-    db: Session = Depends(get_db),
-    x_device_token: Optional[str] = Header(None),
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
-    installation_id: Optional[int] = Query(None),
-):
-    """
-    Download the latest available APK for the device.
-    Requires device token or admin key authentication.
-    """
-    device = None
-    device_id = None
-
-    # Authenticate
-    if x_admin_key and verify_admin_key(x_admin_key):
-        pass  # Admin authenticated
-    elif x_device_token:
-        device = get_device_by_token(x_device_token, db)
-        if device:
-            device_id = device.id
-        else:
-            raise HTTPException(status_code=401, detail="Invalid device token")
-    else:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    # Find the latest APK version
-    latest_apk = db.query(ApkVersion).order_by(ApkVersion.created_at.desc()).first()
-    if not latest_apk:
-        raise HTTPException(status_code=404, detail="No APK versions found")
-
-    # Use optimized download service
-    return await download_apk_optimized(
-        apk_id=latest_apk.id,
-        db=db,
-        device_id=device_id,
-        installation_id=installation_id,
-        use_cache=True
-    )
-
-@app.get("/v1/apk/download/{apk_id}")
-async def download_apk_by_id(
-    apk_id: int,
-    request: Request,
-    x_device_token: Optional[str] = Header(None),
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
-    installation_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
-):
-    """
-    Download a specific APK version by ID.
-    Requires device token or admin key authentication.
-    """
-    device = None
-    device_id = None
-
-    # Authenticate
-    if x_admin_key and verify_admin_key(x_admin_key):
-        pass  # Admin authenticated
-    elif x_device_token:
-        device = get_device_by_token(x_device_token, db)
-        if device:
-            device_id = device.id
-        else:
-            raise HTTPException(status_code=401, detail="Invalid device token")
-    else:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    # Use optimized download service
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        device_id=device_id,
-        installation_id=installation_id,
-        use_cache=True
-    )
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
