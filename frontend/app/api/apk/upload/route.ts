@@ -29,28 +29,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!buildId || !versionCode || !versionName || !buildType || !packageName) {
+    if (!versionCode || !versionName) {
       return NextResponse.json(
-        { error: 'Missing required fields: build_id, version_code, version_name, build_type, package_name' },
+        { error: 'Missing required fields: version_code, version_name' },
         { status: 400 }
       );
     }
 
     console.log(`[APK Upload Proxy] Uploading ${file.name} (${file.size} bytes) to backend...`);
-    console.log(`[APK Upload Proxy] Version: ${versionName} (${versionCode}), Type: ${buildType}`);
+    console.log(`[APK Upload Proxy] Version: ${versionName} (${versionCode}), Type: ${buildType || 'release'}`);
+    console.log(`[APK Upload Proxy] Build ID: ${buildId || 'N/A'}`);
 
+    // Backend expects 'apk_file' not 'file'
     const backendFormData = new FormData();
-    backendFormData.append('file', file);
-    backendFormData.append('build_id', buildId.toString());
+    backendFormData.append('apk_file', file);
     backendFormData.append('version_code', versionCode.toString());
     backendFormData.append('version_name', versionName.toString());
-    backendFormData.append('build_type', buildType.toString());
-    backendFormData.append('package_name', packageName.toString());
+    // Description includes build metadata for traceability
+    const description = `CI Build: ${buildId || 'manual'}, Type: ${buildType || 'release'}, Package: ${packageName || 'com.nexmdm'}`;
+    backendFormData.append('description', description);
+    backendFormData.append('enabled', 'true');
 
+    // Backend expects 'X-Admin-Key' not 'X-Admin'
     const backendResponse = await fetch(`${BACKEND_URL}/admin/apk/upload`, {
       method: 'POST',
       headers: {
-        'X-Admin': adminKey,
+        'X-Admin-Key': adminKey,
       },
       body: backendFormData,
     });
