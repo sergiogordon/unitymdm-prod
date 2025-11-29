@@ -5718,7 +5718,8 @@ async def upload_apk_admin(
 
         # Construct object name
         object_name = f"apks/{version_name}_{version_code}.apk"
-        await storage_service.upload_file(file_content, object_name)
+        # upload_file is synchronous, do not await
+        storage_service.upload_file(file_content, object_name)
 
         apk_version = ApkVersion(
             version_name=version_name,
@@ -5877,7 +5878,7 @@ async def delete_apk_version(
     # Delete from object storage first (if it exists)
     try:
         storage_service = get_storage_service()
-        await storage_service.delete_file(apk.object_name)
+        storage_service.delete_file(apk.object_name)
     except ObjectNotFoundError:
         # File not found in storage, but we can still delete the DB record
         structured_logger.log_event(
@@ -7389,7 +7390,8 @@ async def upload_apk_admin(
 
         # Construct object name
         object_name = f"apks/{version_name}_{version_code}.apk"
-        await storage_service.upload_file(file_content, object_name)
+        # upload_file is synchronous, do not await
+        storage_service.upload_file(file_content, object_name)
 
         apk_version = ApkVersion(
             version_name=version_name,
@@ -7548,7 +7550,7 @@ async def delete_apk_version(
     # Delete from object storage first (if it exists)
     try:
         storage_service = get_storage_service()
-        await storage_service.delete_file(apk.object_name)
+        storage_service.delete_file(apk.object_name)
     except ObjectNotFoundError:
         # File not found in storage, but we can still delete the DB record
         structured_logger.log_event(
