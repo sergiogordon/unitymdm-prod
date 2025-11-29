@@ -1,0 +1,85 @@
+[Step 3/12] Download APKs (parallel)...
+Starting parallel downloads...
+Waiting for downloads...
+Download check:
+ Volume in drive C is Windows
+ Volume Serial Number is D424-BBF7
+
+ Directory of C:\Users\gordo\AppData\Local\Temp
+
+11/28/2025  09:56 PM         9,154,560 unitymdm.apk
+               1 File(s)      9,154,560 bytes
+               0 Dir(s)  2,903,356,997,632 bytes free
+ Volume in drive C is Windows
+ Volume Serial Number is D424-BBF7
+
+ Directory of C:\Users\gordo\AppData\Local\Temp
+
+11/28/2025  09:56 PM         8,839,168 unity_app.apk
+               1 File(s)      8,839,168 bytes
+               0 Dir(s)  2,903,356,997,632 bytes free
+
+[Step 4/12] Install NexMDM APK...
+Performing Streamed Install
+adb.exe: failed to install C:\Users\gordo\AppData\Local\Temp\\unitymdm.apk: Failure [INSTALL_PARSE_FAILED_NOT_APK: Failed to parse /data/app/vmdl1058257168.tmp/base.apk: Failed to load asset path /data/app/vmdl1058257168.tmp/base.apk]
+
+
+[Step 5/12] Verify NexMDM installed...
+
+[Step 6/12] Set Device Owner...
+
+Exception occurred while executing 'set-device-owner':
+java.lang.IllegalArgumentException: Unknown admin: ComponentInfo{com.nexmdm/com.nexmdm.NexDeviceAdminReceiver}
+        at com.android.server.devicepolicy.DevicePolicyManagerService.findAdmin(DevicePolicyManagerService.java:2851)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.setActiveAdmin(DevicePolicyManagerService.java:3357)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.runSetDeviceOwner(DevicePolicyManagerServiceShellCommand.java:256)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.onCommand(DevicePolicyManagerServiceShellCommand.java:89)
+        at com.android.modules.utils.BasicShellCommandHandler.exec(BasicShellCommandHandler.java:97)
+        at android.os.ShellCommand.exec(ShellCommand.java:38)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.onShellCommand(DevicePolicyManagerService.java:9926)
+        at android.os.Binder.shellCommand(Binder.java:1049)
+        at android.os.Binder.onTransact(Binder.java:877)
+        at android.app.admin.IDevicePolicyManager$Stub.onTransact(IDevicePolicyManager.java:6054)
+        at android.os.Binder.execTransactInternal(Binder.java:1285)
+        at android.os.Binder.execTransact(Binder.java:1244)
+
+[Step 7/12] Grant permissions...
+Error: No UID for com.nexmdm in user 0
+Error: No UID for com.nexmdm in user 0
+Unknown package: com.nexmdm
+
+[Step 8/12] Apply system tweaks...
+System tweaks applied.
+
+[Step 9/12] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+** No activities found to run, monkey aborted.
+
+[Step 10/12] Install Unity APK...
+Performing Streamed Install
+adb.exe: failed to install C:\Users\gordo\AppData\Local\Temp\\unity_app.apk: Failure [INSTALL_PARSE_FAILED_NOT_APK: Failed to parse /data/app/vmdl1676409929.tmp/base.apk: Failed to load asset path /data/app/vmdl1676409929.tmp/base.apk]
+
+
+[Step 11/12] Verify Unity installed...
+
+[Step 12/12] Verify services...
+
+============================================
+Enrollment complete for S25
+============================================
+
+C:\Users\gordo>
