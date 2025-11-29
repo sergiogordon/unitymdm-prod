@@ -1,0 +1,62 @@
+[Step 2/10] Check Android version...
+13
+33
+
+[Step 3/10] Download APK...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  121M  100  121M    0     0  20.0M      0  0:00:06  0:00:06 --:--:-- 32.1M
+
+[Step 4/10] Install APK...
+Performing Streamed Install
+Success
+
+[Step 5/10] Verify package installed...
+
+[Step 6/10] Set Device Owner...
+
+Exception occurred while executing 'set-device-owner':
+java.lang.IllegalArgumentException: Unknown admin: ComponentInfo{com.nexmdm/com.nexmdm.NexDeviceAdminReceiver}
+        at com.android.server.devicepolicy.DevicePolicyManagerService.findAdmin(DevicePolicyManagerService.java:2851)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.setActiveAdmin(DevicePolicyManagerService.java:3357)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.runSetDeviceOwner(DevicePolicyManagerServiceShellCommand.java:256)
+        at com.android.server.devicepolicy.DevicePolicyManagerServiceShellCommand.onCommand(DevicePolicyManagerServiceShellCommand.java:89)
+        at com.android.modules.utils.BasicShellCommandHandler.exec(BasicShellCommandHandler.java:97)
+        at android.os.ShellCommand.exec(ShellCommand.java:38)
+        at com.android.server.devicepolicy.DevicePolicyManagerService.onShellCommand(DevicePolicyManagerService.java:9926)
+        at android.os.Binder.shellCommand(Binder.java:1049)
+        at android.os.Binder.onTransact(Binder.java:877)
+        at android.app.admin.IDevicePolicyManager$Stub.onTransact(IDevicePolicyManager.java:6054)
+        at android.os.Binder.execTransactInternal(Binder.java:1285)
+        at android.os.Binder.execTransact(Binder.java:1244)
+
+[Step 7/10] Grant permissions...
+Error: No UID for com.nexmdm in user 0
+Error: No UID for com.nexmdm in user 0
+Unknown package: com.nexmdm
+
+[Step 8/10] Apply system tweaks...
+
+[Step 9/10] Auto-enroll and launch...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+** No activities found to run, monkey aborted.
+
+[Step 10/10] Verify service...
+
+============================================
+Enrollment complete for S19
+============================================
