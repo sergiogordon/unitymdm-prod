@@ -6627,6 +6627,492 @@ async def get_admin_commands(
         for cmd in commands
     ]
 
+# --- Batch Remote Execution Endpoints ---
+# Rate limiting: 10 batch remote executions per minute per user
+remote_exec_batch_limiter = RateLimiter(max_requests=10, window_seconds=60)
+
+# Concurrency control for FCM dispatch (prevent overwhelming Firebase)
+FCM_DISPATCH_CONCURRENCY = 20  # Max concurrent FCM requests
+
+class RemoteExecRequest(BaseModel):
+    mode: str  # "fcm" or "shell"
+    payload: dict  # FCM payload or {"script": "..."} for shell
+    scope_type: str = "all"  # "all", "filter", "aliases", "device_ids"
+    device_ids: Optional[List[str]] = None
+    aliases: Optional[List[str]] = None
+    online_only: bool = False
+    dry_run: bool = False
+
+class RemoteExecAckRequest(BaseModel):
+    exec_id: str
+    correlation_id: str
+    device_id: str
+    status: str  # "OK", "FAILED", "TIMEOUT", "DENIED"
+    exit_code: Optional[int] = None
+    output: Optional[str] = None
+    error: Optional[str] = None
+
+async def dispatch_fcm_to_device(
+    device: Device,
+    exec_id: str,
+    mode: str,
+    payload: dict,
+    semaphore: asyncio.Semaphore,
+    client: "httpx.AsyncClient",
+    fcm_url: str,
+    access_token: str,
+    db_results: dict
+) -> dict:
+    """
+    Dispatch FCM message to a single device with semaphore-based concurrency control.
+    Returns result dict with device_id, status, and optional error.
+    """
+    correlation_id = str(uuid.uuid4())
+    
+    async with semaphore:
+        try:
+            if not device.fcm_token:
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "correlation_id": correlation_id,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
+            
+            timestamp = datetime.now(timezone.utc).isoformat()
+            action = f"remote_exec_{mode}"
+            hmac_signature = compute_hmac_signature(correlation_id, device.id, action, timestamp)
+            
+            if mode == "shell":
+                fcm_data = {
+                    "action": "remote_exec_shell",
+                    "exec_id": exec_id,
+                    "correlation_id": correlation_id,
+                    "device_id": device.id,
+                    "script": payload.get("script", ""),
+                    "ts": timestamp,
+                    "hmac": hmac_signature
+                }
+            else:  # FCM mode
+                fcm_data = {
+                    "action": "remote_exec_fcm",
+                    "exec_id": exec_id,
+                    "correlation_id": correlation_id,
+                    "device_id": device.id,
+                    "ts": timestamp,
+                    "hmac": hmac_signature,
+                    **{k: str(v) for k, v in payload.items()}  # Flatten payload into FCM data
+                }
+            
+            fcm_message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": fcm_data,
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.post(fcm_url, json=fcm_message, headers=headers, timeout=10.0)
+            
+            if response.status_code == 200:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "sent"
+                }
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "correlation_id": correlation_id,
+                    "status": "sent"
+                }
+            else:
+                error_msg = f"FCM error: {response.status_code}"
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": error_msg
+                }
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "correlation_id": correlation_id,
+                    "status": "error",
+                    "error": error_msg
+                }
+        except asyncio.TimeoutError:
+            db_results[device.id] = {
+                "correlation_id": correlation_id,
+                "alias": device.alias,
+                "status": "error",
+                "error": "FCM timeout"
+            }
+            return {
+                "device_id": device.id,
+                "alias": device.alias,
+                "correlation_id": correlation_id,
+                "status": "error",
+                "error": "FCM timeout"
+            }
+        except Exception as e:
+            db_results[device.id] = {
+                "correlation_id": correlation_id,
+                "alias": device.alias,
+                "status": "error",
+                "error": str(e)
+            }
+            return {
+                "device_id": device.id,
+                "alias": device.alias,
+                "correlation_id": correlation_id,
+                "status": "error",
+                "error": str(e)
+            }
+
+@app.get("/v1/remote-exec")
+async def list_remote_executions(
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    mode: Optional[str] = Query(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List recent remote execution runs.
+    Returns summary info with stats for each execution.
+    """
+    query = db.query(RemoteExec)
+    
+    if status:
+        query = query.filter(RemoteExec.status == status)
+    if mode:
+        query = query.filter(RemoteExec.mode == mode)
+    
+    executions = query.order_by(RemoteExec.created_at.desc()).limit(limit).all()
+    
+    return [
+        {
+            "exec_id": exec.id,
+            "mode": exec.mode,
+            "status": exec.status,
+            "created_at": exec.created_at.isoformat() + "Z",
+            "created_by": exec.created_by,
+            "stats": {
+                "total_targets": exec.total_targets,
+                "sent_count": exec.sent_count,
+                "acked_count": exec.acked_count,
+                "error_count": exec.error_count
+            }
+        }
+        for exec in executions
+    ]
+
+@app.post("/v1/remote-exec")
+async def create_remote_execution(
+    request: RemoteExecRequest,
+    req: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create and dispatch a batch remote execution to multiple devices.
+    Supports FCM commands (ping, ring, reboot, etc.) and shell commands.
+    Scales to 100+ devices using async parallel FCM dispatch with bounded concurrency.
+    """
+    import httpx
+    
+    # Rate limit check
+    rate_key = f"remote_exec_batch:{user.id}"
+    if not remote_exec_batch_limiter.is_allowed(rate_key):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    
+    # Validate mode
+    if request.mode not in ["fcm", "shell"]:
+        raise HTTPException(status_code=422, detail="Mode must be 'fcm' or 'shell'")
+    
+    # Validate shell command if in shell mode
+    if request.mode == "shell":
+        script = request.payload.get("script")
+        if not script:
+            raise HTTPException(status_code=422, detail="Shell mode requires 'script' in payload")
+        is_valid, error_msg = validate_shell_command(script)
+        if not is_valid:
+            raise HTTPException(status_code=422, detail=f"Invalid shell command: {error_msg}")
+    
+    # Build target device query
+    query = db.query(Device)
+    
+    if request.scope_type == "device_ids" and request.device_ids:
+        query = query.filter(Device.id.in_(request.device_ids))
+    elif request.scope_type == "aliases" and request.aliases:
+        query = query.filter(Device.alias.in_(request.aliases))
+    # "all" and "filter" scope_types use all devices
+    
+    # Filter to online only if requested
+    if request.online_only:
+        heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
+        offline_threshold = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval * 3)
+        query = query.filter(Device.last_seen >= offline_threshold)
+    
+    # Get target devices
+    devices = query.all()
+    
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices match the specified criteria")
+    
+    # Dry run mode - just return preview
+    if request.dry_run:
+        return {
+            "dry_run": True,
+            "target_count": len(devices),
+            "sample_devices": [
+                {"id": d.id, "alias": d.alias}
+                for d in devices[:10]
+            ]
+        }
+    
+    # Create RemoteExec record
+    client_ip = req.client.host if req.client else "unknown"
+    payload_hash = hashlib.sha256(json.dumps(request.payload, sort_keys=True).encode()).hexdigest()
+    
+    exec_record = RemoteExec(
+        mode=request.mode,
+        raw_request=json.dumps({
+            "mode": request.mode,
+            "payload": request.payload,
+            "scope_type": request.scope_type,
+            "online_only": request.online_only
+        }),
+        targets=json.dumps([d.id for d in devices]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        payload_hash=payload_hash,
+        total_targets=len(devices),
+        sent_count=0,
+        acked_count=0,
+        error_count=0,
+        status="dispatching"
+    )
+    db.add(exec_record)
+    db.commit()
+    db.refresh(exec_record)
+    exec_id = exec_record.id
+    
+    # Get FCM credentials
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        exec_record.status = "failed"
+        exec_record.completed_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    # Dispatch FCM messages in parallel with bounded concurrency
+    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    db_results = {}  # Collect results for DB insert
+    
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            dispatch_fcm_to_device(
+                device=device,
+                exec_id=exec_id,
+                mode=request.mode,
+                payload=request.payload,
+                semaphore=semaphore,
+                client=client,
+                fcm_url=fcm_url,
+                access_token=access_token,
+                db_results=db_results
+            )
+            for device in devices
+        ]
+        
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Process results and create RemoteExecResult records
+    sent_count = 0
+    error_count = 0
+    
+    for device in devices:
+        result_data = db_results.get(device.id, {})
+        correlation_id = result_data.get("correlation_id", str(uuid.uuid4()))
+        status = result_data.get("status", "error")
+        error = result_data.get("error")
+        
+        if status == "sent":
+            sent_count += 1
+            result_status = "pending"
+        else:
+            error_count += 1
+            result_status = "error"
+        
+        result_record = RemoteExecResult(
+            exec_id=exec_id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=correlation_id,
+            status=result_status,
+            error=error
+        )
+        db.add(result_record)
+    
+    # Update exec record with counts
+    exec_record.sent_count = sent_count
+    exec_record.error_count = error_count
+    exec_record.status = "pending" if sent_count > 0 else "failed"
+    if sent_count == 0:
+        exec_record.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    # Log the execution
+    structured_logger.log_event(
+        "remote_exec.batch.dispatched",
+        exec_id=exec_id,
+        mode=request.mode,
+        user=user.username,
+        total_targets=len(devices),
+        sent_count=sent_count,
+        error_count=error_count,
+        client_ip=client_ip
+    )
+    
+    return {
+        "exec_id": exec_id,
+        "status": exec_record.status,
+        "stats": {
+            "total_targets": len(devices),
+            "sent_count": sent_count,
+            "error_count": error_count
+        }
+    }
+
+@app.get("/v1/remote-exec/{exec_id}")
+async def get_remote_execution(
+    exec_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get details of a specific remote execution including per-device results.
+    """
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+    if not exec_record:
+        raise HTTPException(status_code=404, detail="Remote execution not found")
+    
+    # Get all results for this execution
+    results = db.query(RemoteExecResult).filter(RemoteExecResult.exec_id == exec_id).all()
+    
+    return {
+        "exec_id": exec_record.id,
+        "mode": exec_record.mode,
+        "status": exec_record.status,
+        "created_at": exec_record.created_at.isoformat() + "Z",
+        "created_by": exec_record.created_by,
+        "completed_at": exec_record.completed_at.isoformat() + "Z" if exec_record.completed_at else None,
+        "stats": {
+            "total_targets": exec_record.total_targets,
+            "sent_count": exec_record.sent_count,
+            "acked_count": exec_record.acked_count,
+            "error_count": exec_record.error_count
+        },
+        "results": [
+            {
+                "device_id": r.device_id,
+                "alias": r.alias,
+                "correlation_id": r.correlation_id,
+                "status": r.status,
+                "exit_code": r.exit_code,
+                "output": r.output_preview,
+                "error": r.error,
+                "updated_at": r.updated_at.isoformat() + "Z"
+            }
+            for r in results
+        ]
+    }
+
+@app.post("/v1/remote-exec/ack")
+async def remote_exec_ack(
+    request: RemoteExecAckRequest,
+    req: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Receive ACK from device for remote execution command.
+    Called by Android agent after executing the command.
+    Updates RemoteExecResult status and parent RemoteExec counters.
+    """
+    # Find the result record by correlation_id
+    result = db.query(RemoteExecResult).filter(
+        RemoteExecResult.correlation_id == request.correlation_id,
+        RemoteExecResult.device_id == request.device_id
+    ).first()
+    
+    if not result:
+        # Try to find by exec_id and device_id as fallback
+        result = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == request.exec_id,
+            RemoteExecResult.device_id == request.device_id
+        ).first()
+    
+    if not result:
+        structured_logger.log_event(
+            "remote_exec.ack.not_found",
+            level="WARN",
+            exec_id=request.exec_id,
+            correlation_id=request.correlation_id,
+            device_id=request.device_id
+        )
+        raise HTTPException(status_code=404, detail="Result record not found")
+    
+    # Update result record
+    old_status = result.status
+    result.status = request.status
+    result.exit_code = request.exit_code
+    result.output_preview = request.output[:2048] if request.output else None  # Limit output size
+    result.error = request.error[:1024] if request.error else None  # Limit error size
+    result.updated_at = datetime.now(timezone.utc)
+    
+    # Update parent exec record counters if status changed from pending
+    exec_record = db.query(RemoteExec).filter(RemoteExec.id == result.exec_id).first()
+    if exec_record and old_status == "pending":
+        exec_record.acked_count += 1
+        if request.status != "OK":
+            exec_record.error_count += 1
+        
+        # Check if all results are now complete
+        pending_count = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == exec_record.id,
+            RemoteExecResult.status == "pending"
+        ).count()
+        
+        if pending_count == 0:
+            exec_record.status = "completed"
+            exec_record.completed_at = datetime.now(timezone.utc)
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "remote_exec.ack.received",
+        exec_id=request.exec_id,
+        correlation_id=request.correlation_id,
+        device_id=request.device_id,
+        status=request.status,
+        exit_code=request.exit_code
+    )
+    
+    return {"ok": True, "status": "received"}
+
 # --- Bulk APK Deployment Endpoint ---
 # Rate limiting: 5 bulk APK deployments per minute per user
 apk_deploy_limiter = RateLimiter(max_requests=5, window_seconds=60)
