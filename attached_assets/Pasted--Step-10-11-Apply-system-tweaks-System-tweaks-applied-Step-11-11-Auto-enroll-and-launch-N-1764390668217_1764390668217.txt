@@ -1,0 +1,144 @@
+[Step 10/11] Apply system tweaks...
+System tweaks applied.
+
+[Step 11/11] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+Events injected: 1
+## Network stats: elapsed time=28ms (0ms mobile, 0ms wifi, 28ms not connected)
+17621
+
+============================================
+Enrollment complete for S25
+============================================
+Disabling com.easybrain.crossword.puzzles...
+Bloatware disabled.
+
+[Step 10/11] Apply system tweaks...
+System tweaks applied.
+
+[Step 11/11] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+Events injected: 1
+## Network stats: elapsed time=41ms (0ms mobile, 0ms wifi, 41ms not connected)
+17621
+
+============================================
+Enrollment complete for S25
+============================================
+Disabling com.easybrain.number.puzzle.game...
+Package com.easybrain.number.puzzle.game new state: disabled-user
+Bloatware disabled.
+
+[Step 10/11] Apply system tweaks...
+System tweaks applied.
+
+[Step 11/11] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+Events injected: 1
+## Network stats: elapsed time=25ms (0ms mobile, 0ms wifi, 25ms not connected)
+17621
+
+============================================
+Enrollment complete for S25
+============================================
+Disabling com.easybrain.sudoku.android...
+Package com.easybrain.sudoku.android new state: disabled-user
+Bloatware disabled.
+
+[Step 10/11] Apply system tweaks...
+System tweaks applied.
+
+[Step 11/11] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+Events injected: 1
+## Network stats: elapsed time=12ms (0ms mobile, 0ms wifi, 12ms not connected)
+17621
+
+============================================
+Enrollment complete for S25
+============================================
+Disabling com.example.goodapp...
+Bloatware disabled.
+
+[Step 10/11] Apply system tweaks...
+System tweaks applied.
+
+[Step 11/11] Auto-enroll and launch NexMDM...
+Broadcasting: Intent { act=com.nexmdm.CONFIGURE flg=0x10400000 cmp=com.nexmdm/.ConfigReceiver (has extras) }
+Broadcast completed: result=0
+  bash arg: -p
+  bash arg: com.nexmdm
+  bash arg: -c
+  bash arg: android.intent.category.LAUNCHER
+  bash arg: 1
+args: [-p, com.nexmdm, -c, android.intent.category.LAUNCHER, 1]
+ arg: "-p"
+ arg: "com.nexmdm"
+ arg: "-c"
+ arg: "android.intent.category.LAUNCHER"
+ arg: "1"
+data="com.nexmdm"
+data="android.intent.category.LAUNCHER"
+Events injected: 1
+## Network stats: elapsed time=69ms (0ms mobile, 0ms wifi, 69ms not connected)
+17621
+
+============================================
+Enrollment complete for S25
+===================================
