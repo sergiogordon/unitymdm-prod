@@ -4015,6 +4015,79 @@ async def push_wifi_to_devices(
         "results": results
     }
 
+# =============================================================================
+# ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
+# =============================================================================
+# This endpoint generates the Windows one-liner enrollment script used to
+# enroll new Android devices via ADB. It is referenced in:
+#   - MILESTONE_DELIVERABLES.md
+#   - ACCEPTANCE_TESTS.md  
+#   - BUG_BASH_FINAL_REPORT.md
+#   - Frontend enrollment UI components
+# Deleting this endpoint will break device enrollment functionality.
+# =============================================================================
+@app.get("/v1/scripts/enroll.one-liner.cmd")
+async def get_windows_one_liner_script(
+    alias: str = Query(...),
+    agent_pkg: str = Query("com.nexmdm"),
+    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Generate zero-tap Windows one-liner enrollment command with enhanced debugging.
+    
+    ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
+    This is required for device enrollment functionality.
+    """
+    from models import EnrollmentEvent
+    
+    server_url = config.server_url
+    
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_KEY environment variable not set")
+    
+    event = EnrollmentEvent(
+        event_type='script.render_one_liner',
+        token_id=None,
+        alias=alias,
+        details=json.dumps({
+            "platform": "windows_oneliner",
+            "agent_pkg": agent_pkg,
+            "unity_pkg": unity_pkg,
+            "generated_by": current_user.username
+        })
+    )
+    db.add(event)
+    db.commit()
+    
+    structured_logger.log_event(
+        "script.render_one_liner",
+        token_id=None,
+        alias=alias,
+        platform="windows",
+        generated_by=current_user.username
+    )
+    
+    metrics.inc_counter("script_oneliner_copies_total", {"platform": "windows", "alias": alias})
+    
+    apk_path = "%TEMP%\\\\nexmdm.apk"
+    bloat_file = "%TEMP%\\\\mdm_bloatware.txt"
+    
+    one_liner = f'''cmd.exe /K "echo ============================================ & echo NexMDM Zero-Tap Enrollment v7 - {alias} & echo ============================================ & echo. & echo [Step 1/11] Check prerequisites... & where adb & where curl & echo. & echo [Step 2/11] Wait for device... & adb wait-for-device & adb devices -l & echo. & echo [Step 3/11] Check Android version... & adb shell getprop ro.build.version.release & adb shell getprop ro.build.version.sdk & echo. & echo [Step 4/11] Download NexMDM APK... & echo Downloading NexMDM agent (approx 16MB)... & curl -L --progress-bar -H X-Admin-Key:{admin_key} {server_url}/v1/apk/download-latest -o {apk_path} & echo. & dir {apk_path} & echo. & echo [Step 5/11] Install NexMDM APK... & adb install -r -g {apk_path} & echo. & echo [Step 6/11] Verify NexMDM installed... & adb shell pm path {agent_pkg} & echo. & echo [Step 7/11] Set Device Owner... & adb shell dpm set-device-owner {agent_pkg}/.NexDeviceAdminReceiver & echo. & echo [Step 8/11] Grant permissions... & adb shell pm grant {agent_pkg} android.permission.POST_NOTIFICATIONS & adb shell pm grant {agent_pkg} android.permission.ACCESS_FINE_LOCATION & adb shell appops set {agent_pkg} RUN_ANY_IN_BACKGROUND allow & adb shell appops set {agent_pkg} GET_USAGE_STATS allow & adb shell dumpsys deviceidle whitelist +{agent_pkg} & echo. & echo [Step 9/11] Disable bloatware... & curl -s -H X-Admin-Key:{admin_key} {server_url}/admin/bloatware-list -o {bloat_file} & echo Disabling bloatware packages... & (for /f %p in ({bloat_file}) do @echo Disabling %p... ^& adb shell pm disable-user --user 0 %p) & echo Bloatware disabled. & echo. & echo [Step 10/11] Apply system tweaks... & adb shell settings put global app_standby_enabled 0 & adb shell settings put global ambient_display_always_on 0 & adb shell cmd power set-adaptive-power-saver-enabled false & echo System tweaks applied. & echo. & echo [Step 11/11] Auto-enroll and launch NexMDM... & adb shell am broadcast -a com.nexmdm.CONFIGURE -n {agent_pkg}/.ConfigReceiver --receiver-foreground --es server_url {server_url} --es admin_key {admin_key} --es alias {alias} & timeout /t 2 /nobreak >nul & adb shell monkey -p {agent_pkg} -c android.intent.category.LAUNCHER 1 & timeout /t 3 /nobreak >nul & adb shell pidof {agent_pkg} & echo. & echo ============================================ & echo Enrollment complete for {alias} & echo ============================================"'''
+    
+    return Response(
+        content=one_liner,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'inline; filename="enroll-{alias}-oneliner.cmd"'
+        }
+    )
+# =============================================================================
+# ⚠️  END CRITICAL ENDPOINT ⚠️
+# =============================================================================
+
 @app.get("/admin/bloatware-list")
 async def get_bloatware_list(
     admin_key: str = Header(..., alias="X-Admin-Key"),
