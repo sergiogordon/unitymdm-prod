@@ -226,9 +226,26 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
 
   const getDeviceStatus = (deviceId: string) => {
     const progress = installationProgress.get(deviceId)
-    if (!progress) return null
+    if (!progress) {
+      if (isDeploying && selectedDeviceIds.has(deviceId)) {
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+            <span className="text-gray-400">Waiting...</span>
+          </div>
+        )
+      }
+      return null
+    }
 
     switch (progress.status) {
+      case 'pending':
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+            <span className="text-gray-400">Pending...</span>
+          </div>
+        )
       case 'downloading':
         return (
           <div className="flex items-center gap-2 text-sm">
@@ -257,8 +274,20 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
             <span className="text-red-500">Failed</span>
           </div>
         )
+      case 'timeout':
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <X className="h-3.5 w-3.5 text-yellow-500" />
+            <span className="text-yellow-500">Timeout</span>
+          </div>
+        )
       default:
-        return null
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+            <span className="text-gray-400">{progress.status}</span>
+          </div>
+        )
     }
   }
 
