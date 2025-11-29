@@ -6661,13 +6661,14 @@ async def dispatch_fcm_to_device(
     client: "httpx.AsyncClient",
     fcm_url: str,
     access_token: str,
-    db_results: dict
+    db_results: dict,
+    correlation_id: str  # Pre-generated correlation_id to match DB record
 ) -> dict:
     """
     Dispatch FCM message to a single device with semaphore-based concurrency control.
+    Uses pre-generated correlation_id that matches the RemoteExecResult record in DB.
     Returns result dict with device_id, status, and optional error.
     """
-    correlation_id = str(uuid.uuid4())
     
     async with semaphore:
         try:
@@ -6918,9 +6919,31 @@ async def create_remote_execution(
         db.commit()
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
     
+    # CRITICAL: Create RemoteExecResult records FIRST with pre-generated correlation_ids
+    # This ensures records exist in DB before ACKs arrive from devices
+    device_correlation_ids = {}  # Map device_id -> correlation_id
+    
+    for device in devices:
+        correlation_id = str(uuid.uuid4())
+        device_correlation_ids[device.id] = correlation_id
+        
+        result_record = RemoteExecResult(
+            exec_id=exec_id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=correlation_id,
+            status="pending",  # Will be updated after FCM dispatch
+            error=None
+        )
+        db.add(result_record)
+    
+    # Commit all result records BEFORE dispatching FCM
+    # This prevents race condition where ACKs arrive before records exist
+    db.commit()
+    
     # Dispatch FCM messages in parallel with bounded concurrency
     semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
-    db_results = {}  # Collect results for DB insert
+    dispatch_results = {}  # Track dispatch success/failure per device
     
     async with httpx.AsyncClient() as client:
         tasks = [
@@ -6933,39 +6956,35 @@ async def create_remote_execution(
                 client=client,
                 fcm_url=fcm_url,
                 access_token=access_token,
-                db_results=db_results
+                db_results=dispatch_results,
+                correlation_id=device_correlation_ids[device.id]  # Pass pre-generated correlation_id
             )
             for device in devices
         ]
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
     
-    # Process results and create RemoteExecResult records
+    # Update RemoteExecResult records with dispatch status
     sent_count = 0
     error_count = 0
     
     for device in devices:
-        result_data = db_results.get(device.id, {})
-        correlation_id = result_data.get("correlation_id", str(uuid.uuid4()))
-        status = result_data.get("status", "error")
+        result_data = dispatch_results.get(device.id, {})
+        dispatch_status = result_data.get("status", "error")
         error = result_data.get("error")
         
-        if status == "sent":
+        if dispatch_status == "sent":
             sent_count += 1
-            result_status = "pending"
         else:
             error_count += 1
-            result_status = "error"
-        
-        result_record = RemoteExecResult(
-            exec_id=exec_id,
-            device_id=device.id,
-            alias=device.alias,
-            correlation_id=correlation_id,
-            status=result_status,
-            error=error
-        )
-        db.add(result_record)
+            # Update the result record to show dispatch error
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = error
     
     # Update exec record with counts
     exec_record.sent_count = sent_count
