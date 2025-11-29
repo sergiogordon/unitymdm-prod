@@ -60,6 +60,8 @@ class AsyncEventQueue:
         with self._lock:
             return self._stats.copy()
 
+APK_INSTALLATION_TIMEOUT_MINUTES = 5
+
 class BackgroundTaskManager:
     """Manages background tasks for the MDM system."""
     
@@ -68,6 +70,7 @@ class BackgroundTaskManager:
         self._purge_task = None
         self._cleanup_task = None
         self._event_logger_task = None
+        self._installation_timeout_task = None
         self.event_queue = AsyncEventQueue()
     
     async def start(self):
@@ -86,6 +89,9 @@ class BackgroundTaskManager:
         
         # Start event logging worker
         self._event_logger_task = asyncio.create_task(self._run_event_logger_worker())
+        
+        # Start installation timeout checker
+        self._installation_timeout_task = asyncio.create_task(self._run_installation_timeout_worker())
     
     async def stop(self):
         """Stop all background tasks."""
@@ -101,6 +107,8 @@ class BackgroundTaskManager:
             self._cleanup_task.cancel()
         if self._event_logger_task:
             self._event_logger_task.cancel()
+        if self._installation_timeout_task:
+            self._installation_timeout_task.cancel()
         
         structured_logger.log_event("background_tasks.stopped")
     
@@ -226,6 +234,70 @@ class BackgroundTaskManager:
                     self.event_queue._stats["errors"] += 1
                 # Wait a bit before retrying on error
                 await asyncio.sleep(1)
+
+
+    async def _run_installation_timeout_worker(self):
+        """
+        Background worker that marks stale APK installations as timed out.
+        Runs every 30 seconds to check for installations that have been pending/downloading
+        for longer than the timeout threshold.
+        """
+        from datetime import timedelta
+        from models import ApkInstallation, Device
+        
+        while self._running:
+            try:
+                db = SessionLocal()
+                try:
+                    timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=APK_INSTALLATION_TIMEOUT_MINUTES)
+                    
+                    stale_installations = db.query(ApkInstallation).filter(
+                        ApkInstallation.status.in_(['pending', 'downloading', 'installing']),
+                        ApkInstallation.initiated_at < timeout_threshold,
+                        ApkInstallation.completed_at.is_(None)
+                    ).all()
+                    
+                    if stale_installations:
+                        for installation in stale_installations:
+                            device = db.query(Device).filter(Device.id == installation.device_id).first()
+                            device_alias = device.alias if device else installation.device_id
+                            
+                            installation.status = "timeout"
+                            installation.error_message = "Installation timed out - no response from device"
+                            installation.completed_at = datetime.now(timezone.utc)
+                            
+                            structured_logger.log_event(
+                                "apk_installation.timeout",
+                                installation_id=installation.id,
+                                device_id=installation.device_id,
+                                device_alias=device_alias,
+                                apk_version_id=installation.apk_version_id,
+                                previous_status=installation.status,
+                                age_minutes=round((datetime.now(timezone.utc) - installation.initiated_at).total_seconds() / 60, 1)
+                            )
+                        
+                        db.commit()
+                        
+                        structured_logger.log_event(
+                            "installation_timeout_worker.completed",
+                            timed_out_count=len(stale_installations)
+                        )
+                        print(f"[APK TIMEOUT] Marked {len(stale_installations)} stale installations as timed out")
+                        
+                finally:
+                    db.close()
+                
+                await asyncio.sleep(30)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                structured_logger.log_event(
+                    "installation_timeout_worker.error",
+                    level="ERROR",
+                    error=str(e)
+                )
+                await asyncio.sleep(60)
 
 
 # Global instance

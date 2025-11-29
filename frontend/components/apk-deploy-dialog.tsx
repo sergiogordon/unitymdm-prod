@@ -76,10 +76,11 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
               }
             })
             
-            // Check if all completed
+            // Check if all completed (including timeout as a terminal state)
+            const terminalStatuses = ['completed', 'failed', 'timeout']
             const allCompleted = activeInstallationIds.every((installationId) => {
               const installation = installations.find((i: any) => i.id === installationId)
-              return installation && (installation.status === 'completed' || installation.status === 'failed')
+              return installation && terminalStatuses.includes(installation.status)
             })
             
             if (allCompleted) {
@@ -89,7 +90,7 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
               setTimeout(() => {
                 setIsDeploying(false)
                 const failedCount = installations.filter((i: any) => 
-                  activeInstallationIds.includes(i.id) && i.status === 'failed'
+                  activeInstallationIds.includes(i.id) && (i.status === 'failed' || i.status === 'timeout')
                 ).length
                 const successCount = installations.filter((i: any) => 
                   activeInstallationIds.includes(i.id) && i.status === 'completed'
@@ -97,8 +98,10 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
                 
                 if (failedCount === 0) {
                   toast.success(`All ${successCount} deployment(s) completed successfully`)
+                } else if (successCount === 0) {
+                  toast.error(`All ${failedCount} deployment(s) failed or timed out`)
                 } else {
-                  toast.warning(`${successCount} succeeded, ${failedCount} failed`)
+                  toast.warning(`${successCount} succeeded, ${failedCount} failed/timed out`)
                 }
                 
                 onDeployComplete()
