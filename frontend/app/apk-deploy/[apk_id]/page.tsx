@@ -1,13 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2, Search, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 
 interface Device {
   id: string
@@ -37,6 +39,22 @@ interface DeploymentResult {
   }>
 }
 
+interface RecentDeployment {
+  id: number
+  apk_id: number
+  device_id: string
+  status: string
+  created_at: string
+  apk?: {
+    filename: string
+    version_name: string
+    package_name: string
+  }
+  device?: {
+    alias: string
+  }
+}
+
 export default function ApkDeployPage() {
   const params = useParams()
   const router = useRouter()
@@ -52,9 +70,21 @@ export default function ApkDeployPage() {
   const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "25" | "50" | "custom">("all")
   const [customPercentage, setCustomPercentage] = useState<number>(10)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [aliasFilter, setAliasFilter] = useState("")
+  const [recentDeployments, setRecentDeployments] = useState<RecentDeployment[]>([])
+  const [loadingRecentDeployments, setLoadingRecentDeployments] = useState(false)
+
+  const filteredDevices = useMemo(() => {
+    if (!aliasFilter.trim()) return devices
+    const filterLower = aliasFilter.toLowerCase()
+    return devices.filter(device => 
+      device.alias.toLowerCase().startsWith(filterLower)
+    )
+  }, [devices, aliasFilter])
 
   useEffect(() => {
     fetchData()
+    fetchRecentDeployments()
   }, [apkId])
 
   const fetchData = async () => {
@@ -105,12 +135,45 @@ export default function ApkDeployPage() {
     }
   }
 
+  const fetchRecentDeployments = async () => {
+    setLoadingRecentDeployments(true)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+      if (!token) return
+
+      const response = await fetch('/v1/apk/installations?limit=3', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setRecentDeployments(Array.isArray(data) ? data.slice(0, 3) : [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch recent deployments:', error)
+    } finally {
+      setLoadingRecentDeployments(false)
+    }
+  }
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allDeviceIds = devices.map(d => d.id)
-      setSelectedDevices(new Set(allDeviceIds))
+      const deviceIdsToSelect = filteredDevices.map(d => d.id)
+      setSelectedDevices(prev => {
+        const newSet = new Set(prev)
+        deviceIdsToSelect.forEach(id => newSet.add(id))
+        return newSet
+      })
     } else {
-      setSelectedDevices(new Set())
+      const filteredIds = new Set(filteredDevices.map(d => d.id))
+      setSelectedDevices(prev => {
+        const newSet = new Set(prev)
+        filteredIds.forEach(id => newSet.delete(id))
+        return newSet
+      })
     }
   }
 
@@ -283,89 +346,108 @@ export default function ApkDeployPage() {
           description={`Deploy ${apk.filename} (v${apk.version_name}) to your device fleet`}
         />
 
-        <div className="space-y-6">
-          {/* APK Info Card */}
-          <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold text-card-foreground">APK Details</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-              <div>
-                <div className="text-muted-foreground">File Name</div>
-                <div className="font-mono">{apk.filename}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Version</div>
-                <div>{apk.version_name} ({apk.version_code})</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Size</div>
-                <div>{formatFileSize(apk.file_size_bytes)}</div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Build ID</div>
-                <div>{apk.build_id}</div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Device Selection Card */}
-          <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-card-foreground">Select Devices</h2>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="select-all"
-                  checked={devices.length > 0 && selectedDevices.size === devices.length}
-                  onCheckedChange={handleSelectAll}
-                />
-                <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
-                  Select All ({devices.length} devices)
-                </label>
-              </div>
-            </div>
-
-            {error && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {devices.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  No devices found
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            {/* APK Info Card */}
+            <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-card-foreground">APK Details</h2>
+              <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+                <div>
+                  <div className="text-muted-foreground">File Name</div>
+                  <div className="font-mono">{apk.filename}</div>
                 </div>
-              ) : (
-                devices.map((device) => {
-                  const online = isDeviceOnline(device.last_seen)
-                  const hasFcmToken = device.fcm_token !== null
-                  
-                  return (
-                    <div
-                      key={device.id}
-                      className="flex items-center justify-between rounded-lg border border-border p-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Checkbox
-                          checked={selectedDevices.has(device.id)}
-                          onCheckedChange={() => handleToggleDevice(device.id)}
-                        />
-                        <div>
-                          <div className="font-medium">{device.alias}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {device.id}
-                            {!hasFcmToken && <span className="ml-2 text-orange-500">(⚠ No FCM token - deployment may fail)</span>}
+                <div>
+                  <div className="text-muted-foreground">Version</div>
+                  <div>{apk.version_name} ({apk.version_code})</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Size</div>
+                  <div>{formatFileSize(apk.file_size_bytes)}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Build ID</div>
+                  <div>{apk.build_id}</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Device Selection Card */}
+            <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+              <div className="mb-4 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-card-foreground">Select Devices</h2>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="select-all"
+                      checked={filteredDevices.length > 0 && filteredDevices.every(d => selectedDevices.has(d.id))}
+                      onCheckedChange={handleSelectAll}
+                    />
+                    <label htmlFor="select-all" className="text-sm text-muted-foreground cursor-pointer">
+                      Select All Filtered ({filteredDevices.length} devices)
+                    </label>
+                  </div>
+                </div>
+                
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Filter by device alias (e.g. S, D, Sam...)"
+                    value={aliasFilter}
+                    onChange={(e) => setAliasFilter(e.target.value)}
+                    className="pl-10"
+                  />
+                  {aliasFilter && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Showing {filteredDevices.length} of {devices.length} devices
+                      {selectedDevices.size > 0 && ` (${selectedDevices.size} selected total)`}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {error && (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+                  {error}
+                </div>
+              )}
+
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {filteredDevices.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">
+                    {devices.length === 0 ? 'No devices found' : 'No devices match your filter'}
+                  </div>
+                ) : (
+                  filteredDevices.map((device) => {
+                    const online = isDeviceOnline(device.last_seen)
+                    const hasFcmToken = device.fcm_token !== null
+                    
+                    return (
+                      <div
+                        key={device.id}
+                        className="flex items-center justify-between rounded-lg border border-border p-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={selectedDevices.has(device.id)}
+                            onCheckedChange={() => handleToggleDevice(device.id)}
+                          />
+                          <div>
+                            <div className="font-medium">{device.alias}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {device.id}
+                              {!hasFcmToken && <span className="ml-2 text-orange-500">(No FCM token - deployment may fail)</span>}
+                            </div>
                           </div>
                         </div>
+                        <div className={`text-sm ${online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                          {online ? 'Online' : 'Offline'}
+                        </div>
                       </div>
-                      <div className={`text-sm ${online ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                        {online ? '● Online' : '○ Offline'}
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </Card>
+                    )
+                  })
+                )}
+              </div>
+            </Card>
 
           {/* Rollout Strategy Card */}
           {selectedDevices.size > 0 && (
@@ -546,6 +628,66 @@ export default function ApkDeployPage() {
               </div>
             </Card>
           )}
+          </div>
+
+          {/* Right Column - Recent Deployments */}
+          <div className="lg:col-span-1">
+            <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm sticky top-24">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="h-5 w-5 text-muted-foreground" />
+                <h2 className="text-lg font-semibold text-card-foreground">Recent Deployments</h2>
+              </div>
+              
+              {loadingRecentDeployments ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : recentDeployments.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">No recent deployments</p>
+              ) : (
+                <div className="space-y-3">
+                  {recentDeployments.map((deployment) => (
+                    <div
+                      key={deployment.id}
+                      className="p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <p className="font-medium text-sm truncate flex-1">
+                          {deployment.apk?.filename || deployment.apk?.package_name || `APK #${deployment.apk_id}`}
+                        </p>
+                        <Badge 
+                          variant={
+                            deployment.status === 'completed' ? 'default' : 
+                            deployment.status === 'failed' ? 'destructive' : 
+                            'secondary'
+                          } 
+                          className="ml-2 text-xs"
+                        >
+                          {deployment.status}
+                        </Badge>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                        <span className="truncate">
+                          {deployment.device?.alias || deployment.device_id?.substring(0, 8) + '...' || 'Unknown Device'}
+                        </span>
+                      </div>
+                      
+                      {deployment.apk?.version_name && (
+                        <div className="text-xs text-muted-foreground mb-1">
+                          v{deployment.apk.version_name}
+                        </div>
+                      )}
+                      
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(deployment.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
         </div>
       </main>
 
