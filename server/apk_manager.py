@@ -42,10 +42,10 @@ async def save_apk_file(
         
         # Upload to App Storage
         storage = get_storage_service()
-        final_filename = f"{package_name}_{version_code}.apk"
+        storage_key = f"apks/{version_name}_{version_code}.apk"
         object_path = storage.upload_file(
             file_data=content,
-            filename=final_filename,
+            storage_key=storage_key,
             content_type="application/vnd.android.package-archive"
         )
         

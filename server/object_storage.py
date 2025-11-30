@@ -99,34 +99,29 @@ class AppStorageService:
         if file_size == 0:
             raise ValueError("File is empty")
     
-    def upload_file(self, file_data: bytes, filename: str, content_type: str = "application/vnd.android.package-archive") -> str:
+    def upload_file(self, file_data: bytes, storage_key: str, content_type: str = "application/vnd.android.package-archive") -> str:
         """
         Upload a file to Replit Object Storage.
         
         Args:
             file_data: Binary file data
-            filename: Name of the file (e.g., "app.apk")
+            storage_key: The storage key/path to use (e.g., "apks/1.0.0_100.apk")
             content_type: MIME type
             
         Returns:
-            Storage path in format: storage://apk/debug/{uuid}_{filename}
+            The storage key that was used
             
         Raises:
             ValueError: If file validation fails
             StorageUnavailableError: If storage service is unavailable
         """
         file_size = len(file_data)
-        self._validate_apk_file(filename, file_size)
-        
-        # Generate unique key
-        object_id = str(uuid.uuid4())
-        storage_key = f"apk/debug/{object_id}_{filename}"
+        self._validate_apk_file(storage_key, file_size)
         
         self._log_event(
             "storage.upload.start",
             key=storage_key,
-            file_size=file_size,
-            filename=filename
+            file_size=file_size
         )
         
         try:
@@ -141,16 +136,13 @@ class AppStorageService:
             if not self.client.exists(storage_key):
                 raise StorageUnavailableError(f"Upload verification failed: {storage_key}")
             
-            storage_path = f"storage://{storage_key}"
-            
             self._log_event(
                 "storage.upload.success",
                 key=storage_key,
-                storage_path=storage_path,
                 file_size=file_size
             )
             
-            return storage_path
+            return storage_key
             
         except Exception as e:
             self._log_event(
