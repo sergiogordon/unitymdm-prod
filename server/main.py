@@ -5473,6 +5473,9 @@ async def deploy_apk_v1(
         request_id = str(uuid.uuid4())
         timestamp = datetime.now(timezone.utc).isoformat()
         hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
+        
+        # Generate the download URL for the APK
+        download_url = get_apk_download_url(apk, config.server_url)
 
         fcm_message = {
             "message": {
@@ -5485,7 +5488,8 @@ async def deploy_apk_v1(
                     "hmac": hmac_signature,
                     "apk_id": str(apk.id),
                     "version_name": apk.version_name,
-                    "version_code": str(apk.version_code)
+                    "version_code": str(apk.version_code),
+                    "download_url": download_url
                 },
                 "android": {
                     "priority": "high"
