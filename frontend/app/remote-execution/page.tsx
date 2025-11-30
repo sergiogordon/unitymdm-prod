@@ -110,6 +110,12 @@ export default function RemoteExecutionPage() {
   const [recentExecutions, setRecentExecutions] = useState<RecentExec[]>([])
   const [isPolling, setIsPolling] = useState(false)
   const [resultFilter, setResultFilter] = useState("")
+  
+  const [isRestartingApp, setIsRestartingApp] = useState(false)
+  const [restartAppPackage, setRestartAppPackage] = useState("com.unitynetwork.unityapp")
+  const [restartAppResults, setRestartAppResults] = useState<any>(null)
+  const [isPollingRestart, setIsPollingRestart] = useState(false)
+  const [restartId, setRestartId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -137,6 +143,18 @@ export default function RemoteExecutionPage() {
       if (interval) clearInterval(interval)
     }
   }, [isPolling, execId])
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (isPollingRestart && restartId) {
+      interval = setInterval(() => {
+        fetchRestartAppStatus(restartId)
+      }, 2000)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [isPollingRestart, restartId])
 
   // Clear preview results when mode or target scope changes
   useEffect(() => {
@@ -236,6 +254,121 @@ export default function RemoteExecutionPage() {
       }
     } catch (error) {
       console.error("Failed to fetch execution status:", error)
+    }
+  }
+
+  const fetchRestartAppStatus = async (id: string) => {
+    try {
+      const token = getAuthToken()
+      if (!token) return
+
+      const response = await fetch(`/api/proxy/v1/remote-exec/restart-app/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setRestartAppResults(data)
+        
+        const terminalStates = ['completed', 'failed', 'partial', 'timed_out', 'error']
+        if (terminalStates.includes(data.status)) {
+          setIsPollingRestart(false)
+          
+          if (data.status !== 'completed') {
+            toast({
+              title: `Restart App ${data.status.charAt(0).toUpperCase() + data.status.slice(1)}`,
+              description: data.failure_reason || `${data.stats?.ok || 0} OK, ${data.stats?.failed || 0} failed, ${data.stats?.pending || 0} pending`,
+              variant: data.status === 'partial' ? 'default' : 'destructive'
+            })
+          }
+        }
+      } else {
+        setIsPollingRestart(false)
+        toast({
+          title: "Error",
+          description: "Failed to fetch restart status",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error("Failed to fetch restart app status:", error)
+      setIsPollingRestart(false)
+    }
+  }
+
+  const handleRestartApp = async () => {
+    const token = getAuthToken()
+    if (!token) {
+      toast({
+        title: "Session expired",
+        description: "Please sign in again to continue.",
+        variant: "destructive"
+      })
+      router.push("/login")
+      return
+    }
+
+    if (scopeType === "aliases" && selectedDeviceIds.length === 0) {
+      toast({
+        title: "No devices selected",
+        description: "Please select at least one device to restart the app on.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setIsRestartingApp(true)
+    setRestartAppResults(null)
+
+    try {
+      const targets = buildTargets()
+      
+      const response = await fetch("/api/proxy/v1/remote-exec/restart-app", {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          package_name: restartAppPackage,
+          targets,
+          online_only: onlineOnly
+        })
+      })
+
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+
+      if (response.ok) {
+        const data = await response.json()
+        setRestartId(data.restart_id)
+        setIsPollingRestart(true)
+        toast({
+          title: "Restart App Started",
+          description: `Force-stop sent to ${data.stats.force_stop.sent} devices, launch sent to ${data.stats.launch.sent} devices`
+        })
+        fetchRecentExecutions()
+      } else {
+        const error = await response.json()
+        toast({
+          title: "Restart App Failed",
+          description: error.detail || "Failed to restart app",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to restart app",
+        variant: "destructive"
+      })
+    } finally {
+      setIsRestartingApp(false)
     }
   }
 
@@ -891,8 +1024,99 @@ export default function RemoteExecutionPage() {
                   <Play className="w-4 h-4 mr-2" />
                   {isExecuting ? "Executing..." : "Execute"}
                 </Button>
+
+                <div className="mt-6 pt-6 border-t">
+                  <Label className="text-sm font-medium mb-3 block">Quick Actions</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={restartAppPackage}
+                      onChange={(e) => setRestartAppPackage(e.target.value)}
+                      placeholder="Package name"
+                      className="flex-1 font-mono text-sm"
+                    />
+                    <Button 
+                      onClick={handleRestartApp}
+                      disabled={isRestartingApp}
+                      variant="secondary"
+                      className="whitespace-nowrap"
+                    >
+                      {isRestartingApp ? "Restarting..." : "🔄 Restart App"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Two-step restart: Force-stop → Launch (uses FCM for reliable launch)
+                  </p>
+                </div>
               </CardContent>
             </Card>
+
+            {restartAppResults && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Restart App Results</CardTitle>
+                  <CardDescription>
+                    Package: {restartAppResults.package_name}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 gap-4 mb-6">
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="text-2xl font-bold">{restartAppResults.stats?.total || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Total</div>
+                    </div>
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div className="text-2xl font-bold">{restartAppResults.stats?.ok || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">OK</div>
+                    </div>
+                    <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                      <div className="text-2xl font-bold">{restartAppResults.stats?.failed || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Failed</div>
+                    </div>
+                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                      <div className="text-2xl font-bold">{restartAppResults.stats?.pending || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Pending</div>
+                    </div>
+                  </div>
+
+                  {restartAppResults.devices && restartAppResults.devices.length > 0 && (
+                    <div className="border rounded-lg overflow-auto max-h-64">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Alias</TableHead>
+                            <TableHead>Force Stop</TableHead>
+                            <TableHead>Launch</TableHead>
+                            <TableHead>Overall</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {restartAppResults.devices.map((device: any) => (
+                            <TableRow key={device.device_id}>
+                              <TableCell className="font-medium">{device.alias}</TableCell>
+                              <TableCell>
+                                <Badge variant={device.force_stop?.status === "OK" ? "default" : device.force_stop?.status === "pending" ? "secondary" : "destructive"}>
+                                  {device.force_stop?.status || "N/A"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={device.launch?.status === "OK" ? "default" : device.launch?.status === "pending" ? "secondary" : "destructive"}>
+                                  {device.launch?.status || "N/A"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={device.overall_status === "OK" ? "default" : device.overall_status === "pending" ? "secondary" : "destructive"}>
+                                  {device.overall_status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>

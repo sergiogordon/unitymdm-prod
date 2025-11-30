@@ -7167,6 +7167,385 @@ async def remote_exec_ack(
     
     return {"ok": True, "status": "received"}
 
+# --- Restart App Endpoint (Two-Step: Force Stop + Launch) ---
+
+class RestartAppRequest(BaseModel):
+    package_name: str = "com.unitynetwork.unityapp"
+    scope_type: str = "all"  # "all", "aliases", "device_ids"
+    targets: Optional[dict] = None  # {"aliases": [...]} or {"device_ids": [...]}
+    device_ids: Optional[List[str]] = None
+    aliases: Optional[List[str]] = None
+    online_only: bool = False
+    dry_run: bool = False
+
+@app.post("/v1/remote-exec/restart-app")
+async def restart_app(
+    request: RestartAppRequest,
+    req: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Restart an app on target devices using a two-step process:
+    1. Force-stop the app via shell command
+    2. Launch the app via FCM LAUNCH_APP command
+    
+    Returns combined status tracking for both steps.
+    """
+    import httpx
+    
+    # Rate limit check
+    rate_key = f"remote_exec_batch:{user.id}"
+    if not remote_exec_batch_limiter.is_allowed(rate_key):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    
+    # Build target device query
+    query = db.query(Device)
+    
+    target_device_ids = request.device_ids
+    target_aliases = request.aliases
+    
+    if request.targets:
+        if "device_ids" in request.targets:
+            target_device_ids = request.targets["device_ids"]
+        if "aliases" in request.targets:
+            target_aliases = request.targets["aliases"]
+    
+    scope_type = request.scope_type
+    if request.targets:
+        if "device_ids" in request.targets:
+            scope_type = "device_ids"
+        elif "aliases" in request.targets:
+            scope_type = "aliases"
+    
+    if scope_type == "device_ids" and target_device_ids:
+        query = query.filter(Device.id.in_(target_device_ids))
+    elif scope_type == "aliases" and target_aliases:
+        query = query.filter(Device.alias.in_(target_aliases))
+    
+    if request.online_only:
+        heartbeat_interval = alert_config.HEARTBEAT_INTERVAL_SECONDS
+        offline_threshold = datetime.now(timezone.utc) - timedelta(seconds=heartbeat_interval * 3)
+        query = query.filter(Device.last_seen >= offline_threshold)
+    
+    devices = query.all()
+    
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices match the specified criteria")
+    
+    # Dry run mode
+    if request.dry_run:
+        return {
+            "dry_run": True,
+            "target_count": len(devices),
+            "package_name": request.package_name,
+            "sample_devices": [{"id": d.id, "alias": d.alias} for d in devices[:10]]
+        }
+    
+    client_ip = req.client.host if req.client else "unknown"
+    
+    # Create exec records for both steps
+    force_stop_exec = RemoteExec(
+        mode="restart_app_stop",
+        raw_request=json.dumps({
+            "package_name": request.package_name,
+            "step": "force_stop",
+            "command": f"am force-stop {request.package_name}"
+        }),
+        targets=json.dumps([d.id for d in devices]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        total_targets=len(devices),
+        status="dispatching"
+    )
+    db.add(force_stop_exec)
+    db.commit()
+    db.refresh(force_stop_exec)
+    
+    launch_exec = RemoteExec(
+        mode="restart_app_launch",
+        raw_request=json.dumps({
+            "package_name": request.package_name,
+            "step": "launch",
+            "linked_exec_id": force_stop_exec.id
+        }),
+        targets=json.dumps([d.id for d in devices]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        total_targets=len(devices),
+        status="dispatching"
+    )
+    db.add(launch_exec)
+    db.commit()
+    db.refresh(launch_exec)
+    
+    # Get FCM credentials
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        force_stop_exec.status = "failed"
+        launch_exec.status = "failed"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    # Create result records for both steps
+    force_stop_correlations = {}
+    launch_correlations = {}
+    
+    for device in devices:
+        # Force stop result
+        fs_correlation = str(uuid.uuid4())
+        force_stop_correlations[device.id] = fs_correlation
+        db.add(RemoteExecResult(
+            exec_id=force_stop_exec.id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=fs_correlation,
+            status="pending"
+        ))
+        
+        # Launch result
+        launch_correlation = str(uuid.uuid4())
+        launch_correlations[device.id] = launch_correlation
+        db.add(RemoteExecResult(
+            exec_id=launch_exec.id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=launch_correlation,
+            status="pending"
+        ))
+    
+    db.commit()
+    
+    # Dispatch force-stop commands first
+    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    force_stop_results = {}
+    force_stop_command = f"am force-stop {request.package_name}"
+    
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            dispatch_fcm_to_device(
+                device=device,
+                exec_id=force_stop_exec.id,
+                mode="shell",
+                payload={"script": force_stop_command},
+                semaphore=semaphore,
+                client=client,
+                fcm_url=fcm_url,
+                access_token=access_token,
+                db_results=force_stop_results,
+                correlation_id=force_stop_correlations[device.id]
+            )
+            for device in devices
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Update force-stop exec counts
+    fs_sent = sum(1 for r in force_stop_results.values() if r.get("status") == "sent")
+    fs_errors = len(devices) - fs_sent
+    force_stop_exec.sent_count = fs_sent
+    force_stop_exec.error_count = fs_errors
+    force_stop_exec.status = "pending" if fs_sent > 0 else "failed"
+    
+    # Update failed result records
+    for device in devices:
+        result_data = force_stop_results.get(device.id, {})
+        if result_data.get("status") != "sent":
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == force_stop_exec.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = result_data.get("error", "FCM dispatch failed")
+    
+    db.commit()
+    
+    # Brief delay to allow force-stop to take effect
+    await asyncio.sleep(0.5)
+    
+    # Dispatch launch commands
+    launch_results = {}
+    
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            dispatch_fcm_to_device(
+                device=device,
+                exec_id=launch_exec.id,
+                mode="fcm",
+                payload={"type": "LAUNCH_APP", "package_name": request.package_name},
+                semaphore=semaphore,
+                client=client,
+                fcm_url=fcm_url,
+                access_token=access_token,
+                db_results=launch_results,
+                correlation_id=launch_correlations[device.id]
+            )
+            for device in devices
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Update launch exec counts
+    launch_sent = sum(1 for r in launch_results.values() if r.get("status") == "sent")
+    launch_errors = len(devices) - launch_sent
+    launch_exec.sent_count = launch_sent
+    launch_exec.error_count = launch_errors
+    launch_exec.status = "pending" if launch_sent > 0 else "failed"
+    
+    # Update failed result records
+    for device in devices:
+        result_data = launch_results.get(device.id, {})
+        if result_data.get("status") != "sent":
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == launch_exec.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = result_data.get("error", "FCM dispatch failed")
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "remote_exec.restart_app.dispatched",
+        force_stop_exec_id=force_stop_exec.id,
+        launch_exec_id=launch_exec.id,
+        package_name=request.package_name,
+        user=user.username,
+        total_targets=len(devices),
+        force_stop_sent=fs_sent,
+        launch_sent=launch_sent,
+        client_ip=client_ip
+    )
+    
+    return {
+        "restart_id": force_stop_exec.id,
+        "force_stop_exec_id": force_stop_exec.id,
+        "launch_exec_id": launch_exec.id,
+        "package_name": request.package_name,
+        "stats": {
+            "total_targets": len(devices),
+            "force_stop": {"sent": fs_sent, "errors": fs_errors},
+            "launch": {"sent": launch_sent, "errors": launch_errors}
+        }
+    }
+
+@app.get("/v1/remote-exec/restart-app/{restart_id}")
+async def get_restart_app_status(
+    restart_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get combined status for a restart-app operation.
+    Returns status of both force-stop and launch steps.
+    """
+    # Get force-stop exec (primary)
+    force_stop_exec = db.query(RemoteExec).filter(
+        RemoteExec.id == restart_id,
+        RemoteExec.mode == "restart_app_stop"
+    ).first()
+    
+    if not force_stop_exec:
+        raise HTTPException(status_code=404, detail="Restart operation not found")
+    
+    # Get linked launch exec
+    raw_request = json.loads(force_stop_exec.raw_request) if force_stop_exec.raw_request else {}
+    package_name = raw_request.get("package_name", "unknown")
+    
+    launch_exec = db.query(RemoteExec).filter(
+        RemoteExec.mode == "restart_app_launch",
+        RemoteExec.created_by == force_stop_exec.created_by,
+        RemoteExec.created_at >= force_stop_exec.created_at,
+        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=10)
+    ).first()
+    
+    # Get results for both
+    force_stop_results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == force_stop_exec.id
+    ).all()
+    
+    launch_results = []
+    if launch_exec:
+        launch_results = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == launch_exec.id
+        ).all()
+    
+    # Build per-device combined status
+    device_statuses = {}
+    for r in force_stop_results:
+        device_statuses[r.device_id] = {
+            "device_id": r.device_id,
+            "alias": r.alias,
+            "force_stop": {
+                "status": r.status,
+                "exit_code": r.exit_code,
+                "output": r.output_preview,
+                "error": r.error
+            },
+            "launch": {"status": "pending"}
+        }
+    
+    for r in launch_results:
+        if r.device_id in device_statuses:
+            device_statuses[r.device_id]["launch"] = {
+                "status": r.status,
+                "exit_code": r.exit_code,
+                "output": r.output_preview,
+                "error": r.error
+            }
+    
+    # Compute overall status per device
+    for d in device_statuses.values():
+        fs_ok = d["force_stop"]["status"] == "OK"
+        launch_ok = d["launch"]["status"] == "OK"
+        
+        if fs_ok and launch_ok:
+            d["overall_status"] = "OK"
+        elif d["force_stop"]["status"] == "pending" or d["launch"]["status"] == "pending":
+            d["overall_status"] = "pending"
+        else:
+            d["overall_status"] = "FAILED"
+    
+    # Aggregate stats
+    total = len(device_statuses)
+    ok_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "OK")
+    failed_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "FAILED")
+    pending_count = total - ok_count - failed_count
+    
+    # Compute overall status with proper terminal states
+    if pending_count == 0:
+        if failed_count == 0:
+            overall_status = "completed"
+            failure_reason = None
+        elif ok_count == 0:
+            overall_status = "failed"
+            failure_reason = f"All {failed_count} device(s) failed to restart"
+        else:
+            overall_status = "partial"
+            failure_reason = f"{ok_count} OK, {failed_count} failed"
+    else:
+        overall_status = "pending"
+        failure_reason = None
+    
+    return {
+        "restart_id": restart_id,
+        "package_name": package_name,
+        "status": overall_status,
+        "failure_reason": failure_reason,
+        "created_at": force_stop_exec.created_at.isoformat() + "Z",
+        "created_by": force_stop_exec.created_by,
+        "stats": {
+            "total": total,
+            "ok": ok_count,
+            "failed": failed_count,
+            "pending": pending_count
+        },
+        "devices": list(device_statuses.values())
+    }
+
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
     request: Request,
