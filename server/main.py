@@ -5410,42 +5410,38 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
         return validate_single_command(command)
 
 @app.post("/v1/apk/deploy")
-async def deploy_apk(
-    request: Request,
-    apk_id: str = Form(...),
-    device_ids: str = Form(...),
-    x_admin: str = Header(None),
-    db: Session = Depends(get_db)
+async def deploy_apk_v1(
+    payload: DeployApkRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)
 ):
     """
     Deploy an APK to selected devices.
-    This endpoint is intended for admin use and requires admin key authentication.
-    It takes the apk_id and a comma-separated string of device_ids.
+    This endpoint is intended for admin use and requires JWT authentication.
+    It takes the apk_id and a list of device_ids.
     """
-    verify_admin_key(x_admin or "")
-
-    try:
-        apk_id = int(apk_id)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="apk_id must be an integer")
-
-    device_ids = [d_id.strip() for d_id in device_ids.split(',') if d_id.strip()]
-
-    if not device_ids:
-        raise HTTPException(status_code=422, detail="At least one device_id is required")
+    from ota_utils import is_device_eligible_for_rollout
+    
+    apk_id = payload.apk_id
+    device_ids = [d_id.strip() for d_id in (payload.device_ids or []) if d_id.strip()]
 
     # Check if APK exists
     apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk:
         raise HTTPException(status_code=404, detail="APK not found")
 
-    # Check if devices exist and get FCM tokens
-    devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
+    # Get devices - use all devices if no specific devices provided
+    if device_ids:
+        devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
+    else:
+        devices = db.query(Device).all()
+    
+    # Apply cohort-based rollout filtering if percentage < 100
+    rollout_percent = getattr(payload, 'rollout_percent', 100) or 100
+    if rollout_percent < 100:
+        devices = [d for d in devices if is_device_eligible_for_rollout(d.id, rollout_percent)]
+    
     found_devices = {d.id: d for d in devices}
-
-    if len(found_devices) != len(device_ids):
-        missing_ids = set(device_ids) - set(found_devices.keys())
-        raise HTTPException(status_code=404, detail=f"Devices not found: {', '.join(missing_ids)}")
 
     installations = []
     failed_devices = []
@@ -5465,7 +5461,7 @@ async def deploy_apk(
             apk_version_id=apk.id,
             status="pending",
             initiated_at=datetime.now(timezone.utc),
-            initiated_by="admin" # Assuming admin initiated this deploy
+            initiated_by=user.username
         )
         db.add(installation)
         db.commit()
@@ -7162,147 +7158,6 @@ async def remote_exec_ack(
     )
     
     return {"ok": True, "status": "received"}
-
-# --- Bulk APK Deployment Endpoint ---
-# Rate limiting: 5 bulk APK deployments per minute per user
-apk_deploy_limiter = RateLimiter(max_requests=5, window_seconds=60)
-
-@app.post("/v1/apk/deploy")
-async def deploy_apk(
-    request: DeployApkRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user)
-):
-    """
-    Deploy an APK to selected devices via FCM with optional staged rollout.
-
-    Args:
-        request: Deployment request with apk_id, device_ids, and rollout_percent
-        db: Database session
-        user: Authenticated user
-
-    Returns:
-        Deployment results with success/failure counts
-    """
-    from ota_utils import is_device_eligible_for_rollout
-
-    apk = db.query(ApkVersion).filter(ApkVersion.id == request.apk_id).first()
-    if not apk:
-        raise HTTPException(status_code=404, detail="APK not found")
-
-    # Use all devices if no specific devices provided
-    if request.device_ids:
-        devices = db.query(Device).filter(Device.id.in_(request.device_ids)).all()
-    else:
-        devices = db.query(Device).all()
-
-    # Apply cohort-based rollout filtering if percentage < 100
-    rollout_percent = getattr(request, 'rollout_percent', 100)
-    if rollout_percent < 100:
-        devices = [d for d in devices if is_device_eligible_for_rollout(d.id, rollout_percent)]
-
-    installations = []
-    failed_devices = []
-
-    # Process devices in batches to prevent Firebase quota issues
-    for device in devices:
-        if not device.fcm_token:
-            failed_devices.append({
-                "device_id": device.id,
-                "alias": device.alias,
-                "reason": "No FCM token"
-            })
-            continue
-
-        installation = ApkInstallation(
-            device_id=device.id,
-            apk_version_id=apk.id,
-            status="pending",
-            initiated_at=datetime.now(timezone.utc),
-            initiated_by=user.username
-        )
-        db.add(installation)
-        db.commit()
-        db.refresh(installation)
-
-        installations.append(installation)
-
-        request_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
-        hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
-
-        fcm_message = {
-            "message": {
-                "token": device.fcm_token,
-                "data": {
-                    "action": "install_apk",
-                    "request_id": request_id,
-                    "device_id": device.id,
-                    "ts": timestamp,
-                    "hmac": hmac_signature,
-                    "apk_id": str(apk.id),
-                    "version_name": apk.version_name,
-                    "version_code": str(apk.version_code)
-                },
-                "android": {
-                    "priority": "high"
-                }
-            }
-        }
-
-        try:
-            access_token = get_access_token()
-            project_id = get_firebase_project_id()
-            fcm_url = build_fcm_v1_url(project_id)
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    fcm_url,
-                    json=fcm_message,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
-                )
-
-                if response.status_code != 200:
-                    failed_devices.append({
-                        "device_id": device.id,
-                        "alias": device.alias,
-                        "reason": f"FCM failed: {response.status_code}"
-                    })
-        except Exception as e:
-            failed_devices.append({
-                "device_id": device.id,
-                "alias": device.alias,
-                "reason": f"FCM error: {str(e)}"
-            })
-
-    structured_logger.log_event(
-        "apk.deploy.complete",
-        level="INFO",
-        apk_id=request.apk_id,
-        success_count=len(installations),
-        failed_count=len(failed_devices),
-        total_devices=len(devices)
-    )
-
-    return {
-        "success_count": len(installations),
-        "failed_count": len(failed_devices),
-        "installations": [
-            {
-                "id": inst.id,
-                "device": {
-                    "id": inst.device_id,
-                    "alias": found_devices[inst.device_id].alias if inst.device_id in found_devices else "Unknown"
-                }
-            }
-            for inst in installations
-        ],
-        "failed_devices": failed_devices
-    }
 
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
