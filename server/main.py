@@ -7835,4 +7835,3 @@ async def delete_apk_version(
     )
 
     return {"ok": True, "message": f"APK version '{apk.version_name}' deleted successfully"}
-

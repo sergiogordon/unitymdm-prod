@@ -10,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
@@ -29,7 +28,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 class MonitorService : Service(), AuthFailureListener {
-    
+
     companion object {
         private const val TAG = "MonitorService"
         private const val CHANNEL_ID = "monitor_channel"
@@ -39,7 +38,7 @@ class MonitorService : Service(), AuthFailureListener {
         private const val HEARTBEAT_INTERVAL_MS = 600_000L
         private const val WATCHDOG_INTERVAL_MS = 1_200_000L
     }
-    
+
     private val handler = Handler(Looper.getMainLooper())
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
@@ -52,29 +51,29 @@ class MonitorService : Service(), AuthFailureListener {
     private val gson = Gson()
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var alarmManager: AlarmManager
-    
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
-    
+
     private val watchdogRunnable = object : Runnable {
         override fun run() {
             checkAndRestartIfNeeded()
             handler.postDelayed(this, WATCHDOG_INTERVAL_MS)
         }
     }
-    
+
     override fun onCreate() {
         super.onCreate()
-        
+
         setupCrashRecovery()
-        
+
         prefs = SecurePreferences(this)
         queueManager = QueueManager(this, prefs, client)
         queueManager.authFailureListener = this
         powerMonitor = PowerManagementMonitor(this)
-        
+
         networkMonitor = NetworkMonitor(this) {
             serviceScope.launch {
                 Log.d(TAG, "Network regained, draining queue")
@@ -83,21 +82,21 @@ class MonitorService : Service(), AuthFailureListener {
             }
         }
         networkMonitor.start()
-        
+
         telemetry = TelemetryCollector(this, powerMonitor, networkMonitor, queueManager)
         speedtestDetector = SpeedtestDetector(this)
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        
+
         acquireWakeLock()
-        
+
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
-        
+
         registerFcmToken()
-        
+
         scheduleNextHeartbeat(5000)
         handler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
-        
+
         handler.postDelayed({
             serviceScope.launch {
                 Log.d(TAG, "Startup queue drain after 5s delay")
@@ -106,31 +105,31 @@ class MonitorService : Service(), AuthFailureListener {
             }
         }, 5000)
     }
-    
+
     private fun setupCrashRecovery() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-        
+
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 Log.e(TAG, "CRASH: Uncaught exception in thread ${thread.name}", throwable)
-                
+
                 val restartIntent = Intent(applicationContext, MonitorService::class.java)
                 restartIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                
+
                 val pendingIntent = PendingIntent.getService(
                     applicationContext,
                     0,
                     restartIntent,
                     PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
                 )
-                
+
                 val alarmMgr = applicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 alarmMgr.set(
                     AlarmManager.RTC_WAKEUP,
                     System.currentTimeMillis() + 2000,
                     pendingIntent
                 )
-                
+
                 Log.d(TAG, "Scheduled service restart in 2 seconds")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to schedule service restart", e)
@@ -139,18 +138,18 @@ class MonitorService : Service(), AuthFailureListener {
             }
         }
     }
-    
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         val trigger = intent?.getStringExtra("trigger")
         val requestId = intent?.getStringExtra("request_id")
         val immediateHeartbeat = intent?.getBooleanExtra("immediate_heartbeat", false) ?: false
         val appUpdated = intent?.getBooleanExtra("app_updated", false) ?: false
-        
+
         Log.d(TAG, "onStartCommand: action=$action, trigger=$trigger, requestId=$requestId, immediate=$immediateHeartbeat, appUpdated=$appUpdated")
-        
+
         checkAndReportPendingInstallation()
-        
+
         when {
             action == "HEARTBEAT_ALARM" -> {
                 sendHeartbeat()
@@ -162,10 +161,10 @@ class MonitorService : Service(), AuthFailureListener {
                 scheduleNextHeartbeat()
             }
         }
-        
+
         return START_STICKY
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
         cancelScheduledHeartbeat()
@@ -174,24 +173,24 @@ class MonitorService : Service(), AuthFailureListener {
         releaseWakeLock()
         serviceJob.cancel()
     }
-    
+
     override fun onBind(intent: Intent?): IBinder? {
         return null
     }
-    
+
     private fun sendHeartbeat(isPingResponse: Boolean = false, pingRequestId: String? = null) {
         if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty() || prefs.deviceId.isEmpty()) {
             return
         }
-        
+
         serviceScope.launch {
             try {
                 val payload = buildHeartbeatPayload(isPingResponse, pingRequestId)
                 val json = gson.toJson(payload)
-                
+
                 queueManager.enqueueHeartbeat(json)
                 Log.d(TAG, "Heartbeat enqueued (ping=${isPingResponse})")
-                
+
                 val result = queueManager.drainQueue(networkMonitor)
                 if (result.successCount > 0) {
                     prefs.lastHeartbeatTime = System.currentTimeMillis()
@@ -216,20 +215,32 @@ class MonitorService : Service(), AuthFailureListener {
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
-        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(prefs.monitoredPackage)
-        
+
+        // Get monitored foreground recency for the configured package
+        // Use monitoredPackage from prefs (defaults to com.unitynetwork.unityapp)
+        val monitoredPackage = prefs.monitoredPackage
+        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(monitoredPackage)
+
+        Log.d(TAG, "[HEARTBEAT] Monitored package: '$monitoredPackage', foreground_recent_s: $monitoredForegroundRecency")
+
         val appVersionsMap = mutableMapOf<String, AppVersion>()
-        appVersionsMap[prefs.speedtestPackage] = AppVersion(
-            installed = speedtestInfo.installed,
-            version_name = speedtestInfo.versionName,
-            version_code = speedtestInfo.versionCode?.toLong() ?: 0L
-        )
-        appVersionsMap["com.unitynetwork.unityapp"] = AppVersion(
+
+        // Add monitored package to app_versions map
+        appVersionsMap[monitoredPackage] = AppVersion(
             installed = unityInfo.installed,
             version_name = unityInfo.versionName,
             version_code = unityInfo.versionCode?.toLong() ?: 0L
         )
-        
+        // Also add speedtest package if it's different from the monitored package
+        if (prefs.speedtestPackage != monitoredPackage) {
+            appVersionsMap[prefs.speedtestPackage] = AppVersion(
+                installed = speedtestInfo.installed,
+                version_name = speedtestInfo.versionName,
+                version_code = speedtestInfo.versionCode?.toLong() ?: 0L
+            )
+        }
+
+
         return HeartbeatPayload(
             device_id = prefs.deviceId,
             alias = prefs.deviceAlias,
@@ -256,13 +267,13 @@ class MonitorService : Service(), AuthFailureListener {
             monitored_foreground_recent_s = monitoredForegroundRecency
         )
     }
-    
+
     private fun registerFcmToken() {
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 val token = task.result
                 Log.d(TAG, "FCM token retrieved: ${token?.take(10)}...")
-                
+
                 if (token != null && token != prefs.fcmToken) {
                     prefs.fcmToken = token
                     uploadFcmTokenToServer(token)
@@ -272,29 +283,29 @@ class MonitorService : Service(), AuthFailureListener {
             }
         }
     }
-    
+
     private fun uploadFcmTokenToServer(token: String) {
         if (prefs.serverUrl.isEmpty() || prefs.deviceToken.isEmpty()) {
             return
         }
-        
+
         serviceScope.launch {
             try {
                 val payload = mapOf(
                     "device_id" to prefs.deviceId,
                     "fcm_token" to token
                 )
-                
+
                 val json = gson.toJson(payload)
-                
+
                 val request = Request.Builder()
                     .url("${prefs.serverUrl}/v1/devices/fcm-token")
                     .post(json.toRequestBody("application/json".toMediaType()))
                     .addHeader("Authorization", "Bearer ${prefs.deviceToken}")
                     .build()
-                
+
                 val response = client.newCall(request).execute()
-                
+
                 if (response.isSuccessful) {
                     Log.d(TAG, "FCM token uploaded successfully")
                 } else {
@@ -305,7 +316,7 @@ class MonitorService : Service(), AuthFailureListener {
             }
         }
     }
-    
+
     private fun acquireWakeLock() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -319,7 +330,7 @@ class MonitorService : Service(), AuthFailureListener {
             Log.e(TAG, "Failed to acquire wake lock", e)
         }
     }
-    
+
     private fun releaseWakeLock() {
         try {
             wakeLock?.let {
@@ -332,14 +343,14 @@ class MonitorService : Service(), AuthFailureListener {
             Log.e(TAG, "Failed to release wake lock", e)
         }
     }
-    
+
     private fun checkAndReportPendingInstallation() {
         val pendingId = prefs.pendingInstallationId
         Log.d(TAG, "checkAndReportPendingInstallation: pendingInstallationId=$pendingId")
-        
+
         if (pendingId > 0) {
             Log.i(TAG, "Found pending installation $pendingId - reporting as completed")
-            
+
             serviceScope.launch {
                 try {
                     val payload = mapOf(
@@ -347,18 +358,18 @@ class MonitorService : Service(), AuthFailureListener {
                         "status" to "completed",
                         "download_progress" to 100
                     )
-                    
+
                     val json = gson.toJson(payload)
                     Log.d(TAG, "Sending completion report: $json")
-                    
+
                     val request = Request.Builder()
                         .url("${prefs.serverUrl}/v1/apk/installation/update")
                         .post(json.toRequestBody("application/json".toMediaType()))
                         .addHeader("X-Device-Token", prefs.deviceToken)
                         .build()
-                    
+
                     val response = client.newCall(request).execute()
-                    
+
                     if (response.isSuccessful) {
                         Log.i(TAG, "✓ Successfully reported installation $pendingId as completed")
                         prefs.pendingInstallationId = -1
@@ -374,7 +385,7 @@ class MonitorService : Service(), AuthFailureListener {
             Log.d(TAG, "No pending installation to report (pendingId=$pendingId)")
         }
     }
-    
+
     private fun scheduleNextHeartbeat(delayMs: Long = HEARTBEAT_INTERVAL_MS) {
         try {
             val intent = Intent(this, AlarmReceiver::class.java)
@@ -384,9 +395,9 @@ class MonitorService : Service(), AuthFailureListener {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            
+
             val triggerTime = System.currentTimeMillis() + delayMs
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
@@ -400,13 +411,13 @@ class MonitorService : Service(), AuthFailureListener {
                     pendingIntent
                 )
             }
-            
+
             Log.d(TAG, "Next heartbeat scheduled in ${delayMs / 1000}s using AlarmManager")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to schedule heartbeat alarm", e)
         }
     }
-    
+
     private fun cancelScheduledHeartbeat() {
         try {
             val intent = Intent(this, AlarmReceiver::class.java)
@@ -422,21 +433,21 @@ class MonitorService : Service(), AuthFailureListener {
             Log.e(TAG, "Failed to cancel heartbeat alarm", e)
         }
     }
-    
+
     private fun checkAndRestartIfNeeded() {
         val lastHeartbeat = prefs.lastHeartbeatTime
         val now = System.currentTimeMillis()
         val timeSinceLastHeartbeat = now - lastHeartbeat
-        
+
         if (lastHeartbeat > 0 && timeSinceLastHeartbeat > WATCHDOG_INTERVAL_MS) {
             Log.w(TAG, "Watchdog: No heartbeat for ${timeSinceLastHeartbeat / 1000}s, triggering immediate heartbeat")
-            
+
             cancelScheduledHeartbeat()
             sendHeartbeat(isPingResponse = false, pingRequestId = null)
             scheduleNextHeartbeat()
         }
     }
-    
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -445,7 +456,7 @@ class MonitorService : Service(), AuthFailureListener {
         ).apply {
             description = "Keeps device monitoring active with enhanced stability and reliability"
         }
-        
+
         val alertChannel = NotificationChannel(
             CHANNEL_ID_ALERT,
             "Device Alerts",
@@ -453,12 +464,12 @@ class MonitorService : Service(), AuthFailureListener {
         ).apply {
             description = "Important alerts requiring attention"
         }
-        
+
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
         manager.createNotificationChannel(alertChannel)
     }
-    
+
     private fun createNotification(): Notification {
         val versionName = BuildConfig.VERSION_NAME
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -468,17 +479,17 @@ class MonitorService : Service(), AuthFailureListener {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
-    
+
     override fun onAuthFailureThresholdReached() {
         Log.e(TAG, "Auth failure threshold reached - device needs re-enrollment")
-        
+
         handler.post {
             showReEnrollmentNotification()
         }
-        
+
         cancelScheduledHeartbeat()
     }
-    
+
     private fun showReEnrollmentNotification() {
         try {
             val intent = packageManager.getLaunchIntentForPackage(packageName)
@@ -488,7 +499,7 @@ class MonitorService : Service(), AuthFailureListener {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            
+
             val notification = NotificationCompat.Builder(this, CHANNEL_ID_ALERT)
                 .setContentTitle("Device Re-Enrollment Required")
                 .setContentText("Authentication failed. Please re-register this device.")
@@ -500,10 +511,10 @@ class MonitorService : Service(), AuthFailureListener {
                     .bigText("This device's authentication has expired or become invalid. " +
                             "Please run the enrollment script again to restore monitoring."))
                 .build()
-            
+
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID_REENROLL, notification)
-            
+
             Log.i(TAG, "Re-enrollment notification displayed")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to show re-enrollment notification", e)
