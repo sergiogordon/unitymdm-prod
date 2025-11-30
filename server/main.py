@@ -5691,6 +5691,7 @@ async def upload_apk_admin(
     version_name: str = Form(...),
     version_code: int = Form(...),
     description: str = Form(""),
+    build_type: str = Form("release"),
     enabled: bool = Form(True),
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     db: Session = Depends(get_db)
@@ -5725,6 +5726,7 @@ async def upload_apk_admin(
             version_name=version_name,
             version_code=version_code,
             notes=description,
+            build_type=build_type,
             file_size=file_size,
             sha256=sha256_hash,
             file_path=object_name,
@@ -7365,6 +7367,7 @@ async def upload_apk_admin(
     version_name: str = Form(...),
     version_code: int = Form(...),
     description: str = Form(""),
+    build_type: str = Form("release"),
     enabled: bool = Form(True),
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     db: Session = Depends(get_db)
@@ -7399,6 +7402,7 @@ async def upload_apk_admin(
             version_name=version_name,
             version_code=version_code,
             notes=description,
+            build_type=build_type,
             file_size=file_size,
             sha256=sha256_hash,
             file_path=object_name,
