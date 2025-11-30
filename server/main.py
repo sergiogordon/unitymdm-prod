@@ -5724,12 +5724,14 @@ async def upload_apk_admin(
         apk_version = ApkVersion(
             version_name=version_name,
             version_code=version_code,
-            description=description,
+            notes=description,
             file_size=file_size,
-            sha256_hash=sha256_hash,
-            object_name=object_name,
-            enabled=enabled,
-            uploaded_by="admin"
+            sha256=sha256_hash,
+            file_path=object_name,
+            storage_url=object_name,
+            is_active=enabled,
+            uploaded_by="admin",
+            package_name="com.nexmdm"
         )
         db.add(apk_version)
         db.commit()
@@ -5751,7 +5753,7 @@ async def upload_apk_admin(
             "apk_id": apk_version.id,
             "version_name": apk_version.version_name,
             "version_code": apk_version.version_code,
-            "object_name": apk_version.object_name
+            "storage_url": apk_version.storage_url
         }
 
     except ObjectNotFoundError as e:
@@ -7396,12 +7398,14 @@ async def upload_apk_admin(
         apk_version = ApkVersion(
             version_name=version_name,
             version_code=version_code,
-            description=description,
+            notes=description,
             file_size=file_size,
-            sha256_hash=sha256_hash,
-            object_name=object_name,
-            enabled=enabled,
-            uploaded_by="admin"
+            sha256=sha256_hash,
+            file_path=object_name,
+            storage_url=object_name,
+            is_active=enabled,
+            uploaded_by="admin",
+            package_name="com.nexmdm"
         )
         db.add(apk_version)
         db.commit()
@@ -7423,7 +7427,7 @@ async def upload_apk_admin(
             "apk_id": apk_version.id,
             "version_name": apk_version.version_name,
             "version_code": apk_version.version_code,
-            "object_name": apk_version.object_name
+            "storage_url": apk_version.storage_url
         }
 
     except ObjectNotFoundError as e:
