@@ -5486,9 +5486,12 @@ async def deploy_apk_v1(
                     "device_id": device.id,
                     "ts": timestamp,
                     "hmac": hmac_signature,
+                    "installation_id": str(installation.id),
                     "apk_id": str(apk.id),
                     "version_name": apk.version_name,
                     "version_code": str(apk.version_code),
+                    "file_size": str(apk.file_size) if apk.file_size else "0",
+                    "package_name": apk.package_name if hasattr(apk, 'package_name') and apk.package_name else "com.nexmdm",
                     "download_url": download_url
                 },
                 "android": {
