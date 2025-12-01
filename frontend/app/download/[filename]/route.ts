@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ filename: string }> }
@@ -8,7 +10,7 @@ export async function GET(
     const { filename } = await params;
     
     // Proxy to FastAPI backend
-    const backendUrl = `http://localhost:8000/download/${filename}`;
+    const backendUrl = `${BACKEND_URL}/download/${filename}`;
     const response = await fetch(backendUrl);
     
     if (!response.ok) {

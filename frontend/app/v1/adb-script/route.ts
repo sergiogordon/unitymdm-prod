@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
     
     const data = await configResponse.json()
-    const serverUrl = data.server_url || process.env.NEXT_PUBLIC_SERVER_URL || process.env.BACKEND_URL || 'http://localhost:8000'
+    const serverUrl = data.server_url || process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
     const adminKey = data.admin_key
 
     const whitelistResponse = await fetch(`${BACKEND_URL}/v1/battery-whitelist`, {
