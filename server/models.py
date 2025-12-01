@@ -51,7 +51,7 @@ class Device(Base):
     is_device_owner: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
     clipboard_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     clipboard_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    monitored_package: Mapped[str] = mapped_column(String, nullable=False, default="com.unitynetwork.unityapp")
+    monitored_package: Mapped[str] = mapped_column(String, nullable=False, default="io.unitynodes.unityapp")
     monitored_app_name: Mapped[str] = mapped_column(String, nullable=False, default="Speedtest")
     monitored_threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     monitor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

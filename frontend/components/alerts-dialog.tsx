@@ -25,7 +25,7 @@ export function AlertsDialog({ open, onOpenChange, devices, onSelectDevice }: Al
     const monitoredApp = d.monitored_package ? d.last_status.app_versions?.[d.monitored_package] : null
     const monitoredAppInstalled = monitoredApp?.installed || false
     
-    const isSpeedtest = d.monitored_package === 'com.unitynetwork.unityapp'
+    const isSpeedtest = d.monitored_package === 'io.unitynodes.unityapp'
     const monitoredAppRunning = isSpeedtest 
       ? (d.last_status.speedtest_running_signals?.has_service_notification || false)
       : null
@@ -51,7 +51,7 @@ export function AlertsDialog({ open, onOpenChange, devices, onSelectDevice }: Al
       const battery = device.last_status.battery?.pct || 100
       const monitoredApp = device.monitored_package ? device.last_status.app_versions?.[device.monitored_package] : null
       const monitoredAppInstalled = monitoredApp?.installed || false
-      const isSpeedtest = device.monitored_package === 'com.unitynetwork.unityapp'
+      const isSpeedtest = device.monitored_package === 'io.unitynodes.unityapp'
       const monitoredAppRunning = isSpeedtest 
         ? (device.last_status.speedtest_running_signals?.has_service_notification || false)
         : null

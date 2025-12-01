@@ -36,7 +36,7 @@ class ConfigReceiver : BroadcastReceiver() {
                         prefs.deviceToken = result.deviceToken
                         prefs.deviceId = result.deviceId
                         prefs.deviceAlias = alias
-                        prefs.speedtestPackage = "com.unitynetwork.unityapp"
+                        prefs.speedtestPackage = "io.unitynodes.unityapp"
                         prefs.needsReEnrollment = false
                         prefs.consecutive401Count = 0
                         
@@ -53,7 +53,7 @@ class ConfigReceiver : BroadcastReceiver() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             val permissionManager = DeviceOwnerPermissionManager(context)
                             if (permissionManager.isDeviceOwner()) {
-                                val success = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                                val success = permissionManager.exemptPackageFromBatteryOptimization("io.unitynodes.unityapp")
                                 if (success) {
                                     Log.i("ConfigReceiver", "✓ Unity app exempted from battery optimization")
                                 } else {
