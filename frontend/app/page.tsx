@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { Header } from "@/components/header"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -13,6 +13,32 @@ import { type Device, type FilterType } from "@/lib/mock-data"
 import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
 import { useSettings } from "@/contexts/SettingsContext"
+import { ArrowUpDown, Filter } from "lucide-react"
+
+type AliasFilter = "all" | "D" | "S"
+type SortOrder = "none" | "alias-asc" | "alias-desc"
+
+function naturalSort(a: string, b: string): number {
+  const regex = /(\d+)|(\D+)/g
+  const aParts = a.match(regex) || []
+  const bParts = b.match(regex) || []
+  
+  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+    const aPart = aParts[i] || ""
+    const bPart = bParts[i] || ""
+    
+    const aNum = parseInt(aPart, 10)
+    const bNum = parseInt(bPart, 10)
+    
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      if (aNum !== bNum) return aNum - bNum
+    } else {
+      const cmp = aPart.localeCompare(bPart)
+      if (cmp !== 0) return cmp
+    }
+  }
+  return 0
+}
 
 export default function Page() {
   const router = useRouter()
@@ -20,6 +46,8 @@ export default function Page() {
   const { openSettings } = useSettings()
   const [lastUpdated, setLastUpdated] = useState(Date.now())
   const [selectedFilter, setSelectedFilter] = useState<FilterType>("all")
+  const [aliasFilter, setAliasFilter] = useState<AliasFilter>("all")
+  const [sortOrder, setSortOrder] = useState<SortOrder>("none")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   
@@ -114,15 +142,31 @@ export default function Page() {
     changePageSize
   } = useDevices(shouldFetch)
 
-  // Filter devices (only filters the current page)
-  const filteredDevices = devices.filter((device) => {
-    if (selectedFilter === "all") return true
-    if (selectedFilter === "offline") return device.status === "offline"
-    if (selectedFilter === "unity-down") return device.unity.status === "down"
-    if (selectedFilter === "low-battery") return device.battery.percentage < 20
-    if (selectedFilter === "wrong-version") return device.unity.version !== "1.2.3"
-    return true
-  })
+  // Filter and sort devices
+  const filteredAndSortedDevices = useMemo(() => {
+    let result = devices.filter((device) => {
+      if (selectedFilter === "offline" && device.status !== "offline") return false
+      if (selectedFilter === "unity-down" && device.unity.status !== "down") return false
+      if (selectedFilter === "low-battery" && device.battery.percentage >= 20) return false
+      if (selectedFilter === "wrong-version" && device.unity.version === "1.2.3") return false
+      
+      if (aliasFilter !== "all") {
+        if (!device.alias.toUpperCase().startsWith(aliasFilter)) return false
+      }
+      
+      return true
+    })
+    
+    if (sortOrder === "alias-asc") {
+      result = [...result].sort((a, b) => naturalSort(a.alias, b.alias))
+    } else if (sortOrder === "alias-desc") {
+      result = [...result].sort((a, b) => naturalSort(b.alias, a.alias))
+    }
+    
+    return result
+  }, [devices, selectedFilter, aliasFilter, sortOrder])
+
+  const filteredDevices = filteredAndSortedDevices
 
   // Active alerts from full stats
   const activeAlerts = stats.offline + stats.low_battery
@@ -192,6 +236,74 @@ export default function Page() {
         />
 
         <FilterBar selected={selectedFilter} onSelect={setSelectedFilter} />
+
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Alias:</span>
+            </div>
+            <div className="inline-flex rounded-lg bg-muted p-1">
+              {(["all", "S", "D"] as AliasFilter[]).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setAliasFilter(filter)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                    aliasFilter === filter
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {filter === "all" ? "All" : filter}
+                </button>
+              ))}
+            </div>
+            {aliasFilter !== "all" && (
+              <span className="text-sm text-muted-foreground">
+                ({filteredDevices.length} devices)
+              </span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Sort:</span>
+            </div>
+            <div className="inline-flex rounded-lg bg-muted p-1">
+              <button
+                onClick={() => setSortOrder("none")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                  sortOrder === "none"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Default
+              </button>
+              <button
+                onClick={() => setSortOrder("alias-asc")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                  sortOrder === "alias-asc"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                A-Z
+              </button>
+              <button
+                onClick={() => setSortOrder("alias-desc")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                  sortOrder === "alias-desc"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Z-A
+              </button>
+            </div>
+          </div>
+        </div>
 
         <DevicesTable 
           devices={filteredDevices} 
