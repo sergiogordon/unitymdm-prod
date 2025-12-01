@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation"
 import { Loader2 } from "lucide-react"
 
 const BACKEND_URL = '/api/proxy'
+const SETUP_CHECK_TIMEOUT_MS = 10000 // 10 second timeout, then proceed anyway
 
 export function SetupCheck({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -27,9 +28,27 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
       return
     }
 
+    let timeoutId: NodeJS.Timeout | null = null
+    let aborted = false
+
+    // Fallback timeout: if check takes too long, proceed anyway
+    // This prevents infinite loading when backend is overloaded
+    timeoutId = setTimeout(() => {
+      if (!aborted) {
+        console.warn('Setup check timed out after 10s, proceeding anyway')
+        // Assume setup is complete if we're timing out
+        // (likely means backend is just slow, not that setup is incomplete)
+        sessionStorage.setItem('setup_checked', 'ready')
+        setChecking(false)
+        aborted = true
+      }
+    }, SETUP_CHECK_TIMEOUT_MS)
+
     const checkSetup = async () => {
       try {
         const response = await fetch(`${BACKEND_URL}/api/setup/status`)
+        
+        if (aborted) return // Timeout already fired
         
         if (response.ok) {
           const status = await response.json()
@@ -65,6 +84,8 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
         router.push('/setup')
         return
       } catch (error) {
+        if (aborted) return // Timeout already fired
+        
         // Network error or backend unreachable
         console.error('Setup check failed:', error)
         
@@ -82,10 +103,17 @@ export function SetupCheck({ children }: { children: React.ReactNode }) {
         sessionStorage.removeItem('setup_checked')
         setSetupRequired(true)
         router.push('/setup')
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
       }
     }
 
     checkSetup()
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      aborted = true
+    }
   }, [pathname, router])
 
   if (checking) {
