@@ -123,3 +123,8 @@ build = ["sh", "-c", "cd frontend && npm install && npm run build"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"
+
+[userenv]
+
+[userenv.shared]
+BACKEND_URL = "http://localhost:8000"
