@@ -75,11 +75,49 @@ export default function ApkDeployPage() {
   const [loadingRecentDeployments, setLoadingRecentDeployments] = useState(false)
 
   const filteredDevices = useMemo(() => {
-    if (!aliasFilter.trim()) return devices
-    const filterLower = aliasFilter.toLowerCase()
-    return devices.filter(device => 
-      device.alias.toLowerCase().startsWith(filterLower)
-    )
+    let result = [...devices]
+    
+    if (aliasFilter.trim()) {
+      const filterLower = aliasFilter.toLowerCase()
+      result = result.filter(device => 
+        device.alias.toLowerCase().startsWith(filterLower)
+      )
+    }
+    
+    result.sort((a, b) => {
+      const aAlias = a.alias.toUpperCase()
+      const bAlias = b.alias.toUpperCase()
+      const aStartsWithS = aAlias.startsWith('S')
+      const bStartsWithS = bAlias.startsWith('S')
+      const aStartsWithD = aAlias.startsWith('D')
+      const bStartsWithD = bAlias.startsWith('D')
+      
+      if (aStartsWithS && !bStartsWithS) return -1
+      if (!aStartsWithS && bStartsWithS) return 1
+      
+      if (aStartsWithD && !bStartsWithD && !bStartsWithS) return -1
+      if (!aStartsWithD && bStartsWithD && !aStartsWithS) return 1
+      
+      const aMatch = aAlias.match(/^([A-Z]+)(\d+)?/)
+      const bMatch = bAlias.match(/^([A-Z]+)(\d+)?/)
+      
+      if (aMatch && bMatch) {
+        const aPrefix = aMatch[1]
+        const bPrefix = bMatch[1]
+        
+        if (aPrefix !== bPrefix) {
+          return aPrefix.localeCompare(bPrefix)
+        }
+        
+        const aNum = aMatch[2] ? parseInt(aMatch[2], 10) : 0
+        const bNum = bMatch[2] ? parseInt(bMatch[2], 10) : 0
+        return aNum - bNum
+      }
+      
+      return aAlias.localeCompare(bAlias)
+    })
+    
+    return result
   }, [devices, aliasFilter])
 
   useEffect(() => {
