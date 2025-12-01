@@ -6041,6 +6041,68 @@ async def delete_apk_build(
         "file_deleted": file_deleted
     }
 
+
+@app.get("/v1/apk/installations")
+async def list_apk_installations(
+    apk_id: Optional[int] = None,
+    status: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List APK installation records with optional filtering.
+    
+    Returns recent installations with APK and device metadata.
+    Used by the Recent Deployments panel on the APK deploy page.
+    """
+    query = db.query(ApkInstallation)
+    
+    if apk_id is not None:
+        query = query.filter(ApkInstallation.apk_version_id == apk_id)
+    
+    if status:
+        query = query.filter(ApkInstallation.status == status)
+    
+    query = query.order_by(ApkInstallation.initiated_at.desc()).limit(limit)
+    
+    installations = query.all()
+    
+    results = []
+    for inst in installations:
+        device = db.query(Device).filter(Device.id == inst.device_id).first()
+        apk = db.query(ApkVersion).filter(ApkVersion.id == inst.apk_version_id).first() if inst.apk_version_id else None
+        
+        apk_data = None
+        if apk:
+            filename = apk.file_path.split('/')[-1] if apk.file_path else None
+            apk_data = {
+                "id": apk.id,
+                "filename": filename,
+                "package_name": apk.package_name,
+                "version_name": apk.version_name,
+                "version_code": apk.version_code,
+            }
+        
+        results.append({
+            "id": inst.id,
+            "device_id": inst.device_id,
+            "apk_id": inst.apk_version_id,
+            "status": inst.status,
+            "created_at": inst.initiated_at.isoformat() if inst.initiated_at else None,
+            "completed_at": inst.completed_at.isoformat() if inst.completed_at else None,
+            "download_progress": inst.download_progress,
+            "error_message": inst.error_message,
+            "device": {
+                "id": device.id,
+                "alias": device.alias,
+            } if device else None,
+            "apk": apk_data,
+        })
+    
+    return results
+
+
 class InstallationUpdateRequest(BaseModel):
     installation_id: int
     status: str
