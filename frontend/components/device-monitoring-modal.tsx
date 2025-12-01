@@ -34,7 +34,7 @@ export function DeviceMonitoringModal({
   
   const [monitorEnabled, setMonitorEnabled] = useState(currentMonitoring?.monitor_enabled ?? true)
   const [monitoredPackage, setMonitoredPackage] = useState(
-    currentMonitoring?.monitored_package ?? "com.unitynetwork.unityapp"
+    currentMonitoring?.monitored_package ?? "io.unitynodes.unityapp"
   )
   const [monitoredAppName, setMonitoredAppName] = useState(
     currentMonitoring?.monitored_app_name ?? "unity"
@@ -152,12 +152,12 @@ export function DeviceMonitoringModal({
                   type="text"
                   value={monitoredPackage}
                   onChange={(e) => setMonitoredPackage(e.target.value)}
-                  placeholder="com.unitynetwork.unityapp"
+                  placeholder="io.unitynodes.unityapp"
                   disabled={!monitorEnabled}
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm disabled:opacity-50"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Android package name to monitor (e.g., com.unitynetwork.unityapp, com.unity.game)
+                  Android package name to monitor (e.g., io.unitynodes.unityapp, com.unity.game)
                 </p>
               </div>
 

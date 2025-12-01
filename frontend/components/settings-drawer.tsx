@@ -47,7 +47,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
   
   const [monitoringDefaults, setMonitoringDefaults] = useState<MonitoringDefaults>({
     enabled: true,
-    package: "com.unitynetwork.unityapp",
+    package: "io.unitynodes.unityapp",
     alias: "unity",
     threshold_min: 10,
     updated_at: null
@@ -59,7 +59,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
 
   const [autoRelaunchDefaults, setAutoRelaunchDefaults] = useState<AutoRelaunchDefaults>({
     enabled: false,
-    package: "com.unitynetwork.unityapp",
+    package: "io.unitynodes.unityapp",
     updated_at: null
   })
   const [autoRelaunchDefaultsOriginal, setAutoRelaunchDefaultsOriginal] = useState<AutoRelaunchDefaults | null>(null)
@@ -704,7 +704,7 @@ export function SettingsDrawer({ isOpen, onClose }: SettingsDrawerProps) {
                   <input
                     type="text"
                     className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    placeholder="com.unitynetwork.unityapp"
+                    placeholder="io.unitynodes.unityapp"
                     value={autoRelaunchDefaults.package}
                     onChange={(e) => setAutoRelaunchDefaults({ ...autoRelaunchDefaults, package: e.target.value })}
                   />

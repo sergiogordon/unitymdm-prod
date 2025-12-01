@@ -35,7 +35,7 @@ function ADBSetupContent() {
       ? `/api/proxy/v1/scripts/enroll.one-liner.cmd`
       : `/api/proxy/v1/scripts/enroll.one-liner.sh`
     
-    const url = `${endpoint}?alias=${encodeURIComponent(alias.trim())}&agent_pkg=com.nexmdm&unity_pkg=com.unitynetwork.unityapp`
+    const url = `${endpoint}?alias=${encodeURIComponent(alias.trim())}&agent_pkg=com.nexmdm&unity_pkg=io.unitynodes.unityapp`
     
     try {
       const response = await fetch(url, {

@@ -43,7 +43,7 @@ class MonitoringDefaultsCache:
         else:
             defaults = {
                 "enabled": True,
-                "package": "com.unitynetwork.unityapp",
+                "package": "io.unitynodes.unityapp",
                 "alias": "Unity App",
                 "threshold_min": 10,
                 "updated_at": None

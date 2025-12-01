@@ -2269,10 +2269,10 @@ async def heartbeat(
     # PERFORMANCE OPTIMIZATION: Persist heartbeat to partitioned table + dual-write to device_last_status
     from db_utils import record_heartbeat_with_bucketing
 
-    # Extract Unity app info (ALWAYS from com.unitynetwork.unityapp)
+    # Extract Unity app info (ALWAYS from io.unitynodes.unityapp)
     unity_running = None
     unity_pkg_version = None
-    unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
+    unity_app_info = payload.app_versions.get("io.unitynodes.unityapp")
     if unity_app_info and unity_app_info.installed:
         unity_pkg_version = unity_app_info.version_name
         # Android agent sends monitored_foreground_recent_s specifically for Unity
@@ -2441,21 +2441,21 @@ async def heartbeat(
     last_status_dict["monitored_threshold_min"] = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
 
     # Add unity/agent status for frontend
-    # Unity field ALWAYS reflects com.unitynetwork.unityapp, NOT the monitored package
+    # Unity field ALWAYS reflects io.unitynodes.unityapp, NOT the monitored package
     # Defensive check: ensure app_versions exists before accessing it
     if not payload.app_versions:
         print(f"[UNITY-STATUS-DEBUG] {device.alias}: payload.app_versions is None or empty - defaulting to not_installed")
         last_status_dict["unity"] = {
-            "package": "com.unitynetwork.unityapp",
+            "package": "io.unitynodes.unityapp",
             "status": "not_installed"
         }
     else:
-        unity_app_info = payload.app_versions.get("com.unitynetwork.unityapp")
+        unity_app_info = payload.app_versions.get("io.unitynodes.unityapp")
 
         if not unity_app_info:
-            print(f"[UNITY-STATUS-DEBUG] {device.alias}: com.unitynetwork.unityapp key not found in app_versions (available keys: {list(payload.app_versions.keys())}) - defaulting to not_installed")
+            print(f"[UNITY-STATUS-DEBUG] {device.alias}: io.unitynodes.unityapp key not found in app_versions (available keys: {list(payload.app_versions.keys())}) - defaulting to not_installed")
             last_status_dict["unity"] = {
-                "package": "com.unitynetwork.unityapp",
+                "package": "io.unitynodes.unityapp",
                 "status": "not_installed"
             }
         elif unity_app_info.installed:
@@ -2477,7 +2477,7 @@ async def heartbeat(
                 print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity installed but no foreground data - status=down")
 
             last_status_dict["unity"] = {
-                "package": "com.unitynetwork.unityapp",
+                "package": "io.unitynodes.unityapp",
                 "version": unity_app_info.version_name or "unknown",
                 "status": unity_status
             }
@@ -2485,7 +2485,7 @@ async def heartbeat(
             # Unity app not installed
             print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity app not installed (installed=False)")
             last_status_dict["unity"] = {
-                "package": "com.unitynetwork.unityapp",
+                "package": "io.unitynodes.unityapp",
                 "status": "not_installed"
             }
 
@@ -2507,15 +2507,15 @@ async def heartbeat(
         print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_versions in payload")
 
     if device.auto_relaunch_enabled and device.monitored_package:
-        # Android app now sends full package names as keys (e.g., com.unitynetwork.unityapp)
-        # Try primary lookup first, then fallback to com.unitynetwork.unityapp for consistency
+        # Android app now sends full package names as keys (e.g., io.unitynodes.unityapp)
+        # Try primary lookup first, then fallback to io.unitynodes.unityapp for consistency
         app_info = payload.app_versions.get(device.monitored_package) if payload.app_versions else None
         package_used = device.monitored_package
         used_fallback = False
 
-        # If primary lookup failed, try fallback to com.unitynetwork.unityapp
-        if not app_info and device.monitored_package != "com.unitynetwork.unityapp":
-            fallback_package = "com.unitynetwork.unityapp"
+        # If primary lookup failed, try fallback to io.unitynodes.unityapp
+        if not app_info and device.monitored_package != "io.unitynodes.unityapp":
+            fallback_package = "io.unitynodes.unityapp"
             app_info = payload.app_versions.get(fallback_package) if payload.app_versions else None
             if app_info:
                 package_used = fallback_package
@@ -2525,7 +2525,7 @@ async def heartbeat(
         if app_info:
             print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Found app_info for '{package_used}' (fallback={used_fallback}): installed={app_info.installed}")
         else:
-            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_info found for '{device.monitored_package}' or fallback 'com.unitynetwork.unityapp'")
+            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_info found for '{device.monitored_package}' or fallback 'io.unitynodes.unityapp'")
 
         # Check if app is installed
         if app_info and app_info.installed:
@@ -3568,7 +3568,7 @@ async def get_auto_relaunch_defaults(
     else:
         defaults = {
             "enabled": False,
-            "package": "com.unitynetwork.unityapp",
+            "package": "io.unitynodes.unityapp",
             "updated_at": None
         }
 
@@ -4045,7 +4045,7 @@ async def push_wifi_to_devices(
 async def get_windows_one_liner_script(
     alias: str = Query(...),
     agent_pkg: str = Query("com.nexmdm"),
-    unity_pkg: str = Query("com.unitynetwork.unityapp"),
+    unity_pkg: str = Query("io.unitynodes.unityapp"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -7233,7 +7233,7 @@ async def remote_exec_ack(
 # --- Restart App Endpoint (Two-Step: Force Stop + Launch) ---
 
 class RestartAppRequest(BaseModel):
-    package_name: str = "com.unitynetwork.unityapp"
+    package_name: str = "io.unitynodes.unityapp"
     scope_type: str = "all"  # "all", "aliases", "device_ids"
     targets: Optional[dict] = None  # {"aliases": [...]} or {"device_ids": [...]}
     device_ids: Optional[List[str]] = None

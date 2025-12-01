@@ -237,7 +237,7 @@ class EnrollmentActivity : AppCompatActivity() {
                 }
                 
                 // Exempt Unity app from battery optimization
-                val unityExemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                val unityExemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("io.unitynodes.unityapp")
                 if (unityExemptSuccess) {
                     Log.i(TAG, "✓ Unity app exempted from battery optimization")
                 } else {

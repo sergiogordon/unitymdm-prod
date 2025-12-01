@@ -54,7 +54,7 @@ const FCM_PRESETS = {
   ping: { type: "ping" },
   ring: { type: "ring", duration: "30" },
   reboot: { type: "reboot", reason: "remote_exec" },
-  launch_unity_app: { type: "launch_app", package_name: "com.unitynetwork.unityapp" },
+  launch_unity_app: { type: "launch_app", package_name: "io.unitynodes.unityapp" },
   launch_app: { type: "launch_app", package_name: "com.example.app" },
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
   enable_dnd: { type: "set_dnd", enable: "true" },
@@ -64,9 +64,9 @@ const FCM_PRESETS = {
 }
 
 const SHELL_PRESETS = {
-  restart_unity_app: "am force-stop com.unitynetwork.unityapp && monkey -p com.unitynetwork.unityapp -c android.intent.category.LAUNCHER 1",
-  force_stop_unity_app: "am force-stop com.unitynetwork.unityapp",
-  launch_unity_app: "monkey -p com.unitynetwork.unityapp -c android.intent.category.LAUNCHER 1",
+  restart_unity_app: "am force-stop io.unitynodes.unityapp && monkey -p io.unitynodes.unityapp -c android.intent.category.LAUNCHER 1",
+  force_stop_unity_app: "am force-stop io.unitynodes.unityapp",
+  launch_unity_app: "monkey -p io.unitynodes.unityapp -c android.intent.category.LAUNCHER 1",
   suppress_wea: "settings put global zen_mode 2 && settings put global emergency_tone 0 && settings put global emergency_alerts_enabled 0",
   restore_normal: "settings put global zen_mode 0 && settings put global emergency_tone 1 && settings put global emergency_alerts_enabled 1",
   enable_auto_update: "settings put global auto_system_update_policy 1",
@@ -112,7 +112,7 @@ export default function RemoteExecutionPage() {
   const [resultFilter, setResultFilter] = useState("")
   
   const [isRestartingApp, setIsRestartingApp] = useState(false)
-  const [restartAppPackage, setRestartAppPackage] = useState("com.unitynetwork.unityapp")
+  const [restartAppPackage, setRestartAppPackage] = useState("io.unitynodes.unityapp")
   const [restartAppResults, setRestartAppResults] = useState<any>(null)
   const [isPollingRestart, setIsPollingRestart] = useState(false)
   const [restartId, setRestartId] = useState<string | null>(null)

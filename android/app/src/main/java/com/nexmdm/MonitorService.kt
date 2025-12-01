@@ -212,13 +212,13 @@ class MonitorService : Service(), AuthFailureListener {
 
     private suspend fun buildHeartbeatPayload(isPingResponse: Boolean = false, pingRequestId: String? = null): HeartbeatPayload {
         val speedtestInfo = speedtestDetector.detectSpeedtest(prefs.speedtestPackage)
-        val unityInfo = speedtestDetector.detectSpeedtest("com.unitynetwork.unityapp")
+        val unityInfo = speedtestDetector.detectSpeedtest("io.unitynodes.unityapp")
         val apkInstaller = ApkInstaller(applicationContext)
         val reliabilityFlags = telemetry.getReliabilityFlags()
         val queueDepth = telemetry.getQueueDepth()
 
         // Get monitored foreground recency for the configured package
-        // Use monitoredPackage from prefs (defaults to com.unitynetwork.unityapp)
+        // Use monitoredPackage from prefs (defaults to io.unitynodes.unityapp)
         val monitoredPackage = prefs.monitoredPackage
         val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(monitoredPackage)
 

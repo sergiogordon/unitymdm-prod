@@ -401,7 +401,7 @@ class MonitoringDefaults(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    package: Mapped[str] = mapped_column(String, nullable=False, default="com.unitynetwork.unityapp")
+    package: Mapped[str] = mapped_column(String, nullable=False, default="io.unitynodes.unityapp")
     alias: Mapped[str] = mapped_column(String, nullable=False, default="unity")
     threshold_min: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
@@ -415,7 +415,7 @@ class AutoRelaunchDefaults(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    package: Mapped[str] = mapped_column(String, nullable=False, default="com.unitynetwork.unityapp")
+    package: Mapped[str] = mapped_column(String, nullable=False, default="io.unitynodes.unityapp")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     
     __table_args__ = (

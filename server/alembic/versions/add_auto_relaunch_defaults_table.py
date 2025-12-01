@@ -22,7 +22,7 @@ def upgrade() -> None:
     op.create_table('auto_relaunch_defaults',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('enabled', sa.Boolean(), nullable=False, server_default='false'),
-        sa.Column('package', sa.String(), nullable=False, server_default='com.unitynetwork.unityapp'),
+        sa.Column('package', sa.String(), nullable=False, server_default='io.unitynodes.unityapp'),
         sa.Column('updated_at', sa.DateTime(), nullable=False, server_default=sa.text('now()')),
         sa.PrimaryKeyConstraint('id')
     )

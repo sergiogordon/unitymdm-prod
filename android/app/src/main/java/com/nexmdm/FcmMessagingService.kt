@@ -892,7 +892,7 @@ class FcmMessagingService : FirebaseMessagingService() {
             return
         }
         
-        val success = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+        val success = permissionManager.exemptPackageFromBatteryOptimization("io.unitynodes.unityapp")
         
         if (success) {
             Log.i(TAG, "✓ Unity app exempted from battery optimization via FCM command")
@@ -1247,7 +1247,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                 "exempt_unity_app" -> {
                     val permissionManager = DeviceOwnerPermissionManager(this)
                     if (permissionManager.isDeviceOwner()) {
-                        val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("com.unitynetwork.unityapp")
+                        val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization("io.unitynodes.unityapp")
                         if (exemptSuccess) {
                             output = "Unity app exempted from battery optimization successfully"
                             status = "OK"

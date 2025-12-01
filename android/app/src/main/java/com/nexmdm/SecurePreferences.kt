@@ -48,7 +48,7 @@ class SecurePreferences(context: Context) {
         set(value) = prefs.edit().putString("device_alias", value).apply()
     
     var speedtestPackage: String
-        get() = prefs.getString("speedtest_package", "com.unitynetwork.unityapp") ?: "com.unitynetwork.unityapp"
+        get() = prefs.getString("speedtest_package", "io.unitynodes.unityapp") ?: "io.unitynodes.unityapp"
         set(value) = prefs.edit().putString("speedtest_package", value).apply()
     
     var lastHeartbeatTime: Long
@@ -72,7 +72,7 @@ class SecurePreferences(context: Context) {
         set(value) = prefs.edit().putString("hmac_rotation_key", value).apply()
     
     var monitoredPackage: String
-        get() = prefs.getString("monitored_package", "com.unitynetwork.unityapp") ?: "com.unitynetwork.unityapp"
+        get() = prefs.getString("monitored_package", "io.unitynodes.unityapp") ?: "io.unitynodes.unityapp"
         set(value) = prefs.edit().putString("monitored_package", value).apply()
 
     var consecutive401Count: Int
