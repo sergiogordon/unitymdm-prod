@@ -1,0 +1,29 @@
+{"ts": "2025-12-01T04:39:53.806886+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "6377acb3-1880-4024-9f04-4537e35f201a", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:53.929155+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 157.733563}
+{"ts": "2025-12-01T04:39:53.929398+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "6013ce8c-971f-4f50-8bb1-47714dc3e6e3", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.050879+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 157.855284}
+{"ts": "2025-12-01T04:39:54.051083+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "02604ce0-63d6-4ee6-a65c-348ee8ae1f8c", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.178916+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 157.983324}
+{"ts": "2025-12-01T04:39:54.179089+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "5e153837-04fc-4b47-a7e0-688bbe3854d0", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.301211+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.105606}
+{"ts": "2025-12-01T04:39:54.301379+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "6955f1e9-69bf-4304-892a-6886b4f020ba", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.465507+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.269919}
+{"ts": "2025-12-01T04:39:54.465652+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "2075495c-8ee4-4510-9eee-4ea5319ce594", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.587396+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.391809}
+{"ts": "2025-12-01T04:39:54.587535+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "f126413d-80fc-4979-98ab-0398736be26d", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.709601+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.514011}
+{"ts": "2025-12-01T04:39:54.709768+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "1218a76c-2141-4e97-9573-740d53a4845f", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.833330+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.637739}
+{"ts": "2025-12-01T04:39:54.834232+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "c670f407-fb6e-43d0-8025-6f7cec86063c", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:54.956536+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.760944}
+{"ts": "2025-12-01T04:39:54.956759+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "4cd9401f-c8b2-4fd2-9cb0-b2c64a1b6ac9", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:55.078460+00:00", "request_id": null, "level": "INFO", "event": "monitoring_defaults.cache_hit", "age_seconds": 158.882871}
+{"ts": "2025-12-01T04:39:55.078605+00:00", "request_id": null, "level": "INFO", "event": "monitoring.get_settings", "device_id": "3bbe7b59-c9c5-435f-89e4-829e9528d198", "source": "global_defaults"}
+{"ts": "2025-12-01T04:39:55.098588+00:00", "request_id": null, "level": "INFO", "event": "alert.evaluate.end", "devices_checked": 92, "alerts_found": 6, "latency_ms": 11526.310000000001}
+{"ts": "2025-12-01T04:39:55.138033+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "eee3913e-cb1e-4563-8bcb-79bea13333d8", "condition": "low_battery"}
+{"ts": "2025-12-01T04:39:55.259676+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "cbe74043-d15c-4f34-b6e3-d3e9ecb8b669", "condition": "offline"}
+{"ts": "2025-12-01T04:39:55.382023+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "b0347aae-e3c1-4e99-89c7-5aa0512ed293", "condition": "low_battery"}
+{"ts": "2025-12-01T04:39:55.510335+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "a4ade89a-2570-4ca7-af32-dcd24edbd792", "condition": "low_battery"}
+{"ts": "2025-12-01T04:39:55.632634+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "865147fa-de5d-40f4-9213-c59aa3f7a445", "condition": "low_battery"}
+{"ts": "2025-12-01T04:39:55.753496+00:00", "request_id": null, "level": "INFO", "event": "discord.webhook.disabled", "device_id": "c670f407-fb6e-43d0-8025-6f7cec86063c", "condition": "low_battery"}
+{"ts": "2025-12-01T04:39:55.795616+00:00", "request_id": null, "level": "INFO", "event": "alert.scheduler.tick", "latency_ms": 12223.391}
