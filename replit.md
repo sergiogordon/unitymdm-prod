@@ -60,6 +60,7 @@ The frontend, built with Next.js and shadcn/ui, offers a modern, responsive inte
 - **Performance Metrics**: Comprehensive latency tracking, pool utilization gauges, queue metrics.
 - **Rate Limiting**: Configurable IP-based rate limiting.
 - **Registration Queue**: Semaphore-based queue limiting concurrent device registrations to 15 maximum to prevent connection pool saturation during bulk deployments. Tracks queue depth, wait time, and active registration count via Prometheus metrics.
+- **Setup Check Optimization (Dec 2025)**: Frontend `SetupCheck` component includes 10-second client-side timeout to prevent infinite loading when backend is slow. Backend `/api/setup/status` endpoint skips database connection test during high load (assumes OK if configured) to reduce response time from ~29s to ~400ms under heavy heartbeat traffic.
 - **OTA Cohorting**: Deterministic SHA-256-based device cohorting for staged rollouts.
 - **OTA Safety**: Wi-Fi-only downloads, battery thresholds, call-state checking.
 - **Bulk Delete Architecture**: Device selection snapshots, background purge workers with PostgreSQL advisory locks.
