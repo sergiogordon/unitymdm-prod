@@ -4,13 +4,16 @@ import { Battery, Wifi, Smartphone, Search, Settings2, Bell, BellOff, Radio } fr
 import type { Device } from "@/lib/mock-data"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { BulkActionsBar } from "@/components/bulk-actions-bar"
+import { BulkActionsBar, BulkActionProgress } from "@/components/bulk-actions-bar"
 import { BulkDeleteModal } from "@/components/bulk-delete-modal"
 import { DeviceMonitoringModal } from "@/components/device-monitoring-modal"
 import { useToast } from "@/hooks/use-toast"
 import { bulkDeleteDevices, pingDevice, ringDevice, stopRingingDevice } from "@/lib/api-client"
+
+const BULK_ACTION_BATCH_SIZE = 5
+const BULK_ACTION_DELAY_MS = 3000
 
 interface Pagination {
   page: number
@@ -41,7 +44,104 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
   const [monitoringDevice, setMonitoringDevice] = useState<Device | null>(null)
   const [pingLoading, setPingLoading] = useState<Set<string>>(new Set())
   const [ringLoading, setRingLoading] = useState<Set<string>>(new Set())
+  const [bulkActionProgress, setBulkActionProgress] = useState<BulkActionProgress | null>(null)
   const { toast } = useToast()
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+  const executeBulkAction = useCallback(async (
+    action: 'ping' | 'ring',
+    deviceIds: string[],
+    actionFn: (deviceId: string) => Promise<any>
+  ) => {
+    const total = deviceIds.length
+    let completed = 0
+    let failed = 0
+
+    setBulkActionProgress({ action, total, completed: 0, failed: 0, inProgress: true })
+
+    for (let i = 0; i < deviceIds.length; i += BULK_ACTION_BATCH_SIZE) {
+      const batch = deviceIds.slice(i, i + BULK_ACTION_BATCH_SIZE)
+      
+      const batchResults = await Promise.allSettled(
+        batch.map(deviceId => actionFn(deviceId))
+      )
+      
+      batchResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+          completed++
+        } else {
+          failed++
+        }
+      })
+      
+      setBulkActionProgress({ action, total, completed, failed, inProgress: true })
+      
+      if (i + BULK_ACTION_BATCH_SIZE < deviceIds.length) {
+        await sleep(BULK_ACTION_DELAY_MS)
+      }
+    }
+
+    setBulkActionProgress({ action, total, completed, failed, inProgress: false })
+
+    return { completed, failed }
+  }, [])
+
+  const handleBulkPing = useCallback(async () => {
+    const deviceIds = Array.from(selectedIds)
+    if (deviceIds.length === 0) return
+
+    try {
+      const { completed, failed } = await executeBulkAction('ping', deviceIds, pingDevice)
+      
+      toast({
+        title: "Bulk ping complete",
+        description: `Successfully pinged ${completed} device${completed !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}`,
+        variant: failed > 0 ? "default" : "default"
+      })
+
+      setSelectedIds(new Set())
+      onDevicesDeleted?.()
+    } catch (error) {
+      toast({
+        title: "Bulk ping failed",
+        description: error instanceof Error ? error.message : "Failed to ping devices",
+        variant: "destructive"
+      })
+    } finally {
+      setTimeout(() => setBulkActionProgress(null), 2000)
+    }
+  }, [selectedIds, executeBulkAction, toast, onDevicesDeleted])
+
+  const handleBulkRing = useCallback(async () => {
+    const deviceIds = Array.from(selectedIds)
+    if (deviceIds.length === 0) return
+
+    try {
+      const { completed, failed } = await executeBulkAction(
+        'ring', 
+        deviceIds, 
+        (deviceId) => ringDevice(deviceId, 30, 1.0)
+      )
+      
+      toast({
+        title: "Bulk ring complete",
+        description: `Successfully sent ring command to ${completed} device${completed !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}`,
+        variant: failed > 0 ? "default" : "default"
+      })
+
+      setSelectedIds(new Set())
+      onDevicesDeleted?.()
+    } catch (error) {
+      toast({
+        title: "Bulk ring failed",
+        description: error instanceof Error ? error.message : "Failed to ring devices",
+        variant: "destructive"
+      })
+    } finally {
+      setTimeout(() => setBulkActionProgress(null), 2000)
+    }
+  }, [selectedIds, executeBulkAction, toast, onDevicesDeleted])
 
   const filteredDevices = devices.filter((device) => {
     const query = searchQuery.toLowerCase()
@@ -492,6 +592,9 @@ export function DevicesTable({ devices, onSelectDevice, onDevicesDeleted, pagina
         selectedCount={selectedIds.size}
         onDelete={() => setIsDeleteModalOpen(true)}
         onClear={() => setSelectedIds(new Set())}
+        onBulkPing={handleBulkPing}
+        onBulkRing={handleBulkRing}
+        bulkActionProgress={bulkActionProgress}
       />
 
       <BulkDeleteModal
