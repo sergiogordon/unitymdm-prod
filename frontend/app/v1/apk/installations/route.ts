@@ -23,11 +23,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const apkId = searchParams.get('apk_id')
     const status = searchParams.get('status')
+    const limit = searchParams.get('limit')
 
     let url = `${API_URL}/v1/apk/installations`
     const params = new URLSearchParams()
     if (apkId) params.append('apk_id', apkId)
     if (status) params.append('status', status)
+    if (limit) params.append('limit', limit)
     if (params.toString()) url += `?${params.toString()}`
 
     const controller = new AbortController()
