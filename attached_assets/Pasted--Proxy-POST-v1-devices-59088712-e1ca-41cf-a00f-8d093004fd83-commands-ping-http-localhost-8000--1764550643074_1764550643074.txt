@@ -1,0 +1,38 @@
+[Proxy] POST v1/devices/59088712-e1ca-41cf-a00f-8d093004fd83/commands/ping -> http://localhost:8000/v1/devices/59088712-e1ca-41cf-a00f-8d093004fd83/commands/ping
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] POST v1/devices/0c9684cb-c88f-4aa0-9263-dd61124bbdc2/commands/ping -> 500 (2398ms)
+ POST /api/proxy/v1/devices/0c9684cb-c88f-4aa0-9263-dd61124bbdc2/commands/ping 500 in 2610ms
+[Proxy] POST v1/devices/c461ff00-b9cd-4d20-91ce-7e504748d160/commands/ping -> 500 (2402ms)
+ POST /api/proxy/v1/devices/c461ff00-b9cd-4d20-91ce-7e504748d160/commands/ping 500 in 2606ms
+[Proxy] POST v1/devices/2075495c-8ee4-4510-9eee-4ea5319ce594/commands/ping -> 500 (2538ms)
+ POST /api/proxy/v1/devices/2075495c-8ee4-4510-9eee-4ea5319ce594/commands/ping 500 in 2649ms
+[Proxy] POST v1/devices/59088712-e1ca-41cf-a00f-8d093004fd83/commands/ping -> 500 (2408ms)
+ POST /api/proxy/v1/devices/59088712-e1ca-41cf-a00f-8d093004fd83/commands/ping 500 in 2604ms
+[Proxy] POST v1/devices/9647b5bf-8279-45b2-b608-9658dcd96e30/commands/ping -> 500 (2477ms)
+ POST /api/proxy/v1/devices/9647b5bf-8279-45b2-b608-9658dcd96e30/commands/ping 500 in 2633ms
+ POST /v1/heartbeat 200 in 617ms
+[Proxy] GET healthz -> http://localhost:8000/healthz
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] POST v1/devices/8b0ba76b-1a33-4bf2-84a7-ceae97aa9617/commands/ping -> http://localhost:8000/v1/devices/8b0ba76b-1a33-4bf2-84a7-ceae97aa9617/commands/ping
+[Proxy] POST v1/devices/c6cc68e6-5585-4109-9edf-7443b9a9cc74/commands/ping -> http://localhost:8000/v1/devices/c6cc68e6-5585-4109-9edf-7443b9a9cc74/commands/ping
+[Proxy] POST v1/devices/ee159a87-8fd9-4a12-9edd-50588580aaf2/commands/ping -> http://localhost:8000/v1/devices/ee159a87-8fd9-4a12-9edd-50588580aaf2/commands/ping
+[Proxy] POST v1/devices/e985b318-420e-48d4-9329-dfd585ea9e1c/commands/ping -> http://localhost:8000/v1/devices/e985b318-420e-48d4-9329-dfd585ea9e1c/commands/ping
+[Proxy] POST v1/devices/71dc6a13-c97d-4d38-870a-6beb107465af/commands/ping -> http://localhost:8000/v1/devices/71dc6a13-c97d-4d38-870a-6beb107465af/commands/ping
+ POST /v1/heartbeat 200 in 2994ms
+ POST /v1/heartbeat 200 in 3052ms
+ POST /v1/heartbeat 200 in 3198ms
+ POST /v1/heartbeat 200 in 3042ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET healthz -> 200 (2559ms)
+ GET /api/proxy/healthz 200 in 2982ms
+[Proxy] POST v1/devices/ee159a87-8fd9-4a12-9edd-50588580aaf2/commands/ping -> 500 (2140ms)
+ POST /api/proxy/v1/devices/ee159a87-8fd9-4a12-9edd-50588580aaf2/commands/ping 500 in 2324ms
+[Proxy] POST v1/devices/71dc6a13-c97d-4d38-870a-6beb107465af/commands/ping -> 500 (2143ms)
+[Proxy] POST v1/devices/e985b318-420e-48d4-9329-dfd585ea9e1c/commands/ping -> 500 (2143ms)
+[Proxy] POST v1/devices/8b0ba76b-1a33-4bf2-84a7-ceae97aa9617/commands/ping -> 500 (2192ms)
+[Proxy] POST v1/devices/c6cc68e6-5585-4109-9edf-7443b9a9cc74/commands/ping -> 500 (2149ms)
+ POST /api/proxy/v1/devices/71dc6a13-c97d-4d38-870a-6beb107465af/commands/ping 500 in 2943ms
+ POST /api/proxy/v1/devices/e985b318-420e-48d4-9329-dfd585ea9e1c/commands/ping 500 in 2947ms
+ POST /api/proxy/v1/devices/8b0ba76b-1a33-4bf2-84a7-ceae97aa9617/commands/ping 500 in 2951ms
+ POST /api/proxy/v1/devices/c6cc68e6-5585-4109-9edf-7443b9a9cc74/commands/ping 500 in 2952ms
+ POST /v1/heartbeat 200 in 985ms

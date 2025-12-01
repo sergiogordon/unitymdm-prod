@@ -4543,6 +4543,7 @@ async def ping_device(
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            latency_ms = (time.time() - fcm_start_time) * 1000
 
             if response.status_code != 200:
                 try:
