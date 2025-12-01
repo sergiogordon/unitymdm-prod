@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const timeoutId = setTimeout(() => controller.abort(), 300000)
 
     const response = await fetch(`${API_URL}/v1/apk/deploy`, {
       method: 'POST',
