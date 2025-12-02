@@ -116,7 +116,10 @@ export default function RemoteExecutionPage() {
   const [restartAppResults, setRestartAppResults] = useState<any>(null)
   const [isPollingRestart, setIsPollingRestart] = useState(false)
   const [restartId, setRestartId] = useState<string | null>(null)
+  const [restartPollStartTime, setRestartPollStartTime] = useState<number | null>(null)
   const [deviceFilter, setDeviceFilter] = useState("")
+  
+  const RESTART_POLL_TIMEOUT_MS = 60000
 
   const filteredDevicesForSelector = useMemo(() => {
     let result = [...allDevices]
@@ -331,6 +334,17 @@ export default function RemoteExecutionPage() {
 
   const fetchRestartAppStatus = async (id: string) => {
     try {
+      if (restartPollStartTime && Date.now() - restartPollStartTime > RESTART_POLL_TIMEOUT_MS) {
+        setIsPollingRestart(false)
+        setRestartPollStartTime(null)
+        toast({
+          title: "Restart App Timed Out",
+          description: "Polling stopped after 60 seconds. Check device status manually.",
+          variant: "destructive"
+        })
+        return
+      }
+
       const token = getAuthToken()
       if (!token) return
 
@@ -348,6 +362,7 @@ export default function RemoteExecutionPage() {
         const terminalStates = ['completed', 'failed', 'partial', 'timed_out', 'error']
         if (terminalStates.includes(data.status)) {
           setIsPollingRestart(false)
+          setRestartPollStartTime(null)
           
           if (data.status !== 'completed') {
             toast({
@@ -359,6 +374,7 @@ export default function RemoteExecutionPage() {
         }
       } else {
         setIsPollingRestart(false)
+        setRestartPollStartTime(null)
         toast({
           title: "Error",
           description: "Failed to fetch restart status",
@@ -368,6 +384,7 @@ export default function RemoteExecutionPage() {
     } catch (error) {
       console.error("Failed to fetch restart app status:", error)
       setIsPollingRestart(false)
+      setRestartPollStartTime(null)
     }
   }
 
@@ -419,6 +436,7 @@ export default function RemoteExecutionPage() {
       if (response.ok) {
         const data = await response.json()
         setRestartId(data.restart_id)
+        setRestartPollStartTime(Date.now())
         setIsPollingRestart(true)
         toast({
           title: "Restart App Started",
