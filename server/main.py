@@ -394,6 +394,83 @@ async def send_fcm_launch_app(fcm_token: str, package_name: str, device_id: str 
         print(f"[FCM-LAUNCH] HTTP error: {e}")
         return False
 
+async def dispatch_launch_app_to_device(
+    device,
+    package_name: str,
+    correlation_id: str,
+    semaphore: asyncio.Semaphore,
+    client: httpx.AsyncClient,
+    fcm_url: str,
+    access_token: str,
+    db_results: dict
+) -> dict:
+    """
+    Dispatch a launch_app FCM command to a device with tracking support.
+    Uses the correct 'action: launch_app' format that the agent recognizes.
+    """
+    async with semaphore:
+        try:
+            if not device.fcm_token:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
+                return db_results[device.id]
+            
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(correlation_id, device.id, "launch_app", timestamp)
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "launch_app",
+                        "correlation_id": correlation_id,
+                        "device_id": device.id,
+                        "ts": timestamp,
+                        "hmac": hmac_signature,
+                        "package_name": package_name
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            
+            if response.status_code == 200:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "sent"
+                }
+            else:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": f"FCM error: {response.status_code}"
+                }
+            
+            return db_results[device.id]
+            
+        except Exception as e:
+            db_results[device.id] = {
+                "correlation_id": correlation_id,
+                "alias": device.alias,
+                "status": "error",
+                "error": str(e)
+            }
+            return db_results[device.id]
+
 class StreamingConnectionManager:
     """Manages screen streaming connections between devices and dashboard clients"""
     def __init__(self):
@@ -7419,22 +7496,20 @@ async def restart_app(
     # Brief delay to allow force-stop to take effect
     await asyncio.sleep(0.5)
     
-    # Dispatch launch commands
+    # Dispatch launch commands using the correct 'action: launch_app' format
     launch_results = {}
     
     async with httpx.AsyncClient() as client:
         tasks = [
-            dispatch_fcm_to_device(
+            dispatch_launch_app_to_device(
                 device=device,
-                exec_id=launch_exec.id,
-                mode="fcm",
-                payload={"type": "LAUNCH_APP", "package_name": request.package_name},
+                package_name=request.package_name,
+                correlation_id=launch_correlations[device.id],
                 semaphore=semaphore,
                 client=client,
                 fcm_url=fcm_url,
                 access_token=access_token,
-                db_results=launch_results,
-                correlation_id=launch_correlations[device.id]
+                db_results=launch_results
             )
             for device in devices
         ]
