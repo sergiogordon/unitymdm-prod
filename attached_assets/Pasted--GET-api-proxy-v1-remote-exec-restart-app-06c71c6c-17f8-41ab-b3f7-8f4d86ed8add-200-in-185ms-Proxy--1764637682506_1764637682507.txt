@@ -1,0 +1,47 @@
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 185ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (156ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 215ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (144ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 199ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (169ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 227ms
+[Proxy] Using backend URL: http://localhost:8000
+ POST /v1/heartbeat 200 in 575ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (150ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 209ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET healthz -> http://localhost:8000/healthz
+[Proxy] GET healthz -> 200 (27ms)
+ GET /api/proxy/healthz 200 in 115ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (513ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 667ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (151ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 224ms
+[Proxy] Using backend URL: http://localhost:8000
+ POST /v1/heartbeat 200 in 635ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (153ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 194ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (147ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 190ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+ POST /v1/heartbeat 200 in 589ms
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (473ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 515ms
+[Proxy] Using backend URL: http://localhost:8000
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> http://localhost:8000/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add
+[Proxy] GET v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add -> 200 (150ms)
+ GET /api/proxy/v1/remote-exec/restart-app/06c71c6c-17f8-41ab-b3f7-8f4d86ed8add 200 in 222ms
+[Proxy] Using backend URL: http://localhost:8000
