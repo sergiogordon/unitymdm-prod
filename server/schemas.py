@@ -59,6 +59,7 @@ class HeartbeatPayload(BaseModel):
 
 class HeartbeatResponse(BaseModel):
     ok: bool
+    next_heartbeat_seconds: int = 600
 
 class DeviceSummary(BaseModel):
     id: str

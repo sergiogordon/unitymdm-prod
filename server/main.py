@@ -2738,7 +2738,7 @@ async def heartbeat(
         "device_id": device.id
     })
 
-    return HeartbeatResponse(ok=True)
+    return HeartbeatResponse(ok=True, next_heartbeat_seconds=alert_config.HEARTBEAT_INTERVAL_SECONDS)
 
 @app.post("/v1/action-result")
 async def action_result(

@@ -15,6 +15,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
       method: 'POST',
       headers: {
@@ -22,7 +25,10 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const error = await response.json();
