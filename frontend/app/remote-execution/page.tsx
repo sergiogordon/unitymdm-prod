@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { Terminal, Play, Eye, Download, Clock, CheckCircle2, XCircle, AlertCircle, X } from "lucide-react"
+import { Terminal, Play, Eye, Download, Clock, CheckCircle2, XCircle, AlertCircle, X, Search } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -116,6 +116,78 @@ export default function RemoteExecutionPage() {
   const [restartAppResults, setRestartAppResults] = useState<any>(null)
   const [isPollingRestart, setIsPollingRestart] = useState(false)
   const [restartId, setRestartId] = useState<string | null>(null)
+  const [deviceFilter, setDeviceFilter] = useState("")
+
+  const filteredDevicesForSelector = useMemo(() => {
+    let result = [...allDevices]
+    
+    if (deviceFilter.trim()) {
+      const filterLower = deviceFilter.toLowerCase()
+      result = result.filter(device => 
+        device.alias.toLowerCase().startsWith(filterLower)
+      )
+    }
+    
+    result.sort((a, b) => {
+      const aAlias = a.alias.toUpperCase()
+      const bAlias = b.alias.toUpperCase()
+      const aStartsWithS = aAlias.startsWith('S')
+      const bStartsWithS = bAlias.startsWith('S')
+      const aStartsWithD = aAlias.startsWith('D')
+      const bStartsWithD = bAlias.startsWith('D')
+      
+      if (aStartsWithS && !bStartsWithS) return -1
+      if (!aStartsWithS && bStartsWithS) return 1
+      
+      if (aStartsWithD && !bStartsWithD && !bStartsWithS) return -1
+      if (!aStartsWithD && bStartsWithD && !aStartsWithS) return 1
+      
+      const aMatch = aAlias.match(/^([A-Z]+)(\d+)?/)
+      const bMatch = bAlias.match(/^([A-Z]+)(\d+)?/)
+      
+      if (aMatch && bMatch) {
+        const aPrefix = aMatch[1]
+        const bPrefix = bMatch[1]
+        
+        if (aPrefix !== bPrefix) {
+          return aPrefix.localeCompare(bPrefix)
+        }
+        
+        const aNum = aMatch[2] ? parseInt(aMatch[2], 10) : 0
+        const bNum = bMatch[2] ? parseInt(bMatch[2], 10) : 0
+        return aNum - bNum
+      }
+      
+      return aAlias.localeCompare(bAlias)
+    })
+    
+    return result
+  }, [allDevices, deviceFilter])
+
+  const sortedResults = useMemo(() => {
+    return [...results].sort((a, b) => {
+      const aAlias = (a.alias || '').toUpperCase()
+      const bAlias = (b.alias || '').toUpperCase()
+      
+      const aMatch = aAlias.match(/^([A-Z]+)(\d+)?/)
+      const bMatch = bAlias.match(/^([A-Z]+)(\d+)?/)
+      
+      if (aMatch && bMatch) {
+        const aPrefix = aMatch[1]
+        const bPrefix = bMatch[1]
+        
+        if (aPrefix !== bPrefix) {
+          return aPrefix.localeCompare(bPrefix)
+        }
+        
+        const aNum = aMatch[2] ? parseInt(aMatch[2], 10) : 0
+        const bNum = bMatch[2] ? parseInt(bMatch[2], 10) : 0
+        return aNum - bNum
+      }
+      
+      return aAlias.localeCompare(bAlias)
+    })
+  }, [results])
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -599,7 +671,7 @@ export default function RemoteExecutionPage() {
   }
 
   const selectAllDevices = () => {
-    setSelectedDeviceIds(allDevices.map(d => d.id))
+    setSelectedDeviceIds(filteredDevicesForSelector.map(d => d.id))
   }
 
   const clearAllDevices = () => {
@@ -815,7 +887,7 @@ export default function RemoteExecutionPage() {
                           size="sm"
                           disabled={isLoadingDevices}
                         >
-                          Select All
+                          Select All Filtered ({filteredDevicesForSelector.length})
                         </Button>
                         <Button 
                           type="button"
@@ -827,6 +899,22 @@ export default function RemoteExecutionPage() {
                           Clear
                         </Button>
                       </div>
+                    </div>
+
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                      <Input
+                        placeholder="Filter by device alias (e.g. S, D, Sam...)"
+                        value={deviceFilter}
+                        onChange={(e) => setDeviceFilter(e.target.value)}
+                        className="pl-10"
+                      />
+                      {deviceFilter && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Showing {filteredDevicesForSelector.length} of {allDevices.length} devices
+                          {selectedDeviceIds.length > 0 && ` (${selectedDeviceIds.length} selected total)`}
+                        </div>
+                      )}
                     </div>
 
                     {selectedDeviceIds.length > 0 && (
@@ -856,9 +944,13 @@ export default function RemoteExecutionPage() {
                         <div className="p-8 text-center text-gray-500">
                           No devices enrolled
                         </div>
+                      ) : filteredDevicesForSelector.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">
+                          No devices match your filter
+                        </div>
                       ) : (
                         <div className="divide-y">
-                          {allDevices.map(device => (
+                          {filteredDevicesForSelector.map(device => (
                             <div
                               key={device.id}
                               className="flex items-center p-3 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
@@ -1170,7 +1262,7 @@ export default function RemoteExecutionPage() {
                   </>
                 )}
 
-                {results.length > 0 ? (
+                {sortedResults.length > 0 ? (
                   <>
                     <div className="mb-4">
                       <Input
@@ -1192,7 +1284,7 @@ export default function RemoteExecutionPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {results
+                          {sortedResults
                             .filter(result => {
                               if (!resultFilter) return true
                               const filter = resultFilter.toLowerCase()
