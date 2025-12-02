@@ -471,6 +471,84 @@ async def dispatch_launch_app_to_device(
             }
             return db_results[device.id]
 
+async def dispatch_force_stop_to_device(
+    device,
+    package_name: str,
+    correlation_id: str,
+    semaphore: asyncio.Semaphore,
+    client: httpx.AsyncClient,
+    fcm_url: str,
+    access_token: str,
+    db_results: dict
+) -> dict:
+    """
+    Dispatch a force-stop FCM command to a device with tracking support.
+    Uses the correct 'action: remote_exec' format with 'script' field that the agent recognizes.
+    """
+    async with semaphore:
+        try:
+            if not device.fcm_token:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
+                return db_results[device.id]
+            
+            force_stop_script = f"am force-stop {package_name}"
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(correlation_id, device.id, "remote_exec", timestamp)
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "remote_exec",
+                        "script": force_stop_script,
+                        "correlation_id": correlation_id,
+                        "device_id": device.id,
+                        "ts": timestamp,
+                        "hmac": hmac_signature
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            
+            if response.status_code == 200:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "sent"
+                }
+            else:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": f"FCM error: {response.status_code}"
+                }
+            
+            return db_results[device.id]
+            
+        except Exception as e:
+            db_results[device.id] = {
+                "correlation_id": correlation_id,
+                "alias": device.alias,
+                "status": "error",
+                "error": str(e)
+            }
+            return db_results[device.id]
+
 class StreamingConnectionManager:
     """Manages screen streaming connections between devices and dashboard clients"""
     def __init__(self):
@@ -7449,24 +7527,21 @@ async def restart_app(
     
     db.commit()
     
-    # Dispatch force-stop commands first
+    # Dispatch force-stop commands using the correct 'action: remote_exec' format
     semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
     force_stop_results = {}
-    force_stop_command = f"am force-stop {request.package_name}"
     
     async with httpx.AsyncClient() as client:
         tasks = [
-            dispatch_fcm_to_device(
+            dispatch_force_stop_to_device(
                 device=device,
-                exec_id=force_stop_exec.id,
-                mode="shell",
-                payload={"script": force_stop_command},
+                package_name=request.package_name,
+                correlation_id=force_stop_correlations[device.id],
                 semaphore=semaphore,
                 client=client,
                 fcm_url=fcm_url,
                 access_token=access_token,
-                db_results=force_stop_results,
-                correlation_id=force_stop_correlations[device.id]
+                db_results=force_stop_results
             )
             for device in devices
         ]
