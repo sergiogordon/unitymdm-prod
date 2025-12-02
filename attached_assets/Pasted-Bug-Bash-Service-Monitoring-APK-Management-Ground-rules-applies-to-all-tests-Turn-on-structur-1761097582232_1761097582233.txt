@@ -19,7 +19,7 @@ Goal: Verify “Up” status when the monitored package has been foregrounded wi
 Steps
 
 In Device Settings → Monitoring set:
-monitor_enabled=true, monitored_package=com.unitynetwork.unityapp, monitored_display_name="Speedtest", monitored_threshold_min=10.
+monitor_enabled=true, monitored_package=io.unitynodes.unityapp, monitored_display_name="Speedtest", monitored_threshold_min=10.
 
 On device, put Speedtest in foreground briefly; then background it.
 

@@ -94,7 +94,7 @@ Triggered when monitored service hasn't been in foreground for > threshold
 **Fields:**
 - Device name and ID
 - **Service name** (e.g., "Speedtest" or "Unity")
-- **Package name** (e.g., "com.unitynetwork.unityapp")
+- **Package name** (e.g., "io.unitynodes.unityapp")
 - **Last foreground time** (e.g., "15 minutes ago")
 - **Threshold** (configured per-device, default: 10 minutes)
 - Last seen timestamp
@@ -150,7 +150,7 @@ curl -X PATCH https://your-replit-url/admin/devices/{device_id}/monitoring \
   -H "Content-Type: application/json" \
   -d '{
     "monitor_enabled": true,
-    "monitored_package": "com.unitynetwork.unityapp",
+    "monitored_package": "io.unitynodes.unityapp",
     "monitored_app_name": "Speedtest",
     "monitored_threshold_min": 10
   }'
@@ -161,7 +161,7 @@ Once frontend is implemented:
 1. Select a device
 2. Open device settings
 3. Configure monitoring:
-   - Package to monitor (e.g., `com.unitynetwork.unityapp`)
+   - Package to monitor (e.g., `io.unitynodes.unityapp`)
    - Display name (e.g., "Speedtest")
    - Threshold in minutes (1-120, default: 10)
    - Enable/disable monitoring

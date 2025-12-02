@@ -23,6 +23,43 @@ class StructuredLogger:
             handler = logging.StreamHandler()
             handler.setFormatter(logging.Formatter('%(message)s'))
             self.logger.addHandler(handler)
+        
+        # Events to mute (reduce log noise)
+        # Simple events: exact match by event name
+        # Conditional events: check event name + field conditions
+        self._muted_events = {
+            "monitoring_defaults.cache_hit",
+            "discord.webhook.disabled",
+            "discord_settings.cache_refresh",
+            "alert.evaluate.end",
+        }
+    
+    def _should_mute(self, event: str, level: str, **fields) -> bool:
+        """
+        Check if an event should be muted.
+        
+        Args:
+            event: Event name
+            level: Log level (ERROR/WARN are never muted)
+            **fields: Event fields
+        
+        Returns:
+            True if event should be muted, False otherwise
+        """
+        # Never mute ERROR or WARN level events
+        if level in ("ERROR", "WARN"):
+            return False
+        
+        # Check simple exact match events
+        if event in self._muted_events:
+            return True
+        
+        # Conditional muting: monitoring.get_settings with source="global_defaults"
+        if event == "monitoring.get_settings":
+            if fields.get("source") == "global_defaults":
+                return True
+        
+        return False
     
     def _base_fields(self) -> Dict[str, Any]:
         """Common fields for all log events"""
@@ -45,6 +82,10 @@ class StructuredLogger:
             level: Log level (INFO, WARN, ERROR)
             **fields: Additional event-specific fields
         """
+        # Check if event should be muted
+        if self._should_mute(event, level, **fields):
+            return
+        
         log_entry = self._base_fields()
         log_entry["level"] = level
         log_entry["event"] = event

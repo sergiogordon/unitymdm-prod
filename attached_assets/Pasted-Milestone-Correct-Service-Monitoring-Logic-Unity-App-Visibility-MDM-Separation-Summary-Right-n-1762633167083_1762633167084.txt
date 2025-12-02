@@ -6,7 +6,7 @@ We need to separate these two data sources so:
 
 The MDM agent continues reporting its own version and health (agent.version = 1.0.161-426db70).
 
-The Unity app (com.unitynetwork.unityapp) is actively monitored and reflected under the unity field, with its own version and running status.
+The Unity app (io.unitynodes.unityapp) is actively monitored and reflected under the unity field, with its own version and running status.
 
 This ensures the dashboard shows:
 
@@ -20,7 +20,7 @@ Service → Unity app + version + running status
 
 Continue collecting MDM agent info under the agent field (no changes).
 
-Add a separate app inspection for the Unity app package (com.unitynetwork.unityapp).
+Add a separate app inspection for the Unity app package (io.unitynodes.unityapp).
 
 Capture:
 
@@ -35,7 +35,7 @@ Running status (using pm list packages, dumpsys activity or existing service pin
  Store this data under the unity key in the JSON payload:
 
 "unity": {
-  "package": "com.unitynetwork.unityapp",
+  "package": "io.unitynodes.unityapp",
   "version": "0.1.1",
   "status": "running"
 }
@@ -71,7 +71,7 @@ Unity Version (from unity.version)
 
 Unity Status (from unity.status)
 
- Ensure settings.monitored_package (currently com.unitynetwork.unityapp) is what drives this lookup globally, so you can later change it for other services if needed.
+ Ensure settings.monitored_package (currently io.unitynodes.unityapp) is what drives this lookup globally, so you can later change it for other services if needed.
 
 3. Data Flow Example
 
@@ -84,7 +84,7 @@ Before (current):
 After (fixed):
 
 "agent": { "version": "1.0.161-426db70" },
-"unity": { "package": "com.unitynetwork.unityapp", "version": "0.1.1", "status": "running" }
+"unity": { "package": "io.unitynodes.unityapp", "version": "0.1.1", "status": "running" }
 
 ✅ Deliverables
 

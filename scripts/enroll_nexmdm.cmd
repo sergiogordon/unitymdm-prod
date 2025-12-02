@@ -151,8 +151,8 @@ echo.
 
 echo [Step 7/8] Applying optimizations...
 adb shell "settings put global app_standby_enabled 0; settings put global adaptive_battery_management_enabled 0; settings put global stay_on_while_plugged_in 7" >nul 2>&1
-adb shell cmd deviceidle whitelist +com.unitynetwork.unityapp >nul 2>&1
-adb shell appops set com.unitynetwork.unityapp RUN_ANY_IN_BACKGROUND allow 2>nul
+adb shell cmd deviceidle whitelist +io.unitynodes.unityapp >nul 2>&1
+adb shell appops set io.unitynodes.unityapp RUN_ANY_IN_BACKGROUND allow 2>nul
 echo ✅ Optimizations applied
 echo.
 

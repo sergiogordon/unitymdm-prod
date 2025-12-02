@@ -14,7 +14,7 @@
         "device_id": "7f62e5f2-13bf-43de-9f26-7b0b3c00fca4",
         "status": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": true,
@@ -35,7 +35,7 @@
         "device_id": "c5b5debe-c340-4e72-b88f-b94075832a15",
         "final_status": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": true,
@@ -55,7 +55,7 @@
         "device_id": "1cff7601-73db-40fa-8372-7022acc0557d",
         "status": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -77,7 +77,7 @@
         "threshold_after": 5,
         "status_before": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": true,
@@ -86,7 +86,7 @@
         },
         "status_after": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 5,
           "service_up": false,
@@ -105,7 +105,7 @@
         "device_id": "d7d8e661-f42b-4734-b875-0a6c8604e52e",
         "status_enabled": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": false,
@@ -114,7 +114,7 @@
         },
         "status_disabled": {
           "monitor_enabled": false,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": null,
@@ -123,7 +123,7 @@
         },
         "status_reenabled": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": true,
@@ -141,7 +141,7 @@
       "evidence": {
         "device_id": "4f32c350-cb1f-49ef-8e6a-d57a4f2d729c",
         "monitored_app_name": "Unity (Staging)",
-        "monitored_package": "com.unitynetwork.unityapp",
+        "monitored_package": "io.unitynodes.unityapp",
         "note": "Check Discord: DOWN alert shows 'Unity (Staging)' in recovery message"
       },
       "notes": "\u270b MANUAL CHECK: Verify Discord recovery message includes new alias 'Unity (Staging)'",
@@ -155,7 +155,7 @@
         "device_id": "1ddead78-5733-47b9-9b79-c67aeab5d82b",
         "final_status": {
           "monitor_enabled": true,
-          "monitored_package": "com.unitynetwork.unityapp",
+          "monitored_package": "io.unitynodes.unityapp",
           "monitored_app_name": "Speedtest",
           "monitored_threshold_min": 10,
           "service_up": false,

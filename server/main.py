@@ -5045,6 +5045,7 @@ async def acknowledge_command(
 
     # Around line 3996-4010 - Make the endpoint more lenient for WIFI_CONNECT_ACK
     # For WiFi ACK, skip DeviceCommand lookup since it uses FcmDispatch
+    # For LAUNCH_APP_ACK, also allow RemoteExecResult (used by restart-app feature)
     if payload.type != "WIFI_CONNECT_ACK":
         if not correlation_id:
             print(f"[ACK] ERROR: Missing correlation_id for type={payload.type}")
@@ -5054,11 +5055,22 @@ async def acknowledge_command(
             DeviceCommand.correlation_id == correlation_id
         ).first()
 
-        if not command:
+        # For LAUNCH_APP_ACK, allow RemoteExecResult as fallback (restart-app feature)
+        if not command and payload.type != "LAUNCH_APP_ACK":
             print(f"[ACK] Command not found for correlation_id={correlation_id}, type={payload.type}")
             raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
+        
+        # For LAUNCH_APP_ACK, check if RemoteExecResult exists before raising 404
+        if not command and payload.type == "LAUNCH_APP_ACK":
+            remote_exec_result_check = db.query(RemoteExecResult).filter(
+                RemoteExecResult.correlation_id == correlation_id,
+                RemoteExecResult.device_id == device_id
+            ).first()
+            if not remote_exec_result_check:
+                print(f"[ACK] Command and RemoteExecResult not found for correlation_id={correlation_id}, type={payload.type}")
+                raise HTTPException(status_code=404, detail="Command not found with this correlation_id")
 
-        if command.device_id != device_id:
+        if command and command.device_id != device_id:
             print(f"[ACK] Command device mismatch: command.device_id={command.device_id}, device_id={device_id}")
             raise HTTPException(status_code=403, detail="Command does not belong to this device")
     else:
@@ -5140,10 +5152,58 @@ async def acknowledge_command(
                 "message": payload.message
             })
         else:
-            print(f"[ACK] CommandResult not found for correlation_id={correlation_id}")
-            if command:
-                command.status = "acknowledged"
-                print(f"[ACK] Fallback: Marked DeviceCommand as acknowledged")
+            # Check for RemoteExecResult (used by restart-app feature)
+            remote_exec_result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.correlation_id == correlation_id,
+                RemoteExecResult.device_id == device_id
+            ).first()
+            
+            if remote_exec_result:
+                print(f"[ACK] Found RemoteExecResult: id={remote_exec_result.id}, exec_id={remote_exec_result.exec_id}, current_status={remote_exec_result.status}")
+                old_status = remote_exec_result.status
+                
+                # Map ACK status to RemoteExecResult status
+                ack_status = payload.status or "OK"
+                if ack_status.upper() == "OK":
+                    remote_exec_result.status = "OK"
+                else:
+                    remote_exec_result.status = "ERROR"
+                
+                remote_exec_result.exit_code = 0 if remote_exec_result.status == "OK" else 1
+                remote_exec_result.output_preview = payload.message[:2048] if payload.message else None
+                remote_exec_result.error = None if remote_exec_result.status == "OK" else (payload.message[:1024] if payload.message else "Launch failed")
+                remote_exec_result.updated_at = datetime.now(timezone.utc)
+                
+                print(f"[ACK] Updated RemoteExecResult: new_status={remote_exec_result.status}")
+                
+                # Update parent exec record counters if status changed from pending
+                exec_record = db.query(RemoteExec).filter(RemoteExec.id == remote_exec_result.exec_id).first()
+                if exec_record and old_status == "pending":
+                    exec_record.acked_count += 1
+                    if remote_exec_result.status != "OK":
+                        exec_record.error_count += 1
+                    
+                    # Check if all results are now complete
+                    pending_count = db.query(RemoteExecResult).filter(
+                        RemoteExecResult.exec_id == exec_record.id,
+                        RemoteExecResult.status == "pending"
+                    ).count()
+                    
+                    if pending_count == 0:
+                        exec_record.status = "completed"
+                        exec_record.completed_at = datetime.now(timezone.utc)
+                
+                log_device_event(db, device_id, "launch_app_ack", {
+                    "correlation_id": correlation_id,
+                    "status": payload.status,
+                    "message": payload.message,
+                    "exec_id": remote_exec_result.exec_id
+                })
+            else:
+                print(f"[ACK] CommandResult and RemoteExecResult not found for correlation_id={correlation_id}")
+                if command:
+                    command.status = "acknowledged"
+                    print(f"[ACK] Fallback: Marked DeviceCommand as acknowledged")
 
     elif payload.type == "WIFI_CONNECT_ACK":
         # WiFi ACK uses request_id (which may be in correlation_id or request_id field)
@@ -7676,6 +7736,38 @@ async def get_restart_app_status(
             RemoteExecResult.exec_id == launch_exec.id
         ).all()
     
+    # Timeout logic: Mark pending results older than 5 minutes as timed_out
+    timeout_threshold = datetime.now(timezone.utc) - timedelta(minutes=5)
+    timeout_updated = False
+    
+    # Check force-stop results
+    for result in force_stop_results:
+        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
+            result.status = "timed_out"
+            result.error = "Operation timed out after 5 minutes"
+            result.updated_at = datetime.now(timezone.utc)
+            timeout_updated = True
+    
+    # Check launch results
+    for result in launch_results:
+        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
+            result.status = "timed_out"
+            result.error = "Operation timed out after 5 minutes"
+            result.updated_at = datetime.now(timezone.utc)
+            timeout_updated = True
+    
+    # Commit timeout updates if any
+    if timeout_updated:
+        db.commit()
+        # Refresh results after update
+        force_stop_results = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == force_stop_exec.id
+        ).all()
+        if launch_exec:
+            launch_results = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == launch_exec.id
+            ).all()
+    
     # Build per-device combined status
     device_statuses = {}
     for r in force_stop_results:
@@ -7702,33 +7794,52 @@ async def get_restart_app_status(
     
     # Compute overall status per device
     for d in device_statuses.values():
-        fs_ok = d["force_stop"]["status"] == "OK"
-        launch_ok = d["launch"]["status"] == "OK"
+        fs_status = d["force_stop"]["status"]
+        launch_status = d["launch"]["status"]
+        fs_ok = fs_status == "OK"
+        launch_ok = launch_status == "OK"
+        
+        # Check for timed_out (terminal state)
+        fs_timed_out = fs_status == "timed_out"
+        launch_timed_out = launch_status == "timed_out"
         
         if fs_ok and launch_ok:
-            d["overall_status"] = "OK"
-        elif d["force_stop"]["status"] == "pending" or d["launch"]["status"] == "pending":
+            d["overall_status"] = "ok"
+        elif fs_timed_out or launch_timed_out:
+            d["overall_status"] = "timed_out"
+        elif fs_status == "pending" or launch_status == "pending":
             d["overall_status"] = "pending"
         else:
-            d["overall_status"] = "FAILED"
+            d["overall_status"] = "failed"
     
     # Aggregate stats
     total = len(device_statuses)
-    ok_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "OK")
-    failed_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "FAILED")
-    pending_count = total - ok_count - failed_count
+    ok_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "ok")
+    failed_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "failed")
+    timed_out_count = sum(1 for d in device_statuses.values() if d["overall_status"] == "timed_out")
+    pending_count = total - ok_count - failed_count - timed_out_count
     
     # Compute overall status with proper terminal states
     if pending_count == 0:
-        if failed_count == 0:
+        if timed_out_count > 0 and ok_count == 0 and failed_count == 0:
+            overall_status = "timed_out"
+            failure_reason = f"All {timed_out_count} device(s) timed out"
+        elif failed_count == 0 and timed_out_count == 0:
             overall_status = "completed"
             failure_reason = None
-        elif ok_count == 0:
+        elif ok_count == 0 and timed_out_count == 0:
             overall_status = "failed"
             failure_reason = f"All {failed_count} device(s) failed to restart"
         else:
             overall_status = "partial"
-            failure_reason = f"{ok_count} OK, {failed_count} failed"
+            parts = []
+            if ok_count > 0:
+                parts.append(f"{ok_count} OK")
+            if failed_count > 0:
+                parts.append(f"{failed_count} failed")
+            if timed_out_count > 0:
+                parts.append(f"{timed_out_count} timed out")
+            failure_reason = ", ".join(parts)
     else:
         overall_status = "pending"
         failure_reason = None
@@ -7744,6 +7855,7 @@ async def get_restart_app_status(
             "total": total,
             "ok": ok_count,
             "failed": failed_count,
+            "timed_out": timed_out_count,
             "pending": pending_count
         },
         "devices": list(device_statuses.values())

@@ -1,0 +1,69 @@
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+Error proxying heartbeat: TypeError: fetch failed
+    at async POST (app/v1/heartbeat/route.ts:18:22)
+  16 |     const body = await request.json();
+  17 |
+> 18 |     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
+     |                      ^
+  19 |       method: 'POST',
+  20 |       headers: {
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+Error proxying heartbeat: TypeError: fetch failed
+    at async POST (app/v1/heartbeat/route.ts:18:22)
+  16 |     const body = await request.json();
+  17 |
+> 18 |     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
+     |                      ^
+  19 |       method: 'POST',
+  20 |       headers: {
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+Error proxying heartbeat: TypeError: fetch failed
+    at async POST (app/v1/heartbeat/route.ts:18:22)
+  16 |     const body = await request.json();
+  17 |
+> 18 |     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
+     |                      ^
+  19 |       method: 'POST',
+  20 |       headers: {
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+Error proxying heartbeat: TypeError: fetch failed
+    at async POST (app/v1/heartbeat/route.ts:18:22)
+  16 |     const body = await request.json();
+  17 |
+> 18 |     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
+     |                      ^
+  19 |       method: 'POST',
+  20 |       headers: {
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }
+}
+Error proxying heartbeat: TypeError: fetch failed
+    at async POST (app/v1/heartbeat/route.ts:18:22)
+  16 |     const body = await request.json();
+  17 |
+> 18 |     const response = await fetch(`${BACKEND_URL}/v1/heartbeat`, {
+     |                      ^
+  19 |       method: 'POST',
+  20 |       headers: {
+  21 |         'Authorization': authHeader, {
+  [cause]: [Error [HeadersTimeoutError]: Headers Timeout Error] {
+    code: 'UND_ERR_HEADERS_TIMEOUT'
+  }

@@ -29,18 +29,18 @@ Persist that on each heartbeat to ensure it updates when the APK changes.
 
  For Unity app status, enhance the monitoring logic:
 
-Validate the monitored package (com.unitynetwork.unityapp) exists on the device via:
+Validate the monitored package (io.unitynodes.unityapp) exists on the device via:
 
-pm list packages | grep com.unitynetwork.unityapp
+pm list packages | grep io.unitynodes.unityapp
 
 Determine running state via:
 
-dumpsys activity activities | grep com.unitynetwork.unityapp
+dumpsys activity activities | grep io.unitynodes.unityapp
 
 Report:
 
 "unity": {
-  "package": "com.unitynetwork.unityapp",
+  "package": "io.unitynodes.unityapp",
   "version": "1.0.0",
   "status": "running"
 }
@@ -66,10 +66,10 @@ Confirm BuildConfig.VERSION_NAME (e.g., 1.0.165-cabec49) is sent inside:
 
 Add Unity package check:
 
-val unityAppInstalled = isPackageInstalled("com.unitynetwork.unityapp")
-val unityRunning = isAppRunning("com.unitynetwork.unityapp")
+val unityAppInstalled = isPackageInstalled("io.unitynodes.unityapp")
+val unityRunning = isAppRunning("io.unitynodes.unityapp")
 payload["unity"] = mapOf(
-    "package" to "com.unitynetwork.unityapp",
+    "package" to "io.unitynodes.unityapp",
     "version" to unityAppVersion,
     "status" to if (unityRunning) "running" else "inactive"
 )

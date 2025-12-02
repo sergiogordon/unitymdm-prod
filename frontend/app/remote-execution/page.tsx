@@ -365,9 +365,15 @@ export default function RemoteExecutionPage() {
           setRestartPollStartTime(null)
           
           if (data.status !== 'completed') {
+            const statsParts = []
+            if (data.stats?.ok > 0) statsParts.push(`${data.stats.ok} OK`)
+            if (data.stats?.failed > 0) statsParts.push(`${data.stats.failed} failed`)
+            if (data.stats?.timed_out > 0) statsParts.push(`${data.stats.timed_out} timed out`)
+            if (data.stats?.pending > 0) statsParts.push(`${data.stats.pending} pending`)
+            
             toast({
-              title: `Restart App ${data.status.charAt(0).toUpperCase() + data.status.slice(1)}`,
-              description: data.failure_reason || `${data.stats?.ok || 0} OK, ${data.stats?.failed || 0} failed, ${data.stats?.pending || 0} pending`,
+              title: `Restart App ${data.status.charAt(0).toUpperCase() + data.status.slice(1).replace('_', ' ')}`,
+              description: data.failure_reason || (statsParts.length > 0 ? statsParts.join(', ') : 'Unknown status'),
               variant: data.status === 'partial' ? 'default' : 'destructive'
             })
           }
@@ -413,7 +419,39 @@ export default function RemoteExecutionPage() {
     setRestartAppResults(null)
 
     try {
-      const targets = buildTargets()
+      // Build request payload in format backend expects
+      // Note: online_only defaults to false, so commands are sent to ALL devices by default
+      // Offline devices will naturally timeout after 5 minutes if they don't respond
+      let requestBody: any = {
+        package_name: restartAppPackage,
+        online_only: onlineOnly  // false by default = send to all devices
+      }
+
+      // Convert buildTargets() format to backend format
+      if (scopeType === "all") {
+        requestBody.scope_type = "all"
+        // Don't send targets for "all" scope
+      } else if (scopeType === "filter") {
+        requestBody.scope_type = "all"
+        // online_only is already set above
+      } else if (scopeType === "aliases") {
+        try {
+          const selectedDevices = allDevices.filter(d => selectedDeviceIds.includes(d.id))
+          const aliases = selectedDevices.map(d => d.alias)
+          requestBody.scope_type = "aliases"
+          requestBody.targets = { aliases }
+        } catch (buildError) {
+          console.error("[RESTART-APP] Error building aliases:", buildError)
+          throw buildError
+        }
+      }
+
+      console.log("[RESTART-APP] Sending request:", {
+        package_name: requestBody.package_name,
+        scope_type: requestBody.scope_type,
+        online_only: requestBody.online_only,
+        targets: requestBody.targets ? (requestBody.targets.aliases ? `${requestBody.targets.aliases.length} aliases` : `${requestBody.targets.device_ids?.length || 0} device_ids`) : "none"
+      })
       
       const response = await fetch("/api/proxy/v1/remote-exec/restart-app", {
         method: "POST",
@@ -421,20 +459,20 @@ export default function RemoteExecutionPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          package_name: restartAppPackage,
-          targets,
-          online_only: onlineOnly
-        })
+        body: JSON.stringify(requestBody)
       })
 
+      console.log("[RESTART-APP] Response status:", response.status, response.statusText)
+
       if (response.status === 401) {
+        setIsRestartingApp(false)
         router.push('/login')
         return
       }
 
       if (response.ok) {
         const data = await response.json()
+        console.log("[RESTART-APP] Success response:", data)
         setRestartId(data.restart_id)
         setRestartPollStartTime(Date.now())
         setIsPollingRestart(true)
@@ -444,17 +482,36 @@ export default function RemoteExecutionPage() {
         })
         fetchRecentExecutions()
       } else {
-        const error = await response.json()
+        // Handle error response - might not be JSON
+        // Read as text first to avoid "body already used" error when parsing JSON fails
+        let errorMessage = "Failed to restart app"
+        try {
+          const errorText = await response.text()
+          try {
+            // Try to parse as JSON
+            const errorData = JSON.parse(errorText)
+            errorMessage = errorData.detail || errorMessage
+            console.error("[RESTART-APP] Error response:", errorData)
+          } catch (jsonError) {
+            // Not valid JSON, use text directly
+            console.error("[RESTART-APP] Non-JSON error response:", response.status, errorText)
+            errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`
+          }
+        } catch (textError) {
+          console.error("[RESTART-APP] Failed to read error response:", textError)
+          errorMessage = `Server error (${response.status})`
+        }
         toast({
           title: "Restart App Failed",
-          description: error.detail || "Failed to restart app",
+          description: errorMessage,
           variant: "destructive"
         })
       }
     } catch (error) {
+      console.error("[RESTART-APP] Exception:", error)
       toast({
         title: "Error",
-        description: "Failed to restart app",
+        description: error instanceof Error ? error.message : "Failed to restart app",
         variant: "destructive"
       })
     } finally {

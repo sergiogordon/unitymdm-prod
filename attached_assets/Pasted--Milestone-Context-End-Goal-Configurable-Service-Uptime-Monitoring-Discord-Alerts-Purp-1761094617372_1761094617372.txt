@@ -41,7 +41,7 @@ Let admins choose **which Android app/package to monitor per device** (e.g., Spe
    * `PATCH /admin/devices/{device_id}/monitoring`
 
      ```json
-     { "monitor_enabled": true, "monitored_package": "com.unitynetwork.unityapp", "monitored_display_name": "Speedtest", "monitored_threshold_min": 10 }
+     { "monitor_enabled": true, "monitored_package": "io.unitynodes.unityapp", "monitored_display_name": "Speedtest", "monitored_threshold_min": 10 }
      ```
 
      * Scope: `device_manage`. Returns updated settings.
@@ -54,7 +54,7 @@ Let admins choose **which Android app/package to monitor per device** (e.g., Spe
 
      ```json
      {
-       "monitored_package": "com.unitynetwork.unityapp",    // echo for audit (optional)
+       "monitored_package": "io.unitynodes.unityapp",    // echo for audit (optional)
        "monitored_foreground_recent_s": 123,                   // required for monitoring
        "unity_pkg": "...", "unity_running": true               // unchanged, for legacy
      }
@@ -101,7 +101,7 @@ Let admins choose **which Android app/package to monitor per device** (e.g., Spe
 
   * Inputs:
 
-    * **Service package to monitor** (text; placeholder “com.unitynetwork.unityapp”)
+    * **Service package to monitor** (text; placeholder “io.unitynodes.unityapp”)
     * **Display name (alias)** (text; e.g., “Unity”, “Speedtest”)
     * **Consider ‘down’ if not foreground for** (number, minutes; default 10)
     * **Monitoring enabled** (toggle)
@@ -133,7 +133,7 @@ Let admins choose **which Android app/package to monitor per device** (e.g., Spe
 
 1. **Setup & save**
 
-   * Set `monitored_package=com.unitynetwork.unityapp`, alias “Speedtest”, threshold 10. Save → `200`, persisted.
+   * Set `monitored_package=io.unitynodes.unityapp`, alias “Speedtest”, threshold 10. Save → `200`, persisted.
 2. **Heartbeat path**
 
    * Agent sends `monitored_foreground_recent_s=120` (2 min) → device shows **Service: Up**.
