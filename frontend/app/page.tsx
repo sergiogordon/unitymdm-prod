@@ -161,6 +161,45 @@ export default function Page() {
       result = [...result].sort((a, b) => naturalSort(a.alias, b.alias))
     } else if (sortOrder === "alias-desc") {
       result = [...result].sort((a, b) => naturalSort(b.alias, a.alias))
+    } else if (sortOrder === "none") {
+      // Default sort: S devices first, then D devices, then A-Z
+      result = [...result].sort((a, b) => {
+        const aAlias = a.alias.toUpperCase()
+        const bAlias = b.alias.toUpperCase()
+        const aStartsWithS = aAlias.startsWith('S')
+        const bStartsWithS = bAlias.startsWith('S')
+        const aStartsWithD = aAlias.startsWith('D')
+        const bStartsWithD = bAlias.startsWith('D')
+        
+        if (aStartsWithS && !bStartsWithS) return -1
+        if (!aStartsWithS && bStartsWithS) return 1
+        
+        if (aStartsWithD && !bStartsWithD && !bStartsWithS) return -1
+        if (!aStartsWithD && bStartsWithD && !aStartsWithS) return 1
+        
+        const aMatch = aAlias.match(/^([A-Z]+)(\d+)?/)
+        const bMatch = bAlias.match(/^([A-Z]+)(\d+)?/)
+        
+        if (aMatch && bMatch) {
+          const aPrefix = aMatch[1]
+          const bPrefix = bMatch[1]
+          
+          if (aPrefix !== bPrefix) {
+            return aPrefix.localeCompare(bPrefix)
+          }
+          
+          const aNum = aMatch[2] ? parseInt(aMatch[2], 10) : 0
+          const bNum = bMatch[2] ? parseInt(bMatch[2], 10) : 0
+          const numComparison = aNum - bNum
+          if (numComparison !== 0) {
+            return numComparison
+          }
+          // If numeric values are equal, fall back to full alias comparison
+          return aAlias.localeCompare(bAlias)
+        }
+        
+        return aAlias.localeCompare(bAlias)
+      })
     }
     
     return result
