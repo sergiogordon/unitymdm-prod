@@ -160,6 +160,93 @@ class TelemetryCollector(
             return null
         }
     }
+    
+    fun isProcessRunning(packageName: String): Boolean? {
+        if (packageName.isEmpty()) {
+            return false
+        }
+        
+        // ActivityManager.getRunningAppProcesses() only returns caller's own processes on Android 5.1+ (API 22+)
+        // Use shell command 'ps' or 'pidof' instead, which works with device owner privileges
+        var pidofProcess: Process? = null
+        var psProcess: Process? = null
+        
+        try {
+            // Try 'pidof' first (simpler and faster if available)
+            // Escape packageName to prevent command injection
+            // Replace single quotes with: end quote, escaped quote, start quote ('\'' in shell)
+            val escapedPackageName = packageName.replace("'", "'\\''")
+            val pidofCommand = arrayOf("sh", "-c", "pidof '$escapedPackageName'")
+            pidofProcess = Runtime.getRuntime().exec(pidofCommand)
+            
+            val pidofReader = pidofProcess.inputStream.bufferedReader()
+            val pidofErrorReader = pidofProcess.errorStream.bufferedReader()
+            val pidofOutput = try {
+                pidofReader.readText().trim()
+            } finally {
+                pidofReader.close()
+            }
+            // Drain error stream to prevent deadlock
+            try {
+                pidofErrorReader.readText() // Consume but ignore stderr
+            } finally {
+                pidofErrorReader.close()
+            }
+            
+            val pidofExitCode = pidofProcess.waitFor()
+            pidofProcess.destroy()
+            
+            if (pidofExitCode == 0 && pidofOutput.isNotEmpty()) {
+                Log.d("TelemetryCollector", "Package $packageName process running (pidof): PID=$pidofOutput")
+                return true
+            }
+            
+            // Fallback to 'ps | grep' if pidof doesn't work or returns empty
+            // Escape packageName to prevent command injection (already escaped above)
+            val psCommand = arrayOf("sh", "-c", "ps -A | grep '$escapedPackageName' | grep -v grep")
+            psProcess = Runtime.getRuntime().exec(psCommand)
+            
+            val psReader = psProcess.inputStream.bufferedReader()
+            val psErrorReader = psProcess.errorStream.bufferedReader()
+            val psOutput = try {
+                psReader.readText().trim()
+            } finally {
+                psReader.close()
+            }
+            // Drain error stream to prevent deadlock
+            try {
+                psErrorReader.readText() // Consume but ignore stderr
+            } finally {
+                psErrorReader.close()
+            }
+            
+            val psExitCode = psProcess.waitFor()
+            psProcess.destroy()
+            
+            // Exit code 0 means grep found a match, non-zero means no match
+            val isRunning = psExitCode == 0 && psOutput.isNotEmpty()
+            
+            if (isRunning) {
+                Log.d("TelemetryCollector", "Package $packageName process running (ps): $psOutput")
+            } else {
+                Log.d("TelemetryCollector", "Package $packageName process not running")
+            }
+            
+            return isRunning
+        } catch (e: SecurityException) {
+            Log.e("TelemetryCollector", "SecurityException checking process status", e)
+            // Return null on errors so server can fall back to foreground data
+            return null
+        } catch (e: Exception) {
+            Log.e("TelemetryCollector", "Error checking if process is running", e)
+            // Return null on errors so server can fall back to foreground data
+            return null
+        } finally {
+            // Ensure processes are destroyed even if exception occurs
+            pidofProcess?.destroy()
+            psProcess?.destroy()
+        }
+    }
 
     private fun getWifiSsid(): String? {
         try {

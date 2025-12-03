@@ -2420,14 +2420,40 @@ async def heartbeat(
     unity_app_info = payload.app_versions.get("io.unitynodes.unityapp")
     if unity_app_info and unity_app_info.installed:
         unity_pkg_version = unity_app_info.version_name
-        # Android agent sends monitored_foreground_recent_s specifically for Unity
-        # Use this directly to determine running status (10 minute threshold = 600 seconds)
-        fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
-        if fg_seconds is not None:
-            # Unity is running if it was in foreground within the last 10 minutes
+        # Check both process existence and foreground status
+        # Android agent sends unity_process_running for process detection
+        process_running = getattr(payload, 'unity_process_running', None)
+        
+        # Get foreground recency - only use if it's actually for Unity
+        # monitored_foreground_recent_s represents the configured monitored package (may not be Unity)
+        # Check device monitoring settings to see if Unity is the monitored package
+        from monitoring_helpers import get_effective_monitoring_settings
+        monitoring_settings = get_effective_monitoring_settings(db, device)
+        is_unity_monitored = monitoring_settings.get("package") == "io.unitynodes.unityapp"
+        
+        fg_seconds = None
+        if is_unity_monitored:
+            # Only use foreground data if Unity is actually the monitored package
+            fg_seconds_raw = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+            # Exclude -1 sentinel value (unavailable data) before comparison
+            if fg_seconds_raw is not None and fg_seconds_raw >= 0:
+                fg_seconds = fg_seconds_raw
+        
+        # Unity is running if:
+        # 1. Process exists (running in foreground OR background), OR
+        # 2. App was in foreground within last 10 minutes (only if Unity is the monitored package)
+        if process_running is True:
+            # Process check succeeded and found process - Unity is running
+            unity_running = True
+        elif process_running is False:
+            # Process check succeeded and found no process - Unity is definitively not running
+            # Don't override with foreground data since process check is definitive
+            unity_running = False
+        elif fg_seconds is not None:
+            # Process check unavailable (null) or failed - use foreground data as fallback
             unity_running = fg_seconds < 600
         else:
-            # No foreground data available - status unknown
+            # No process or foreground data available - status unknown
             unity_running = None
 
     heartbeat_data = {

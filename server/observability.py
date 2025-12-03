@@ -54,10 +54,10 @@ class StructuredLogger:
         if event in self._muted_events:
             return True
         
-        # Conditional muting: monitoring.get_settings with source="global_defaults"
+        # Conditional muting: monitoring.get_settings (all sources - too noisy)
+        # Important events (warnings, errors, updates) are logged separately
         if event == "monitoring.get_settings":
-            if fields.get("source") == "global_defaults":
-                return True
+            return True
         
         return False
     

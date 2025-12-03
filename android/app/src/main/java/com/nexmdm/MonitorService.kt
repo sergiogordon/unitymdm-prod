@@ -221,8 +221,11 @@ class MonitorService : Service(), AuthFailureListener {
         // Use monitoredPackage from prefs (defaults to io.unitynodes.unityapp)
         val monitoredPackage = prefs.monitoredPackage
         val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(monitoredPackage)
+        
+        // Check if Unity app process is running (foreground or background)
+        val unityProcessRunning = telemetry.isProcessRunning("io.unitynodes.unityapp")
 
-        Log.d(TAG, "[HEARTBEAT] Monitored package: '$monitoredPackage', foreground_recent_s: $monitoredForegroundRecency")
+        Log.d(TAG, "[HEARTBEAT] Monitored package: '$monitoredPackage', foreground_recent_s: $monitoredForegroundRecency, unity_process_running: $unityProcessRunning")
 
         val appVersionsMap = mutableMapOf<String, AppVersion>()
 
@@ -265,7 +268,8 @@ class MonitorService : Service(), AuthFailureListener {
             doze_whitelisted = reliabilityFlags.doze_whitelisted,
             net_validated = reliabilityFlags.net_validated,
             queue_depth = queueDepth,
-            monitored_foreground_recent_s = monitoredForegroundRecency
+            monitored_foreground_recent_s = monitoredForegroundRecency,
+            unity_process_running = unityProcessRunning
         )
     }
 

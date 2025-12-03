@@ -56,6 +56,7 @@ class HeartbeatPayload(BaseModel):
     self_heal_hints: Optional[SelfHealHints] = None
     is_device_owner: Optional[bool] = None
     monitored_foreground_recent_s: Optional[int] = Field(None, ge=-1, le=86400)  # -1 sentinel for unavailable, 0-86400 seconds (0 to 24 hours)
+    unity_process_running: Optional[bool] = None  # True if Unity app process is running (foreground or background)
 
 class HeartbeatResponse(BaseModel):
     ok: bool

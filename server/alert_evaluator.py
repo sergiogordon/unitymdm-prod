@@ -2,8 +2,9 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+from collections import defaultdict
 
-from models import Device, DeviceHeartbeat, AlertState, SessionLocal
+from models import Device, DeviceHeartbeat, AlertState, SessionLocal, DeviceLastStatus
 from alert_config import alert_config
 from observability import structured_logger, metrics
 
@@ -16,6 +17,100 @@ class AlertCondition:
 class AlertEvaluator:
     def __init__(self):
         self.config = alert_config
+    
+    def _batch_load_alert_states(self, db: Session, device_ids: List[str]) -> Dict[Tuple[str, str], AlertState]:
+        """
+        Batch load all alert states for given devices.
+        Returns dict indexed by (device_id, condition) -> AlertState
+        """
+        alert_states = db.query(AlertState).filter(
+            AlertState.device_id.in_(device_ids)
+        ).all()
+        
+        result = {}
+        for alert_state in alert_states:
+            result[(alert_state.device_id, alert_state.condition)] = alert_state
+        
+        return result
+    
+    def _batch_load_latest_heartbeats(self, db: Session, device_ids: List[str]) -> Dict[str, DeviceHeartbeat]:
+        """
+        Batch load latest heartbeat for each device.
+        Returns dict indexed by device_id -> DeviceHeartbeat
+        """
+        # Get max ts per device
+        max_ts_subquery = (
+            db.query(
+                DeviceHeartbeat.device_id,
+                func.max(DeviceHeartbeat.ts).label('max_ts')
+            )
+            .filter(DeviceHeartbeat.device_id.in_(device_ids))
+            .group_by(DeviceHeartbeat.device_id)
+            .subquery()
+        )
+        
+        # Join back to get full heartbeat records
+        latest_heartbeats = (
+            db.query(DeviceHeartbeat)
+            .join(
+                max_ts_subquery,
+                and_(
+                    DeviceHeartbeat.device_id == max_ts_subquery.c.device_id,
+                    DeviceHeartbeat.ts == max_ts_subquery.c.max_ts
+                )
+            )
+            .all()
+        )
+        
+        result = {}
+        for hb in latest_heartbeats:
+            result[hb.device_id] = hb
+        
+        return result
+    
+    def _batch_load_device_last_status(self, db: Session, device_ids: List[str]) -> Dict[str, DeviceLastStatus]:
+        """
+        Batch load all DeviceLastStatus records for given devices.
+        Returns dict indexed by device_id -> DeviceLastStatus
+        """
+        last_statuses = db.query(DeviceLastStatus).filter(
+            DeviceLastStatus.device_id.in_(device_ids)
+        ).all()
+        
+        result = {}
+        for status in last_statuses:
+            result[status.device_id] = status
+        
+        return result
+    
+    def _batch_load_recent_heartbeats(self, db: Session, device_ids: List[str], limit: int = 2) -> Dict[str, List[DeviceHeartbeat]]:
+        """
+        Batch load last N heartbeats per device for consecutive checks.
+        Returns dict indexed by device_id -> List[DeviceHeartbeat] (ordered by ts desc)
+        """
+        # Get all heartbeats for these devices, ordered by device_id and ts desc
+        all_heartbeats = (
+            db.query(DeviceHeartbeat)
+            .filter(DeviceHeartbeat.device_id.in_(device_ids))
+            .order_by(DeviceHeartbeat.device_id, DeviceHeartbeat.ts.desc())
+            .all()
+        )
+        
+        # Group by device_id and take first N per device
+        result = defaultdict(list)
+        current_device = None
+        count = 0
+        
+        for hb in all_heartbeats:
+            if hb.device_id != current_device:
+                current_device = hb.device_id
+                count = 0
+            
+            if count < limit:
+                result[hb.device_id].append(hb)
+                count += 1
+        
+        return dict(result)
     
     def _get_latest_heartbeat(self, db: Session, device_id: str) -> Optional[DeviceHeartbeat]:
         return db.query(DeviceHeartbeat).filter(
@@ -60,7 +155,9 @@ class AlertEvaluator:
     def evaluate_offline(
         self,
         db: Session,
-        device: Device
+        device: Device,
+        alert_states: Dict[Tuple[str, str], AlertState],
+        recent_heartbeats: Dict[str, List[DeviceHeartbeat]]
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """
         Evaluate if device is offline, requiring 3 consecutive missed heartbeats.
@@ -71,10 +168,8 @@ class AlertEvaluator:
         now = datetime.now(timezone.utc)
         heartbeat_interval_seconds = self.config.HEARTBEAT_INTERVAL_SECONDS
         
-        # Get last 2 heartbeats to verify consecutive missed heartbeats
-        heartbeats = db.query(DeviceHeartbeat).filter(
-            DeviceHeartbeat.device_id == device.id
-        ).order_by(DeviceHeartbeat.ts.desc()).limit(2).all()
+        # Get last 2 heartbeats from pre-loaded data
+        heartbeats = recent_heartbeats.get(device.id, [])
         
         if not heartbeats:
             # No heartbeats at all - can't determine offline status
@@ -97,7 +192,7 @@ class AlertEvaluator:
         # Check if we've missed 3 consecutive heartbeats
         is_offline = time_since_last_seen > alert_threshold
         
-        alert_state = self._get_alert_state(db, device.id, AlertCondition.OFFLINE)
+        alert_state = alert_states.get((device.id, AlertCondition.OFFLINE))
         
         if is_offline:
             minutes_offline = int(time_since_last_seen.total_seconds() / 60)
@@ -128,16 +223,18 @@ class AlertEvaluator:
     def evaluate_low_battery(
         self,
         db: Session,
-        device: Device
+        device: Device,
+        alert_states: Dict[Tuple[str, str], AlertState],
+        latest_heartbeats: Dict[str, DeviceHeartbeat]
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
-        heartbeat = self._get_latest_heartbeat(db, device.id)
+        heartbeat = latest_heartbeats.get(device.id)
         
         if not heartbeat or heartbeat.battery_pct is None:
             return False, None, None
         
         is_low = heartbeat.battery_pct < self.config.ALERT_LOW_BATTERY_PCT
         
-        alert_state = self._get_alert_state(db, device.id, AlertCondition.LOW_BATTERY)
+        alert_state = alert_states.get((device.id, AlertCondition.LOW_BATTERY))
         
         if is_low:
             value = f"{heartbeat.battery_pct}%"
@@ -169,29 +266,30 @@ class AlertEvaluator:
     def evaluate_unity_down(
         self,
         db: Session,
-        device: Device
+        device: Device,
+        alert_states: Dict[Tuple[str, str], AlertState],
+        latest_heartbeats: Dict[str, DeviceHeartbeat],
+        recent_heartbeats: Dict[str, List[DeviceHeartbeat]]
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         if self.config.UNITY_DOWN_REQUIRE_CONSECUTIVE:
-            heartbeats = db.query(DeviceHeartbeat).filter(
-                DeviceHeartbeat.device_id == device.id
-            ).order_by(DeviceHeartbeat.ts.desc()).limit(2).all()
+            heartbeats = recent_heartbeats.get(device.id, [])
             
             if len(heartbeats) < 2:
                 return False, None, None
             
-            is_down = all(hb.unity_running is False for hb in heartbeats)
+            is_down = all(hb.unity_running is False for hb in heartbeats[:2])
         else:
-            heartbeat = self._get_latest_heartbeat(db, device.id)
+            heartbeat = latest_heartbeats.get(device.id)
             
             if not heartbeat or heartbeat.unity_running is None:
                 return False, None, None
             
             is_down = heartbeat.unity_running is False
         
-        alert_state = self._get_alert_state(db, device.id, AlertCondition.UNITY_DOWN)
+        alert_state = alert_states.get((device.id, AlertCondition.UNITY_DOWN))
         
         if is_down:
-            latest_hb = self._get_latest_heartbeat(db, device.id)
+            latest_hb = latest_heartbeats.get(device.id)
             value = "down"
             
             if not alert_state or alert_state.state != "raised":
@@ -222,7 +320,7 @@ class AlertEvaluator:
         
         else:
             if alert_state and alert_state.state == "raised":
-                latest_hb = self._get_latest_heartbeat(db, device.id)
+                latest_hb = latest_heartbeats.get(device.id)
                 
                 self_healed = alert_state.consecutive_violations > 0
                 
@@ -241,23 +339,24 @@ class AlertEvaluator:
     def evaluate_service_down(
         self,
         db: Session,
-        device: Device
+        device: Device,
+        alert_states: Dict[Tuple[str, str], AlertState],
+        device_last_status: Dict[str, DeviceLastStatus],
+        monitoring_settings: Dict[str, Dict[str, Any]]
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """
         Evaluate if the monitored service is down based on foreground recency.
         Uses DeviceLastStatus for efficient querying.
         Respects global defaults for devices without per-device overrides.
         """
-        from monitoring_helpers import get_effective_monitoring_settings
-        monitoring_settings = get_effective_monitoring_settings(db, device)
-        
-        if not monitoring_settings["enabled"] or not monitoring_settings["package"]:
+        settings = monitoring_settings.get(device.id)
+        if not settings:
             return False, None, None
         
-        from models import DeviceLastStatus
-        last_status = db.query(DeviceLastStatus).filter(
-            DeviceLastStatus.device_id == device.id
-        ).first()
+        if not settings["enabled"] or not settings["package"]:
+            return False, None, None
+        
+        last_status = device_last_status.get(device.id)
         
         if not last_status:
             return False, None, None
@@ -269,7 +368,7 @@ class AlertEvaluator:
         if service_up is None:
             return False, None, None
         
-        alert_state = self._get_alert_state(db, device.id, AlertCondition.SERVICE_DOWN)
+        alert_state = alert_states.get((device.id, AlertCondition.SERVICE_DOWN))
         
         if not service_up:
             # Service is DOWN
@@ -287,10 +386,10 @@ class AlertEvaluator:
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
-                    "monitored_package": monitoring_settings["package"],
-                    "monitored_app_name": monitoring_settings["alias"],
+                    "monitored_package": settings["package"],
+                    "monitored_app_name": settings["alias"],
                     "foreground_recent_s": foreground_recent_s,
-                    "threshold_min": monitoring_settings["threshold_min"],
+                    "threshold_min": settings["threshold_min"],
                     "last_seen": device.last_seen,
                     "severity": "CRIT",
                     "requires_remediation": False
@@ -302,8 +401,8 @@ class AlertEvaluator:
                 context = {
                     "device_id": device.id,
                     "alias": device.alias,
-                    "monitored_package": monitoring_settings["package"],
-                    "monitored_app_name": monitoring_settings["alias"],
+                    "monitored_package": settings["package"],
+                    "monitored_app_name": settings["alias"],
                     "foreground_recent_s": foreground_recent_s,
                     "recovered": True,
                     "self_healed": False
@@ -317,7 +416,36 @@ class AlertEvaluator:
         
         structured_logger.log_event("alert.evaluate.start", level="INFO")
         
+        # Load all devices
         devices = db.query(Device).all()
+        device_ids = [device.id for device in devices]
+        
+        if not device_ids:
+            return []
+        
+        # Batch load all data needed for evaluation
+        alert_states = self._batch_load_alert_states(db, device_ids)
+        latest_heartbeats = self._batch_load_latest_heartbeats(db, device_ids)
+        recent_heartbeats = self._batch_load_recent_heartbeats(db, device_ids, limit=2)
+        device_last_status = self._batch_load_device_last_status(db, device_ids)
+        
+        # Cache monitoring settings for all devices
+        # Wrap in try-catch to handle per-device errors gracefully
+        from monitoring_helpers import get_effective_monitoring_settings
+        monitoring_settings = {}
+        for device in devices:
+            try:
+                monitoring_settings[device.id] = get_effective_monitoring_settings(db, device)
+            except Exception as e:
+                structured_logger.log_event(
+                    "alert.evaluate.monitoring_settings_error",
+                    level="ERROR",
+                    device_id=device.id,
+                    error=str(e)
+                )
+                # Set None so evaluate_service_down can handle it gracefully
+                monitoring_settings[device.id] = None
+        
         alerts_to_raise = []
         
         for device in devices:
@@ -328,13 +456,21 @@ class AlertEvaluator:
                     context = None
                     
                     if condition == AlertCondition.OFFLINE:
-                        should_alert, value, context = self.evaluate_offline(db, device)
+                        should_alert, value, context = self.evaluate_offline(
+                            db, device, alert_states, recent_heartbeats
+                        )
                     elif condition == AlertCondition.LOW_BATTERY:
-                        should_alert, value, context = self.evaluate_low_battery(db, device)
+                        should_alert, value, context = self.evaluate_low_battery(
+                            db, device, alert_states, latest_heartbeats
+                        )
                     elif condition == AlertCondition.UNITY_DOWN:
-                        should_alert, value, context = self.evaluate_unity_down(db, device)
+                        should_alert, value, context = self.evaluate_unity_down(
+                            db, device, alert_states, latest_heartbeats, recent_heartbeats
+                        )
                     elif condition == AlertCondition.SERVICE_DOWN:
-                        should_alert, value, context = self.evaluate_service_down(db, device)
+                        should_alert, value, context = self.evaluate_service_down(
+                            db, device, alert_states, device_last_status, monitoring_settings
+                        )
                     
                     if should_alert and context:
                         alerts_to_raise.append({

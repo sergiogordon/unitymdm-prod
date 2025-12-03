@@ -22,7 +22,8 @@ data class HeartbeatPayload(
     @SerializedName("doze_whitelisted") val doze_whitelisted: Boolean?,
     @SerializedName("net_validated") val net_validated: Boolean?,
     @SerializedName("queue_depth") val queue_depth: Int?,
-    @SerializedName("monitored_foreground_recent_s") val monitored_foreground_recent_s: Int?
+    @SerializedName("monitored_foreground_recent_s") val monitored_foreground_recent_s: Int?,
+    @SerializedName("unity_process_running") val unity_process_running: Boolean?
 )
 
 data class AppVersion(
