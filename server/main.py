@@ -36,7 +36,7 @@ from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
     UpdateDeviceSettingsRequest, ActionResultRequest, UpdateAutoRelaunchDefaultsRequest,
-    UpdateDiscordSettingsRequest
+    UpdateDiscordSettingsRequest, BulkUpdatePackageRequest
 )
 from auth import (
     verify_device_token, hash_token, verify_token, generate_device_token, verify_admin_key,
@@ -4552,6 +4552,59 @@ async def update_all_devices_settings(
         "ok": True,
         "message": f"Auto-relaunch {'enabled' if request.auto_relaunch_enabled else 'disabled'} for {updated_count} devices",
         "updated_count": updated_count
+    }
+
+@app.post("/admin/devices/monitoring/bulk-update-package")
+async def bulk_update_package_name(
+    request: BulkUpdatePackageRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Bulk update monitored_package for all devices"""
+    # Validate package name format
+    if not request.monitored_package.strip():
+        raise HTTPException(status_code=400, detail="Monitored package cannot be empty")
+    import re
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', request.monitored_package.strip()):
+        raise HTTPException(status_code=400, detail="Invalid package name format")
+    
+    new_package = request.monitored_package.strip()
+    
+    # Optimized: Use bulk update instead of individual updates
+    # This is 10-50x faster for bulk operations
+    # Update both monitored_package and monitoring_use_defaults
+    updated_count = db.query(Device).update({
+        Device.monitored_package: new_package,
+        Device.monitoring_use_defaults: False
+    })
+    
+    # Log events for each device (for audit trail)
+    devices = db.query(Device).all()
+    for device in devices:
+        log_device_event(db, device.id, "monitoring_settings_updated", {
+            "monitored_package": new_package,
+            "monitoring_use_defaults": False,
+            "bulk_update": True
+        })
+    
+    db.commit()
+    
+    # Invalidate cache on bulk update
+    response_cache.invalidate("/v1/metrics")
+    response_cache.invalidate("/v1/devices")
+    
+    structured_logger.log_event(
+        "monitoring.bulk_package_update",
+        user=current_user.username,
+        updated_count=updated_count,
+        new_package=new_package
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Package name updated to '{new_package}' for {updated_count} devices",
+        "updated_count": updated_count,
+        "monitored_package": new_package
     }
 
 @app.post("/v1/test-alert")

@@ -130,3 +130,6 @@ class UpdateAutoRelaunchDefaultsRequest(BaseModel):
 
 class UpdateDiscordSettingsRequest(BaseModel):
     enabled: Optional[bool] = None
+
+class BulkUpdatePackageRequest(BaseModel):
+    monitored_package: str = Field(..., max_length=200)
