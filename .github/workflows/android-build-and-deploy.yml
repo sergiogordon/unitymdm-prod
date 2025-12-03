@@ -271,25 +271,31 @@ jobs:
           
           # Upload through Next.js API route which proxies to backend /admin/apk/upload
           # This creates the APK record and stores the file in one request
-          HTTP_CODE=$(curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
+          # NOTE: We capture HTTP code to a separate file to avoid issues with HTTP 100 Continue
+          # The -s flag silences progress, but we log verbose to a separate file for debugging
+          curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
             -H "X-Admin: $ADMIN_KEY" \
+            -H "Expect:" \
             -F "file=@$APK_PATH" \
             -F "build_id=$BUILD_ID" \
             -F "version_code=${{ steps.version.outputs.version_code }}" \
             -F "version_name=${{ steps.version.outputs.version_name }}" \
             -F "build_type=release" \
             -F "package_name=com.nexmdm" \
-            -w "\n%{http_code}" \
+            -w "%{http_code}" \
             -o /tmp/upload_response.txt \
-            2>&1 | tee /tmp/upload_verbose.txt | tail -n1)
+            2>/tmp/upload_verbose.txt \
+            > /tmp/http_code.txt
           
+          # Read HTTP code from file (avoids issues with stdout/stderr mixing)
+          HTTP_CODE=$(cat /tmp/http_code.txt 2>/dev/null | tr -d '[:space:]')
           UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "No response")
           
           # Show verbose output for debugging
           if [ -f /tmp/upload_verbose.txt ]; then
             echo ""
-            echo "📋 Verbose curl output:"
-            cat /tmp/upload_verbose.txt | head -n 50
+            echo "📋 Verbose curl output (last 50 lines):"
+            tail -n 50 /tmp/upload_verbose.txt
           fi
           
           echo ""
