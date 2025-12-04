@@ -492,7 +492,8 @@ async def dispatch_force_stop_to_device(
 ) -> dict:
     """
     Dispatch a force-stop FCM command to a device with tracking support.
-    Uses the correct 'action: remote_exec_shell' format with 'command' field that the agent recognizes.
+    Uses 'action: remote_exec_fcm' with 'type: force_stop_app' to leverage Device Owner APIs
+    instead of shell commands (which require system-level permissions).
     """
     async with semaphore:
         try:
@@ -505,25 +506,25 @@ async def dispatch_force_stop_to_device(
                 }
                 return db_results[device.id]
             
-            force_stop_command = f"am force-stop {package_name}"
             timestamp = datetime.now(timezone.utc).isoformat()
-            # Include critical payload field (command) in HMAC to prevent tampering
             payload_fields = {
-                "command": force_stop_command
+                "type": "force_stop_app",
+                "package_name": package_name
             }
             hmac_signature = compute_hmac_signature_with_payload(
-                correlation_id, device.id, "remote_exec_shell", timestamp, payload_fields
+                correlation_id, device.id, "remote_exec_fcm", timestamp, payload_fields
             )
             
             message = {
                 "message": {
                     "token": device.fcm_token,
                     "data": {
-                        "action": "remote_exec_shell",
+                        "action": "remote_exec_fcm",
                         "exec_id": "",
                         "correlation_id": correlation_id,
                         "device_id": device.id,
-                        "command": force_stop_command,
+                        "type": "force_stop_app",
+                        "package_name": package_name,
                         "ts": timestamp,
                         "hmac": hmac_signature
                     },
