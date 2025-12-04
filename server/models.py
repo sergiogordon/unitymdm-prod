@@ -603,15 +603,15 @@ if "sqlite" in DATABASE_URL:
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
     # PostgreSQL: optimized for 500-2,000 devices with WebSocket connections
-    # Pool configuration aligned with documentation: 100 max connections total
-    # Postgres max_connections: 450, leaving 350 headroom (77% safety margin)
+    # Pool configuration: 150 max connections total (increased for burst handling)
+    # Postgres max_connections: 450, leaving 300 headroom (66% safety margin)
     engine = create_engine(
         DATABASE_URL,
-        pool_size=50,          # Base pool size - 50 persistent connections
-        max_overflow=50,       # Additional connections when needed - 100 total max
+        pool_size=75,          # Base pool size - 75 persistent connections (increased from 50)
+        max_overflow=75,       # Additional connections when needed - 150 total max
         pool_pre_ping=True,    # Verify connections before use
         pool_recycle=3600,     # Recycle connections after 1 hour
-        pool_timeout=30        # Wait up to 30s for available connection
+        pool_timeout=10        # Wait up to 10s for available connection (reduced from 30s for faster failure)
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

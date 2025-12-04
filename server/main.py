@@ -2429,6 +2429,10 @@ async def heartbeat(
 
     # PERFORMANCE OPTIMIZATION: Persist heartbeat to partitioned table + dual-write to device_last_status
     from db_utils import record_heartbeat_with_bucketing
+    from monitoring_helpers import get_effective_monitoring_settings
+    
+    # PERF: Get monitoring settings ONCE and reuse throughout (avoid duplicate DB queries)
+    monitoring_settings = get_effective_monitoring_settings(db, device)
 
     # Extract Unity app info (ALWAYS from io.unitynodes.unityapp)
     unity_running = None
@@ -2443,8 +2447,6 @@ async def heartbeat(
         # Get foreground recency - only use if it's actually for Unity
         # monitored_foreground_recent_s represents the configured monitored package (may not be Unity)
         # Check device monitoring settings to see if Unity is the monitored package
-        from monitoring_helpers import get_effective_monitoring_settings
-        monitoring_settings = get_effective_monitoring_settings(db, device)
         is_unity_monitored = monitoring_settings.get("package") == "io.unitynodes.unityapp"
         
         fg_seconds = None
@@ -2512,9 +2514,7 @@ async def heartbeat(
             device.ping_request_id = None
 
     # Service monitoring evaluator: Determine if monitored service is up/down
-    # Get effective monitoring settings (device or global defaults)
-    from monitoring_helpers import get_effective_monitoring_settings
-    monitoring_settings = get_effective_monitoring_settings(db, device)
+    # NOTE: monitoring_settings already fetched above (PERF optimization - single call)
 
     service_up = None
     monitored_foreground_recent_s = None
@@ -2579,17 +2579,29 @@ async def heartbeat(
                 source=monitoring_settings["source"]
             )
 
-    # Update DeviceLastStatus with service monitoring data
-    last_status_record = db.query(DeviceLastStatus).filter(DeviceLastStatus.device_id == device.id).first()
-    if last_status_record:
-        # Track previous state for transition detection
-        prev_service_up = last_status_record.service_up
-
-        last_status_record.service_up = service_up
-        last_status_record.monitored_foreground_recent_s = monitored_foreground_recent_s
-        last_status_record.monitored_package = monitoring_settings["package"] if monitoring_settings["enabled"] else None
-        last_status_record.monitored_threshold_min = monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None
-
+    # PERF: Update DeviceLastStatus with service monitoring data using UPDATE...RETURNING
+    # This avoids a separate SELECT query by returning prev_service_up in the same statement
+    from sqlalchemy import text as sql_text
+    update_result = db.execute(sql_text("""
+        UPDATE device_last_status
+        SET service_up = :service_up,
+            monitored_foreground_recent_s = :fg_recent_s,
+            monitored_package = :monitored_package,
+            monitored_threshold_min = :threshold_min
+        WHERE device_id = :device_id
+        RETURNING (SELECT service_up FROM device_last_status WHERE device_id = :device_id) as prev_service_up
+    """), {
+        'service_up': service_up,
+        'fg_recent_s': monitored_foreground_recent_s,
+        'monitored_package': monitoring_settings["package"] if monitoring_settings["enabled"] else None,
+        'threshold_min': monitoring_settings["threshold_min"] if monitoring_settings["enabled"] else None,
+        'device_id': device.id
+    })
+    
+    row = update_result.fetchone()
+    if row:
+        prev_service_up = row[0] if row else None
+        
         # Detect service state transitions for logging
         if monitoring_settings["enabled"] and prev_service_up is not None and service_up is not None:
             if prev_service_up and not service_up:
