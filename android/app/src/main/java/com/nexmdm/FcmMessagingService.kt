@@ -55,7 +55,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         Log.d(TAG, "FCM message received: ${message.data}")
         
         val action = message.data["action"] ?: ""
-        val requestId = message.data["request_id"] ?: ""
+        val requestId = message.data["request_id"] ?: message.data["correlation_id"] ?: ""
         val timestamp = message.data["ts"] ?: ""
         val hmac = message.data["hmac"] ?: ""
         
@@ -64,7 +64,26 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         if (prefs.hmacPrimaryKey.isNotEmpty()) {
             val validator = HmacValidator(prefs)
-            val isValid = validator.validateMessage(requestId, deviceId, action, timestamp, hmac)
+            
+            // For remote_exec actions, include critical payload fields in validation
+            val isValid = if (action == "remote_exec_fcm" || action == "remote_exec_shell") {
+                val payloadFields = mutableMapOf<String, String>()
+                
+                if (action == "remote_exec_shell") {
+                    // Include command field for shell commands
+                    message.data["command"]?.let { payloadFields["command"] = it }
+                } else if (action == "remote_exec_fcm") {
+                    // Include critical fields for FCM commands
+                    message.data["type"]?.let { payloadFields["type"] = it }
+                    message.data["package_name"]?.let { payloadFields["package_name"] = it }
+                    message.data["enable"]?.let { payloadFields["enable"] = it }
+                    message.data["duration"]?.let { payloadFields["duration"] = it }
+                }
+                
+                validator.validateMessageWithPayload(requestId, deviceId, action, timestamp, hmac, payloadFields)
+            } else {
+                validator.validateMessage(requestId, deviceId, action, timestamp, hmac)
+            }
             
             if (!isValid) {
                 Log.w(TAG, "HMAC validation failed for action=$action, rejecting message")
@@ -1241,8 +1260,144 @@ class FcmMessagingService : FirebaseMessagingService() {
                     output = "Reboot initiated"
                 }
                 "launch_app" -> {
-                    handleLaunchAppRequest(data)
-                    output = "App launch attempted"
+                    // Call handleLaunchAppRequest but suppress its ACK since we'll send via sendRemoteExecAck
+                    val packageName = data["package_name"] ?: ""
+                    val intentUri = data["intent_uri"]
+                    
+                    if (packageName.isEmpty()) {
+                        status = "FAILED"
+                        error = "Package name is required for app launch"
+                        output = ""
+                    } else {
+                        var launchSucceeded = false
+                        try {
+                            // Try to use deep link/intent URI if provided
+                            if (!intentUri.isNullOrEmpty()) {
+                                Log.i(TAG, "Launching app with intent URI: $intentUri")
+                                try {
+                                    val intent = Intent.parseUri(intentUri, Intent.URI_INTENT_SCHEME)
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    startActivity(intent)
+                                    Log.i(TAG, "✓ Successfully launched with intent URI")
+                                    output = "Launched with intent URI"
+                                    status = "OK"
+                                    launchSucceeded = true
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Failed to parse intent URI, falling back to package launch", e)
+                                    // Reset status so fallback executes
+                                    status = "FAILED"
+                                    launchSucceeded = false
+                                }
+                            }
+                            
+                            // Fallback: Use standard package launch
+                            if (!launchSucceeded) {
+                                Log.i(TAG, "Launching app: $packageName")
+                                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                                
+                                if (launchIntent != null) {
+                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    startActivity(launchIntent)
+                                    Log.i(TAG, "✓ Successfully launched $packageName")
+                                    output = "Successfully launched $packageName"
+                                    status = "OK"
+                                } else {
+                                    Log.e(TAG, "✗ App not installed or no launch intent: $packageName")
+                                    status = "FAILED"
+                                    error = "App not installed or no launch intent"
+                                    output = ""
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "✗ Failed to launch app: $packageName", e)
+                            status = "FAILED"
+                            error = "Exception: ${e.message}"
+                            output = ""
+                        }
+                    }
+                }
+                "clear_app_data" -> {
+                    val packageName = data["package_name"] ?: ""
+                    if (packageName.isEmpty()) {
+                        status = "FAILED"
+                        error = "package_name is required for clear_app_data"
+                        output = ""
+                    } else {
+                        try {
+                            // Check if we're Device Owner (required for clearing other apps' data)
+                            val permissionManager = DeviceOwnerPermissionManager(this)
+                            if (!permissionManager.isDeviceOwner()) {
+                                status = "FAILED"
+                                error = "Device Owner privileges required to clear app data for other packages"
+                                output = ""
+                            } else {
+                                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                                val adminComponent = ComponentName(this, NexDeviceAdminReceiver::class.java)
+                                
+                                // DevicePolicyManager.clearApplicationUserData requires API 28+ (Android 9.0)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                    // Use DevicePolicyManager to clear data for the specified package
+                                    // This is async, so we send ACK from the callback with actual result
+                                    dpm.clearApplicationUserData(
+                                        adminComponent,
+                                        packageName,
+                                        android.app.admin.DevicePolicyManager.OnClearApplicationUserDataListener { success ->
+                                            Log.i(TAG, "clearApplicationUserData callback for $packageName: success=$success")
+                                            
+                                            // Send ACK with actual result from async operation
+                                            val callbackStatus = if (success) "OK" else "FAILED"
+                                            val callbackOutput = if (success) {
+                                                "App data cleared successfully for $packageName"
+                                            } else {
+                                                ""
+                                            }
+                                            val callbackError = if (success) null else {
+                                                "Failed to clear app data for $packageName"
+                                            }
+                                            
+                                            sendRemoteExecAck(
+                                                execId,
+                                                correlationId,
+                                                callbackStatus,
+                                                if (success) 0 else -1,
+                                                callbackOutput,
+                                                callbackError,
+                                                deviceId
+                                            )
+                                        },
+                                        null // Executor - null uses main thread
+                                    )
+                                    // Don't set status/output here - ACK will be sent from callback
+                                    // Set a sentinel value to prevent default ACK
+                                    status = "PENDING_ASYNC"
+                                    output = ""
+                                } else {
+                                    status = "FAILED"
+                                    error = "clear_app_data requires API 28+ (Android 9.0) or higher"
+                                    output = ""
+                                }
+                            }
+                        } catch (e: Exception) {
+                            status = "FAILED"
+                            error = "Failed to clear app data: ${e.message}"
+                            output = ""
+                            Log.e(TAG, "Error clearing app data", e)
+                        }
+                    }
+                }
+                "set_dnd" -> {
+                    val enableStr = data["enable"] ?: "true"
+                    val enable = enableStr.toBoolean()
+                    try {
+                        handleSetDndRequest(mapOf("enable" to enable.toString()))
+                        output = if (enable) "DND enabled" else "DND disabled"
+                        status = "OK"
+                    } catch (e: Exception) {
+                        status = "FAILED"
+                        error = "Failed to set DND: ${e.message}"
+                        output = ""
+                        Log.e(TAG, "Error setting DND", e)
+                    }
                 }
                 "exempt_unity_app" -> {
                     val permissionManager = DeviceOwnerPermissionManager(this)
@@ -1293,7 +1448,10 @@ class FcmMessagingService : FirebaseMessagingService() {
             Log.e(TAG, "Error executing FCM command", e)
         }
         
-        sendRemoteExecAck(execId, correlationId, status, exitCode, output, error, deviceId)
+        // Skip sending ACK if status is PENDING_ASYNC (ACK will be sent from async callback)
+        if (status != "PENDING_ASYNC") {
+            sendRemoteExecAck(execId, correlationId, status, exitCode, output, error, deviceId)
+        }
     }
     
     private fun handleRemoteExecShell(data: Map<String, String>) {

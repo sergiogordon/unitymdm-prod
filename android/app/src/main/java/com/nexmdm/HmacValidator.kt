@@ -20,6 +20,17 @@ class HmacValidator(private val prefs: SecurePreferences) {
         timestamp: String,
         receivedHmac: String
     ): Boolean {
+        return validateMessageWithPayload(requestId, deviceId, action, timestamp, receivedHmac, null)
+    }
+    
+    fun validateMessageWithPayload(
+        requestId: String,
+        deviceId: String,
+        action: String,
+        timestamp: String,
+        receivedHmac: String,
+        payloadFields: Map<String, String>?
+    ): Boolean {
         val primaryKey = prefs.hmacPrimaryKey
         val rotationKey = prefs.hmacRotationKey
         
@@ -33,7 +44,19 @@ class HmacValidator(private val prefs: SecurePreferences) {
             return false
         }
         
-        val payload = "$requestId|$deviceId|$action|$timestamp"
+        // Build base payload
+        var payload = "$requestId|$deviceId|$action|$timestamp"
+        
+        // Append payload fields in sorted order (matching server-side implementation)
+        if (payloadFields != null && payloadFields.isNotEmpty()) {
+            val sortedFields = payloadFields.toList().sortedBy { it.first }
+            val payloadStr = sortedFields
+                .filter { it.second.isNotEmpty() }  // Only include non-empty values
+                .joinToString("|") { "${it.first}:${it.second}" }
+            if (payloadStr.isNotEmpty()) {
+                payload += "|$payloadStr"
+            }
+        }
         
         val primaryHmac = computeHmac(payload, primaryKey)
         if (constantTimeEquals(receivedHmac, primaryHmac)) {

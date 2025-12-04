@@ -50,7 +50,7 @@ from apk_manager import save_apk_file, get_apk_download_url
 from object_storage import get_storage_service, ObjectNotFoundError
 from email_service import email_service
 from observability import structured_logger, metrics, request_id_var
-from hmac_utils import compute_hmac_signature
+from hmac_utils import compute_hmac_signature, compute_hmac_signature_with_payload
 import uuid
 import fast_reads
 import bulk_delete
@@ -406,7 +406,7 @@ async def dispatch_launch_app_to_device(
 ) -> dict:
     """
     Dispatch a launch_app FCM command to a device with tracking support.
-    Uses the correct 'action: launch_app' format that the agent recognizes.
+    Uses 'action: remote_exec_fcm' format for consistent ACK tracking via /v1/remote-exec/ack endpoint.
     """
     async with semaphore:
         try:
@@ -420,18 +420,27 @@ async def dispatch_launch_app_to_device(
                 return db_results[device.id]
             
             timestamp = datetime.now(timezone.utc).isoformat()
-            hmac_signature = compute_hmac_signature(correlation_id, device.id, "launch_app", timestamp)
+            # Include critical payload fields in HMAC to prevent tampering
+            payload_fields = {
+                "type": "launch_app",
+                "package_name": package_name
+            }
+            hmac_signature = compute_hmac_signature_with_payload(
+                correlation_id, device.id, "remote_exec_fcm", timestamp, payload_fields
+            )
             
             message = {
                 "message": {
                     "token": device.fcm_token,
                     "data": {
-                        "action": "launch_app",
+                        "action": "remote_exec_fcm",
+                        "exec_id": "",
                         "correlation_id": correlation_id,
                         "device_id": device.id,
+                        "type": "launch_app",
+                        "package_name": package_name,
                         "ts": timestamp,
-                        "hmac": hmac_signature,
-                        "package_name": package_name
+                        "hmac": hmac_signature
                     },
                     "android": {
                         "priority": "high"
@@ -483,7 +492,7 @@ async def dispatch_force_stop_to_device(
 ) -> dict:
     """
     Dispatch a force-stop FCM command to a device with tracking support.
-    Uses the correct 'action: remote_exec' format with 'script' field that the agent recognizes.
+    Uses the correct 'action: remote_exec_shell' format with 'command' field that the agent recognizes.
     """
     async with semaphore:
         try:
@@ -496,18 +505,25 @@ async def dispatch_force_stop_to_device(
                 }
                 return db_results[device.id]
             
-            force_stop_script = f"am force-stop {package_name}"
+            force_stop_command = f"am force-stop {package_name}"
             timestamp = datetime.now(timezone.utc).isoformat()
-            hmac_signature = compute_hmac_signature(correlation_id, device.id, "remote_exec", timestamp)
+            # Include critical payload field (command) in HMAC to prevent tampering
+            payload_fields = {
+                "command": force_stop_command
+            }
+            hmac_signature = compute_hmac_signature_with_payload(
+                correlation_id, device.id, "remote_exec_shell", timestamp, payload_fields
+            )
             
             message = {
                 "message": {
                     "token": device.fcm_token,
                     "data": {
-                        "action": "remote_exec",
-                        "script": force_stop_script,
+                        "action": "remote_exec_shell",
+                        "exec_id": "",
                         "correlation_id": correlation_id,
                         "device_id": device.id,
+                        "command": force_stop_command,
                         "ts": timestamp,
                         "hmac": hmac_signature
                     },
@@ -7251,19 +7267,39 @@ async def dispatch_fcm_to_device(
             
             timestamp = datetime.now(timezone.utc).isoformat()
             action = f"remote_exec_{mode}"
-            hmac_signature = compute_hmac_signature(correlation_id, device.id, action, timestamp)
             
             if mode == "shell":
+                command = payload.get("script", "")
+                # Include critical payload field (command) in HMAC to prevent tampering
+                payload_fields = {"command": command}
+                hmac_signature = compute_hmac_signature_with_payload(
+                    correlation_id, device.id, action, timestamp, payload_fields
+                )
                 fcm_data = {
                     "action": "remote_exec_shell",
                     "exec_id": exec_id,
                     "correlation_id": correlation_id,
                     "device_id": device.id,
-                    "command": payload.get("script", ""),
+                    "command": command,
                     "ts": timestamp,
                     "hmac": hmac_signature
                 }
             else:  # FCM mode
+                # Include critical payload fields in HMAC to prevent tampering
+                # Extract type and other critical fields from payload
+                payload_fields = {}
+                if "type" in payload:
+                    payload_fields["type"] = str(payload["type"])
+                if "package_name" in payload:
+                    payload_fields["package_name"] = str(payload["package_name"])
+                if "enable" in payload:  # For set_dnd
+                    payload_fields["enable"] = str(payload["enable"])
+                if "duration" in payload:  # For ring
+                    payload_fields["duration"] = str(payload["duration"])
+                
+                hmac_signature = compute_hmac_signature_with_payload(
+                    correlation_id, device.id, action, timestamp, payload_fields
+                )
                 fcm_data = {
                     "action": "remote_exec_fcm",
                     "exec_id": exec_id,
