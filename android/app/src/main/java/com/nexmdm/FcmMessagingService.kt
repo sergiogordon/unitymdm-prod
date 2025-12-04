@@ -24,6 +24,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import com.google.gson.Gson
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.Executors
 
 class FcmMessagingService : FirebaseMessagingService() {
     
@@ -1338,21 +1339,23 @@ class FcmMessagingService : FirebaseMessagingService() {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                     // Use DevicePolicyManager to clear data for the specified package
                                     // This is async, so we send ACK from the callback with actual result
+                                    val executor = Executors.newSingleThreadExecutor()
                                     dpm.clearApplicationUserData(
                                         adminComponent,
                                         packageName,
-                                        android.app.admin.DevicePolicyManager.OnClearApplicationUserDataListener { success ->
-                                            Log.i(TAG, "clearApplicationUserData callback for $packageName: success=$success")
+                                        executor,  // Executor comes before listener
+                                        android.app.admin.DevicePolicyManager.OnClearApplicationUserDataListener { packageNameParam, success ->
+                                            Log.i(TAG, "clearApplicationUserData callback for $packageNameParam: success=$success")
                                             
                                             // Send ACK with actual result from async operation
                                             val callbackStatus = if (success) "OK" else "FAILED"
                                             val callbackOutput = if (success) {
-                                                "App data cleared successfully for $packageName"
+                                                "App data cleared successfully for $packageNameParam"
                                             } else {
                                                 ""
                                             }
                                             val callbackError = if (success) null else {
-                                                "Failed to clear app data for $packageName"
+                                                "Failed to clear app data for $packageNameParam"
                                             }
                                             
                                             sendRemoteExecAck(
@@ -1364,8 +1367,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                                                 callbackError,
                                                 deviceId
                                             )
-                                        },
-                                        null // Executor - null uses main thread
+                                        }
                                     )
                                     // Don't set status/output here - ACK will be sent from callback
                                     // Set a sentinel value to prevent default ACK
