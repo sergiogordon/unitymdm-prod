@@ -1495,6 +1495,16 @@ class FcmMessagingService : FirebaseMessagingService() {
                                             Log.i(TAG, "Re-applying battery optimization exemption for Unity app after unhide")
                                             Thread.sleep(500) // Wait for unhide to fully process
                                             
+                                            // Force refresh app state to help Android recognize app is no longer hidden
+                                            try {
+                                                val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                                                // This helps Android recognize the app is no longer hidden
+                                                am.killBackgroundProcesses(packageName)
+                                                Thread.sleep(200) // Brief delay after refresh
+                                            } catch (e: Exception) {
+                                                Log.w(TAG, "Failed to refresh app state: ${e.message}")
+                                            }
+                                            
                                             val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
                                             if (exemptSuccess) {
                                                 Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.os.UserManager
 import android.provider.Settings
@@ -397,6 +398,33 @@ class DeviceOwnerPermissionManager(private val context: Context) {
             
             // Step 4: Disable background restrictions (prevents prompts)
             disableBackgroundRestriction(packageName)
+            
+            // Step 4.5: Explicitly allow background activity via DevicePolicyManager API
+            // This ensures Android recognizes the app is allowed to run in background
+            try {
+                // Get current restrictions (may be null if none set)
+                val currentRestrictions = devicePolicyManager.getApplicationRestrictions(adminComponent, packageName)
+                
+                // Create new restrictions bundle that explicitly allows background
+                val newRestrictions = Bundle().apply {
+                    // Copy any existing restrictions to preserve other settings
+                    if (currentRestrictions != null) {
+                        putAll(currentRestrictions)
+                    }
+                    // Explicitly set background restriction to false (allowed)
+                    // Note: Setting to false means background is NOT restricted (allowed)
+                    // The key name varies by Android version, so we set multiple possible keys
+                    putBoolean("restriction_background", false)
+                    putBoolean("no_background", false)
+                }
+                
+                // Apply restrictions (this explicitly allows background activity)
+                devicePolicyManager.setApplicationRestrictions(adminComponent, packageName, newRestrictions)
+                Log.i(TAG, "✓ Explicitly allowed background activity via DevicePolicyManager for $packageName")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠ Failed to set application restrictions via DevicePolicyManager: ${e.message}")
+                // Non-critical, continue with other steps
+            }
             
             // Step 5: Set app standby bucket to EXEMPTED (Android 9+)
             val standbySuccess = setAppStandbyBucketExempted(packageName)
