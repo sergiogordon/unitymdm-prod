@@ -88,6 +88,13 @@ class SecurePreferences(context: Context) {
             Log.d(TAG, "needsReEnrollment.set: $value")
             prefs.edit().putBoolean("needs_re_enrollment", value).commit()
         }
+
+    var heartbeatJitterOffsetMs: Long
+        get() = prefs.getLong("heartbeat_jitter_offset_ms", -1)
+        set(value) {
+            Log.d(TAG, "heartbeatJitterOffsetMs.set: $value")
+            prefs.edit().putLong("heartbeat_jitter_offset_ms", value).commit()
+        }
     
     fun clearAllCredentials() {
         Log.d(TAG, "clearAllCredentials: clearing all stored data")

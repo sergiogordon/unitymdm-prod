@@ -27,6 +27,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 class MonitorService : Service(), AuthFailureListener {
 
@@ -95,7 +96,14 @@ class MonitorService : Service(), AuthFailureListener {
 
         registerFcmToken()
 
-        scheduleNextHeartbeat(5000)
+        // Initialize heartbeat jitter offset on first startup
+        if (prefs.heartbeatJitterOffsetMs == -1L) {
+            val jitterOffset = Random.nextLong(0, HEARTBEAT_INTERVAL_MS)
+            prefs.heartbeatJitterOffsetMs = jitterOffset
+            Log.d(TAG, "Generated heartbeat jitter offset: ${jitterOffset / 1000}s")
+        }
+
+        scheduleNextHeartbeat(useJitter = true)
         handler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
 
         handler.postDelayed({
@@ -154,12 +162,12 @@ class MonitorService : Service(), AuthFailureListener {
         when {
             action == "HEARTBEAT_ALARM" -> {
                 sendHeartbeat()
-                scheduleNextHeartbeat()
+                scheduleNextHeartbeat(useJitter = false)
             }
             immediateHeartbeat -> {
                 cancelScheduledHeartbeat()
                 sendHeartbeat(isPingResponse = true, pingRequestId = requestId)
-                scheduleNextHeartbeat()
+                scheduleNextHeartbeat(useJitter = false)
             }
         }
 
@@ -391,8 +399,20 @@ class MonitorService : Service(), AuthFailureListener {
         }
     }
 
-    private fun scheduleNextHeartbeat(delayMs: Long = HEARTBEAT_INTERVAL_MS) {
+    private fun scheduleNextHeartbeat(useJitter: Boolean = false) {
         try {
+            val delayMs = if (useJitter) {
+                val jitterOffset = prefs.heartbeatJitterOffsetMs
+                if (jitterOffset >= 0) {
+                    jitterOffset
+                } else {
+                    // Fallback if jitter not initialized (shouldn't happen)
+                    HEARTBEAT_INTERVAL_MS
+                }
+            } else {
+                HEARTBEAT_INTERVAL_MS
+            }
+
             val intent = Intent(this, AlarmReceiver::class.java)
             val pendingIntent = PendingIntent.getBroadcast(
                 this,
@@ -417,7 +437,7 @@ class MonitorService : Service(), AuthFailureListener {
                 )
             }
 
-            Log.d(TAG, "Next heartbeat scheduled in ${delayMs / 1000}s using AlarmManager")
+            Log.d(TAG, "Next heartbeat scheduled in ${delayMs / 1000}s using AlarmManager (jitter=${useJitter})")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to schedule heartbeat alarm", e)
         }
@@ -449,7 +469,7 @@ class MonitorService : Service(), AuthFailureListener {
 
             cancelScheduledHeartbeat()
             sendHeartbeat(isPingResponse = false, pingRequestId = null)
-            scheduleNextHeartbeat()
+            scheduleNextHeartbeat(useJitter = false)
         }
     }
 
