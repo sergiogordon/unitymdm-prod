@@ -5710,6 +5710,100 @@ def validate_shell_command(command: str) -> tuple[bool, Optional[str]]:
         # Single command, validate directly
         return validate_single_command(command)
 
+async def dispatch_apk_fcm_to_device(
+    device: Device,
+    apk: ApkVersion,
+    installation: ApkInstallation,
+    semaphore: asyncio.Semaphore,
+    client: "httpx.AsyncClient",
+    fcm_url: str,
+    access_token: str
+) -> dict:
+    """
+    Dispatch APK installation FCM message to a single device with semaphore-based concurrency control.
+    Returns result dict with device_id, status, installation_id, and optional error.
+    """
+    async with semaphore:
+        try:
+            if not device.fcm_token:
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "installation_id": installation.id,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
+            
+            request_id = str(uuid.uuid4())
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
+            
+            # Generate the download URL for the APK
+            download_url = f"{config.server_url}/v1/apk/download/{apk.id}"
+            
+            fcm_message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "install_apk",
+                        "request_id": request_id,
+                        "device_id": device.id,
+                        "ts": timestamp,
+                        "hmac": hmac_signature,
+                        "installation_id": str(installation.id),
+                        "apk_id": str(apk.id),
+                        "version_name": apk.version_name,
+                        "version_code": str(apk.version_code),
+                        "file_size": str(apk.file_size) if apk.file_size else "0",
+                        "package_name": apk.package_name if hasattr(apk, 'package_name') and apk.package_name else "com.nexmdm",
+                        "download_url": download_url
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.post(fcm_url, json=fcm_message, headers=headers, timeout=10.0)
+            
+            if response.status_code == 200:
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "installation_id": installation.id,
+                    "status": "sent"
+                }
+            else:
+                error_msg = f"FCM failed: {response.status_code}"
+                return {
+                    "device_id": device.id,
+                    "alias": device.alias,
+                    "installation_id": installation.id,
+                    "status": "error",
+                    "error": error_msg
+                }
+        except asyncio.TimeoutError:
+            return {
+                "device_id": device.id,
+                "alias": device.alias,
+                "installation_id": installation.id,
+                "status": "error",
+                "error": "FCM timeout"
+            }
+        except Exception as e:
+            return {
+                "device_id": device.id,
+                "alias": device.alias,
+                "installation_id": installation.id,
+                "status": "error",
+                "error": f"FCM error: {str(e)}"
+            }
+
 @app.post("/v1/apk/deploy")
 async def deploy_apk_v1(
     payload: DeployApkRequest,
@@ -5720,6 +5814,7 @@ async def deploy_apk_v1(
     Deploy an APK to selected devices.
     This endpoint is intended for admin use and requires JWT authentication.
     It takes the apk_id and a list of device_ids.
+    Supports batch processing with configurable batch_size and batch_delay_seconds.
     """
     from ota_utils import is_device_eligible_for_rollout
     
@@ -5744,98 +5839,197 @@ async def deploy_apk_v1(
     
     found_devices = {d.id: d for d in devices}
 
-    installations = []
+    # Filter devices without FCM tokens first
+    devices_with_fcm = []
     failed_devices = []
-
-    # Process devices in batches to prevent Firebase quota issues
-    for device_id, device in found_devices.items():
+    
+    for device in devices:
         if not device.fcm_token:
             failed_devices.append({
                 "device_id": device.id,
                 "alias": device.alias,
                 "reason": "No FCM token"
             })
-            continue
+        else:
+            devices_with_fcm.append(device)
 
+    # Create all ApkInstallation records in bulk
+    installations = []
+    now = datetime.now(timezone.utc)
+    
+    for device in devices_with_fcm:
         installation = ApkInstallation(
             device_id=device.id,
             apk_version_id=apk.id,
             status="pending",
-            initiated_at=datetime.now(timezone.utc),
+            initiated_at=now,
             initiated_by=user.username
         )
         db.add(installation)
-        db.commit()
-        db.refresh(installation)
-
         installations.append(installation)
-
-        request_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
-        hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
-        
-        # Generate the download URL for the APK (construct directly to avoid name collision with endpoint)
-        download_url = f"{config.server_url}/v1/apk/download/{apk.id}"
-
-        fcm_message = {
-            "message": {
-                "token": device.fcm_token,
-                "data": {
-                    "action": "install_apk",
-                    "request_id": request_id,
-                    "device_id": device.id,
-                    "ts": timestamp,
-                    "hmac": hmac_signature,
-                    "installation_id": str(installation.id),
-                    "apk_id": str(apk.id),
-                    "version_name": apk.version_name,
-                    "version_code": str(apk.version_code),
-                    "file_size": str(apk.file_size) if apk.file_size else "0",
-                    "package_name": apk.package_name if hasattr(apk, 'package_name') and apk.package_name else "com.nexmdm",
-                    "download_url": download_url
-                },
-                "android": {
-                    "priority": "high"
-                }
+    
+    # Bulk commit all installations
+    db.commit()
+    
+    # Refresh all installations to get their IDs
+    for installation in installations:
+        db.refresh(installation)
+    
+    # Create mapping of device_id to installation
+    installation_map = {inst.device_id: inst for inst in installations}
+    
+    # Get FCM credentials (once, outside the loop)
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        # If FCM setup fails, installations are already created in DB
+        # Mark FCM send failures but return the installations that were created
+        fcm_failed_devices = [
+            {
+                "device_id": device.id,
+                "alias": device.alias,
+                "reason": f"FCM setup failed: {str(e)}"
             }
+            for device in devices_with_fcm
+        ]
+        failed_devices.extend(fcm_failed_devices)
+        
+        structured_logger.log_event(
+            "apk.deploy.complete",
+            level="ERROR",
+            apk_id=apk.id,
+            success_count=len(installations),
+            failed_count=len(failed_devices),
+            total_devices=len(device_ids),
+            fcm_setup_failed=True
+        )
+        return {
+            "success_count": len(installations),
+            "failed_count": len(failed_devices),
+            "installations": [
+                {
+                    "id": inst.id,
+                    "device": {
+                        "id": inst.device_id,
+                        "alias": found_devices[inst.device_id].alias if inst.device_id in found_devices else "Unknown"
+                    }
+                }
+                for inst in installations
+            ],
+            "failed_devices": failed_devices
         }
-
-        try:
-            access_token = get_access_token()
-            project_id = get_firebase_project_id()
-            fcm_url = build_fcm_v1_url(project_id)
-
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    fcm_url,
-                    json=fcm_message,
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json"
-                    },
-                    timeout=10.0
+    
+    # Determine batch processing parameters
+    batch_size = payload.batch_size
+    batch_delay_seconds = payload.batch_delay_seconds
+    
+    # If batch_size is set but batch_delay_seconds is not, default to 30 seconds
+    if batch_size is not None and batch_delay_seconds is None:
+        batch_delay_seconds = 30
+    
+    # Create semaphore for concurrency control
+    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    
+    # Process devices
+    async with httpx.AsyncClient() as client:
+        if batch_size is not None and batch_size > 0:
+            # Process in batches with delays
+            total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
+            
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(devices_with_fcm))
+                batch_devices = devices_with_fcm[start_idx:end_idx]
+                
+                # Create tasks for this batch
+                tasks = [
+                    dispatch_apk_fcm_to_device(
+                        device=device,
+                        apk=apk,
+                        installation=installation_map[device.id],
+                        semaphore=semaphore,
+                        client=client,
+                        fcm_url=fcm_url,
+                        access_token=access_token
+                    )
+                    for device in batch_devices
+                ]
+                
+                # Process batch in parallel
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Process results (track FCM failures, but installations are already created)
+                for i, result in enumerate(batch_results):
+                    if isinstance(result, Exception):
+                        # Handle exceptions - mark device as failed
+                        device = batch_devices[i]
+                        failed_devices.append({
+                            "device_id": device.id,
+                            "alias": device.alias,
+                            "reason": f"FCM error: {str(result)}"
+                        })
+                        continue
+                    
+                    if result.get("status") != "sent":
+                        failed_devices.append({
+                            "device_id": result["device_id"],
+                            "alias": result["alias"],
+                            "reason": result.get("error", "Unknown error")
+                        })
+                
+                # Wait before next batch (except for the last batch)
+                if batch_num < total_batches - 1 and batch_delay_seconds > 0:
+                    await asyncio.sleep(batch_delay_seconds)
+        else:
+            # Process all devices in parallel (backward compatible)
+            tasks = [
+                dispatch_apk_fcm_to_device(
+                    device=device,
+                    apk=apk,
+                    installation=installation_map[device.id],
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token
                 )
-
-                if response.status_code != 200:
+                for device in devices_with_fcm
+            ]
+            
+            # Process all in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results (track FCM failures, but installations are already created)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Handle exceptions - mark device as failed
+                    device = devices_with_fcm[i]
                     failed_devices.append({
                         "device_id": device.id,
                         "alias": device.alias,
-                        "reason": f"FCM failed: {response.status_code}"
+                        "reason": f"FCM error: {str(result)}"
                     })
-        except Exception as e:
-            failed_devices.append({
-                "device_id": device.id,
-                "alias": device.alias,
-                "reason": f"FCM error: {str(e)}"
-            })
+                    continue
+                
+                if result.get("status") != "sent":
+                    failed_devices.append({
+                        "device_id": result["device_id"],
+                        "alias": result["alias"],
+                        "reason": result.get("error", "Unknown error")
+                    })
 
+    # All installations are considered successful (backward compatible behavior)
+    # failed_devices only contains FCM send failures
     structured_logger.log_event(
         "apk.deploy.complete",
         level="INFO",
         apk_id=apk.id,
         success_count=len(installations),
         failed_count=len(failed_devices),
-        total_devices=len(device_ids)
+        total_devices=len(device_ids),
+        batch_size=batch_size,
+        batch_delay_seconds=batch_delay_seconds
     )
 
     return {

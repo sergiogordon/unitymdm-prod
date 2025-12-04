@@ -109,6 +109,8 @@ class DeployApkRequest(BaseModel):
     apk_id: int
     device_ids: Optional[list[str]] = None
     rollout_percent: Optional[int] = Field(100, ge=1, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=50)
+    batch_delay_seconds: Optional[int] = Field(None, ge=0, le=300)
 
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = Field(None, max_length=200)
