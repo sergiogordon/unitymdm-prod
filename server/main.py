@@ -566,6 +566,84 @@ async def dispatch_force_stop_to_device(
             }
             return db_results[device.id]
 
+async def dispatch_exempt_unity_to_device(
+    device,
+    package_name: str,
+    correlation_id: str,
+    semaphore: asyncio.Semaphore,
+    client: httpx.AsyncClient,
+    fcm_url: str,
+    access_token: str,
+    db_results: dict
+) -> dict:
+    """
+    Dispatch an exempt Unity app from battery optimization FCM command to a device.
+    Uses 'action: exempt_unity_app' to apply battery whitelist settings.
+    """
+    async with semaphore:
+        try:
+            if not device.fcm_token:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
+                return db_results[device.id]
+            
+            timestamp = datetime.now(timezone.utc).isoformat()
+            hmac_signature = compute_hmac_signature(
+                correlation_id, device.id, "exempt_unity_app", timestamp
+            )
+            
+            message = {
+                "message": {
+                    "token": device.fcm_token,
+                    "data": {
+                        "action": "exempt_unity_app",
+                        "request_id": correlation_id,
+                        "device_id": device.id,
+                        "ts": timestamp,
+                        "hmac": hmac_signature
+                    },
+                    "android": {
+                        "priority": "high"
+                    }
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
+            
+            if response.status_code == 200:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "sent"
+                }
+            else:
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": f"FCM error: {response.status_code}"
+                }
+            
+            return db_results[device.id]
+            
+        except Exception as e:
+            db_results[device.id] = {
+                "correlation_id": correlation_id,
+                "alias": device.alias,
+                "status": "error",
+                "error": str(e)
+            }
+            return db_results[device.id]
+
 class StreamingConnectionManager:
     """Manages screen streaming connections between devices and dashboard clients"""
     def __init__(self):
@@ -7733,7 +7811,7 @@ async def remote_exec_ack(
     
     return {"ok": True, "status": "received"}
 
-# --- Restart App Endpoint (Two-Step: Force Stop + Launch) ---
+# --- Restart App Endpoint (Three-Step: Force Stop + Battery Exemption + Launch) ---
 
 class RestartAppRequest(BaseModel):
     package_name: str = "io.unitynodes.unityapp"
@@ -7752,11 +7830,13 @@ async def restart_app(
     db: Session = Depends(get_db)
 ):
     """
-    Restart an app on target devices using a two-step process:
-    1. Force-stop the app via shell command
-    2. Launch the app via FCM LAUNCH_APP command
+    Restart an app on target devices using a three-step process:
+    1. Force-stop the app
+    2. Re-apply battery optimization exemption (prevents Android from resetting background permission)
+    3. Launch the app
     
-    Returns combined status tracking for both steps.
+    Each step has a 2-second delay to ensure proper execution.
+    Returns combined status tracking for all three steps.
     """
     import httpx
     
@@ -7810,7 +7890,7 @@ async def restart_app(
     
     client_ip = req.client.host if req.client else "unknown"
     
-    # Create exec records for both steps
+    # Create exec records for all three steps
     force_stop_exec = RemoteExec(
         mode="restart_app_stop",
         raw_request=json.dumps({
@@ -7828,12 +7908,29 @@ async def restart_app(
     db.commit()
     db.refresh(force_stop_exec)
     
+    exempt_exec = RemoteExec(
+        mode="restart_app_exempt",
+        raw_request=json.dumps({
+            "package_name": request.package_name,
+            "step": "battery_exemption",
+            "linked_exec_id": force_stop_exec.id
+        }),
+        targets=json.dumps([d.id for d in devices]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        total_targets=len(devices),
+        status="dispatching"
+    )
+    db.add(exempt_exec)
+    db.commit()
+    db.refresh(exempt_exec)
+    
     launch_exec = RemoteExec(
         mode="restart_app_launch",
         raw_request=json.dumps({
             "package_name": request.package_name,
             "step": "launch",
-            "linked_exec_id": force_stop_exec.id
+            "linked_exec_id": exempt_exec.id
         }),
         targets=json.dumps([d.id for d in devices]),
         created_by=user.username,
@@ -7852,12 +7949,14 @@ async def restart_app(
         fcm_url = build_fcm_v1_url(project_id)
     except Exception as e:
         force_stop_exec.status = "failed"
+        exempt_exec.status = "failed"
         launch_exec.status = "failed"
         db.commit()
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
     
-    # Create result records for both steps
+    # Create result records for all three steps
     force_stop_correlations = {}
+    exempt_correlations = {}
     launch_correlations = {}
     
     for device in devices:
@@ -7869,6 +7968,17 @@ async def restart_app(
             device_id=device.id,
             alias=device.alias,
             correlation_id=fs_correlation,
+            status="pending"
+        ))
+        
+        # Battery exemption result
+        exempt_correlation = str(uuid.uuid4())
+        exempt_correlations[device.id] = exempt_correlation
+        db.add(RemoteExecResult(
+            exec_id=exempt_exec.id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=exempt_correlation,
             status="pending"
         ))
         
@@ -7885,7 +7995,7 @@ async def restart_app(
     
     db.commit()
     
-    # Dispatch force-stop commands using the correct 'action: remote_exec' format
+    # Step 1: Dispatch force-stop commands
     semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
     force_stop_results = {}
     
@@ -7926,10 +8036,53 @@ async def restart_app(
     
     db.commit()
     
-    # Brief delay to allow force-stop to take effect
-    await asyncio.sleep(0.5)
+    # 2-second delay to allow force-stop to complete
+    await asyncio.sleep(2.0)
     
-    # Dispatch launch commands using the correct 'action: launch_app' format
+    # Step 2: Dispatch battery exemption commands
+    exempt_results = {}
+    
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            dispatch_exempt_unity_to_device(
+                device=device,
+                package_name=request.package_name,
+                correlation_id=exempt_correlations[device.id],
+                semaphore=semaphore,
+                client=client,
+                fcm_url=fcm_url,
+                access_token=access_token,
+                db_results=exempt_results
+            )
+            for device in devices
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # Update exemption exec counts
+    exempt_sent = sum(1 for r in exempt_results.values() if r.get("status") == "sent")
+    exempt_errors = len(devices) - exempt_sent
+    exempt_exec.sent_count = exempt_sent
+    exempt_exec.error_count = exempt_errors
+    exempt_exec.status = "pending" if exempt_sent > 0 else "failed"
+    
+    # Update failed result records
+    for device in devices:
+        result_data = exempt_results.get(device.id, {})
+        if result_data.get("status") != "sent":
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exempt_exec.id,
+                RemoteExecResult.device_id == device.id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = result_data.get("error", "FCM dispatch failed")
+    
+    db.commit()
+    
+    # 2-second delay to allow battery exemption to complete
+    await asyncio.sleep(2.0)
+    
+    # Step 3: Dispatch launch commands
     launch_results = {}
     
     async with httpx.AsyncClient() as client:
@@ -7972,11 +8125,13 @@ async def restart_app(
     structured_logger.log_event(
         "remote_exec.restart_app.dispatched",
         force_stop_exec_id=force_stop_exec.id,
+        exempt_exec_id=exempt_exec.id,
         launch_exec_id=launch_exec.id,
         package_name=request.package_name,
         user=user.username,
         total_targets=len(devices),
         force_stop_sent=fs_sent,
+        exempt_sent=exempt_sent,
         launch_sent=launch_sent,
         client_ip=client_ip
     )
@@ -7984,11 +8139,13 @@ async def restart_app(
     return {
         "restart_id": force_stop_exec.id,
         "force_stop_exec_id": force_stop_exec.id,
+        "exempt_exec_id": exempt_exec.id,
         "launch_exec_id": launch_exec.id,
         "package_name": request.package_name,
         "stats": {
             "total_targets": len(devices),
             "force_stop": {"sent": fs_sent, "errors": fs_errors},
+            "battery_exemption": {"sent": exempt_sent, "errors": exempt_errors},
             "launch": {"sent": launch_sent, "errors": launch_errors}
         }
     }
@@ -8001,7 +8158,7 @@ async def get_restart_app_status(
 ):
     """
     Get combined status for a restart-app operation.
-    Returns status of both force-stop and launch steps.
+    Returns status of all three steps: force-stop, battery exemption, and launch.
     """
     # Get force-stop exec (primary)
     force_stop_exec = db.query(RemoteExec).filter(
@@ -8012,21 +8169,34 @@ async def get_restart_app_status(
     if not force_stop_exec:
         raise HTTPException(status_code=404, detail="Restart operation not found")
     
-    # Get linked launch exec
+    # Get linked exemption and launch execs
     raw_request = json.loads(force_stop_exec.raw_request) if force_stop_exec.raw_request else {}
     package_name = raw_request.get("package_name", "unknown")
+    
+    exempt_exec = db.query(RemoteExec).filter(
+        RemoteExec.mode == "restart_app_exempt",
+        RemoteExec.created_by == force_stop_exec.created_by,
+        RemoteExec.created_at >= force_stop_exec.created_at,
+        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=15)
+    ).first()
     
     launch_exec = db.query(RemoteExec).filter(
         RemoteExec.mode == "restart_app_launch",
         RemoteExec.created_by == force_stop_exec.created_by,
         RemoteExec.created_at >= force_stop_exec.created_at,
-        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=10)
+        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=15)
     ).first()
     
-    # Get results for both
+    # Get results for all three steps
     force_stop_results = db.query(RemoteExecResult).filter(
         RemoteExecResult.exec_id == force_stop_exec.id
     ).all()
+    
+    exempt_results = []
+    if exempt_exec:
+        exempt_results = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == exempt_exec.id
+        ).all()
     
     launch_results = []
     if launch_exec:
@@ -8040,6 +8210,14 @@ async def get_restart_app_status(
     
     # Check force-stop results
     for result in force_stop_results:
+        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
+            result.status = "timed_out"
+            result.error = "Operation timed out after 5 minutes"
+            result.updated_at = datetime.now(timezone.utc)
+            timeout_updated = True
+    
+    # Check exemption results
+    for result in exempt_results:
         if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
             result.status = "timed_out"
             result.error = "Operation timed out after 5 minutes"
@@ -8061,6 +8239,10 @@ async def get_restart_app_status(
         force_stop_results = db.query(RemoteExecResult).filter(
             RemoteExecResult.exec_id == force_stop_exec.id
         ).all()
+        if exempt_exec:
+            exempt_results = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exempt_exec.id
+            ).all()
         if launch_exec:
             launch_results = db.query(RemoteExecResult).filter(
                 RemoteExecResult.exec_id == launch_exec.id
@@ -8078,8 +8260,18 @@ async def get_restart_app_status(
                 "output": r.output_preview,
                 "error": r.error
             },
+            "battery_exemption": {"status": "pending"},
             "launch": {"status": "pending"}
         }
+    
+    for r in exempt_results:
+        if r.device_id in device_statuses:
+            device_statuses[r.device_id]["battery_exemption"] = {
+                "status": r.status,
+                "exit_code": r.exit_code,
+                "output": r.output_preview,
+                "error": r.error
+            }
     
     for r in launch_results:
         if r.device_id in device_statuses:
@@ -8093,19 +8285,22 @@ async def get_restart_app_status(
     # Compute overall status per device
     for d in device_statuses.values():
         fs_status = d["force_stop"]["status"]
+        exempt_status = d["battery_exemption"]["status"]
         launch_status = d["launch"]["status"]
         fs_ok = fs_status == "OK"
+        exempt_ok = exempt_status == "OK"
         launch_ok = launch_status == "OK"
         
         # Check for timed_out (terminal state)
         fs_timed_out = fs_status == "timed_out"
+        exempt_timed_out = exempt_status == "timed_out"
         launch_timed_out = launch_status == "timed_out"
         
-        if fs_ok and launch_ok:
+        if fs_ok and exempt_ok and launch_ok:
             d["overall_status"] = "ok"
-        elif fs_timed_out or launch_timed_out:
+        elif fs_timed_out or exempt_timed_out or launch_timed_out:
             d["overall_status"] = "timed_out"
-        elif fs_status == "pending" or launch_status == "pending":
+        elif fs_status == "pending" or exempt_status == "pending" or launch_status == "pending":
             d["overall_status"] = "pending"
         else:
             d["overall_status"] = "failed"
