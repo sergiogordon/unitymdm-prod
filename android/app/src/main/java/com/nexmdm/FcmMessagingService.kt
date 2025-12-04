@@ -127,7 +127,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                 handleApplyBatteryWhitelistRequest(message.data)
             }
             "exempt_unity_app" -> {
-                handleExemptUnityAppRequest()
+                handleExemptUnityAppRequest(message.data)
             }
             "remote_exec_fcm" -> {
                 handleRemoteExecFcm(message.data)
@@ -902,13 +902,21 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
     }
     
-    private fun handleExemptUnityAppRequest() {
+    private fun handleExemptUnityAppRequest(data: Map<String, String>) {
         Log.i(TAG, "Handling exempt Unity app from battery optimization request")
+        
+        val correlationId = data["correlation_id"] ?: data["request_id"] ?: ""
+        val deviceId = resolveDeviceId(data["device_id"])
         
         val permissionManager = DeviceOwnerPermissionManager(this)
         
         if (!permissionManager.isDeviceOwner()) {
             Log.e(TAG, "Not Device Owner - cannot exempt Unity app from battery optimization")
+            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
+                // Send ACK for tracking
+                sendRemoteExecAck("", correlationId, "FAILED", -1, "", 
+                    "Not Device Owner - cannot exempt Unity app from battery optimization", deviceId)
+            }
             return
         }
         
@@ -916,6 +924,12 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         if (success) {
             Log.i(TAG, "✓ Unity app exempted from battery optimization via FCM command")
+            
+            // Send ACK for tracking
+            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
+                sendRemoteExecAck("", correlationId, "OK", 0, 
+                    "Unity app exempted from battery optimization successfully", null, deviceId)
+            }
             
             // Trigger immediate heartbeat to report updated status
             val serviceIntent = Intent(this, MonitorService::class.java).apply {
@@ -930,6 +944,10 @@ class FcmMessagingService : FirebaseMessagingService() {
             }
         } else {
             Log.e(TAG, "✗ Failed to exempt Unity app from battery optimization")
+            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
+                sendRemoteExecAck("", correlationId, "FAILED", -1, "", 
+                    "Failed to exempt Unity app from battery optimization", deviceId)
+            }
         }
     }
     
@@ -1470,6 +1488,21 @@ class FcmMessagingService : FirebaseMessagingService() {
                                     
                                     if (unhideResult) {
                                         Log.i(TAG, "✓ Successfully force-stopped $packageName using hide/unhide")
+                                        
+                                        // Re-apply battery optimization exemption after unhide
+                                        // Android resets battery optimization when hiding/unhiding apps
+                                        if (packageName == "io.unitynodes.unityapp") {
+                                            Log.i(TAG, "Re-applying battery optimization exemption for Unity app after unhide")
+                                            Thread.sleep(500) // Wait for unhide to fully process
+                                            
+                                            val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
+                                            if (exemptSuccess) {
+                                                Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")
+                                            } else {
+                                                Log.w(TAG, "⚠ Failed to re-apply battery optimization exemption for $packageName")
+                                            }
+                                        }
+                                        
                                         output = "Successfully force-stopped $packageName"
                                         status = "OK"
                                     } else {
