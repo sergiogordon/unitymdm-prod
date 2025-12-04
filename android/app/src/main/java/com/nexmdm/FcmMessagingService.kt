@@ -1438,6 +1438,64 @@ class FcmMessagingService : FirebaseMessagingService() {
                         error = "Not Device Owner - cannot enable Stay Awake"
                     }
                 }
+                "force_stop_app" -> {
+                    val packageName = data["package_name"] ?: ""
+                    if (packageName.isEmpty()) {
+                        status = "FAILED"
+                        error = "package_name is required for force_stop_app"
+                        output = ""
+                    } else {
+                        try {
+                            val permissionManager = DeviceOwnerPermissionManager(this)
+                            if (!permissionManager.isDeviceOwner()) {
+                                status = "FAILED"
+                                error = "Device Owner privileges required to force-stop apps"
+                                output = ""
+                            } else {
+                                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                                val adminComponent = ComponentName(this, NexDeviceAdminReceiver::class.java)
+                                
+                                Log.i(TAG, "Force stopping app using Device Owner: $packageName")
+                                
+                                // Method 1: Use setApplicationHidden to force-stop the app
+                                // Hide the app (this force-stops it)
+                                val hideResult = dpm.setApplicationHidden(adminComponent, packageName, true)
+                                
+                                if (hideResult) {
+                                    // Brief delay to ensure the app is fully stopped
+                                    Thread.sleep(100)
+                                    
+                                    // Unhide the app (so it can be launched again)
+                                    val unhideResult = dpm.setApplicationHidden(adminComponent, packageName, false)
+                                    
+                                    if (unhideResult) {
+                                        Log.i(TAG, "✓ Successfully force-stopped $packageName using hide/unhide")
+                                        output = "Successfully force-stopped $packageName"
+                                        status = "OK"
+                                    } else {
+                                        Log.w(TAG, "Force-stop worked but unhide failed for $packageName")
+                                        output = "Force-stopped but unhide failed for $packageName"
+                                        status = "OK"
+                                    }
+                                } else {
+                                    // Method 2: Try using ActivityManager.killBackgroundProcesses as fallback
+                                    Log.w(TAG, "setApplicationHidden failed, trying killBackgroundProcesses")
+                                    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                                    am.killBackgroundProcesses(packageName)
+                                    
+                                    Log.i(TAG, "✓ Killed background processes for $packageName")
+                                    output = "Killed background processes for $packageName (app may restart)"
+                                    status = "OK"
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to force-stop $packageName", e)
+                            status = "FAILED"
+                            error = "Failed to force-stop app: ${e.message}"
+                            output = ""
+                        }
+                    }
+                }
                 else -> {
                     status = "FAILED"
                     error = "Unknown FCM command type: $type"
