@@ -428,8 +428,21 @@ class DeviceOwnerPermissionManager(private val context: Context) {
             try {
                 val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    val isRestricted = am.isBackgroundRestricted(packageName)
-                    Log.i(TAG, "Background restriction status for $packageName: $isRestricted")
+                    // isBackgroundRestricted() doesn't take parameters - it checks the calling app
+                    // For Device Owner, we verify via AppOpsManager instead
+                    val appOpsManager = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                    val packageManager = context.packageManager
+                    val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                    val targetPackageUid = appInfo.uid
+                    
+                    // Check RUN_ANY_IN_BACKGROUND mode to determine if background is restricted
+                    val runAnyBgMode = appOpsManager.checkOpNoThrow(
+                        "android:run_any_in_background",
+                        targetPackageUid,
+                        packageName
+                    )
+                    val isRestricted = runAnyBgMode != AppOpsManager.MODE_ALLOWED
+                    Log.i(TAG, "Background restriction status for $packageName: $isRestricted (mode: $runAnyBgMode)")
                     if (isRestricted) {
                         Log.w(TAG, "⚠ App is background restricted - additional steps may be needed")
                     } else {
@@ -506,7 +519,7 @@ class DeviceOwnerPermissionManager(private val context: Context) {
                 val targetPackageUid = appInfo.uid
                 
                 val runAnyInBgMode = appOpsManager.checkOpNoThrow(
-                    AppOpsManager.OPSTR_RUN_ANY_IN_BACKGROUND,
+                    "android:run_any_in_background",
                     targetPackageUid,
                     packageName
                 )
