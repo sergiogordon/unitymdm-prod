@@ -6161,7 +6161,11 @@ async def upload_apk_admin(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     db: Session = Depends(get_db)
 ):
-    """Upload an APK file directly via admin interface (for smaller files)."""
+    """Upload an APK file directly via admin interface (for smaller files).
+    
+    Idempotent: If APK with same version already exists, returns success with existing info.
+    This allows CI/CD re-runs without failure.
+    """
     verify_admin_key(x_admin_key)
 
     # Validate version code
@@ -6172,8 +6176,27 @@ async def upload_apk_admin(
     existing_version = db.query(ApkVersion).filter(
         (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
     ).first()
+    
     if existing_version:
-        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
+        # If version already exists, return success with existing info (idempotent)
+        # This allows CI/CD re-runs without failure
+        structured_logger.log_event(
+            "apk.upload.skipped_existing",
+            admin_user="admin",
+            existing_apk_id=existing_version.id,
+            version_name=existing_version.version_name,
+            version_code=existing_version.version_code,
+            reason="version_already_exists"
+        )
+        return {
+            "ok": True,
+            "message": "APK version already exists (skipped upload)",
+            "apk_id": existing_version.id,
+            "version_name": existing_version.version_name,
+            "version_code": existing_version.version_code,
+            "storage_url": existing_version.storage_url,
+            "already_existed": True
+        }
 
     # Save the APK file to object storage
     try:
@@ -8204,7 +8227,11 @@ async def upload_apk_admin(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     db: Session = Depends(get_db)
 ):
-    """Upload an APK file directly via admin interface (for smaller files)."""
+    """Upload an APK file directly via admin interface (for smaller files).
+    
+    Idempotent: If APK with same version already exists, returns success with existing info.
+    This allows CI/CD re-runs without failure.
+    """
     verify_admin_key(x_admin_key)
 
     # Validate version code
@@ -8215,8 +8242,27 @@ async def upload_apk_admin(
     existing_version = db.query(ApkVersion).filter(
         (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
     ).first()
+    
     if existing_version:
-        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
+        # If version already exists, return success with existing info (idempotent)
+        # This allows CI/CD re-runs without failure
+        structured_logger.log_event(
+            "apk.upload.skipped_existing",
+            admin_user="admin",
+            existing_apk_id=existing_version.id,
+            version_name=existing_version.version_name,
+            version_code=existing_version.version_code,
+            reason="version_already_exists"
+        )
+        return {
+            "ok": True,
+            "message": "APK version already exists (skipped upload)",
+            "apk_id": existing_version.id,
+            "version_name": existing_version.version_name,
+            "version_code": existing_version.version_code,
+            "storage_url": existing_version.storage_url,
+            "already_existed": True
+        }
 
     # Save the APK file to object storage
     try:
