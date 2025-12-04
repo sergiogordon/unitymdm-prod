@@ -1493,14 +1493,16 @@ class FcmMessagingService : FirebaseMessagingService() {
                                         // Android resets battery optimization when hiding/unhiding apps
                                         if (packageName == "io.unitynodes.unityapp") {
                                             Log.i(TAG, "Re-applying battery optimization exemption for Unity app after unhide")
-                                            Thread.sleep(500) // Wait for unhide to fully process
+                                            
+                                            // Increased delay to ensure unhide is fully processed (3000ms as per plan)
+                                            Thread.sleep(3000)
                                             
                                             // Force refresh app state to help Android recognize app is no longer hidden
                                             try {
                                                 val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
                                                 // This helps Android recognize the app is no longer hidden
                                                 am.killBackgroundProcesses(packageName)
-                                                Thread.sleep(200) // Brief delay after refresh
+                                                Thread.sleep(500) // Increased delay after refresh
                                             } catch (e: Exception) {
                                                 Log.w(TAG, "Failed to refresh app state: ${e.message}")
                                             }
@@ -1508,6 +1510,9 @@ class FcmMessagingService : FirebaseMessagingService() {
                                             val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
                                             if (exemptSuccess) {
                                                 Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")
+                                                
+                                                // Additional delay after applying exemption before launching (3000ms as per plan)
+                                                Thread.sleep(3000)
                                             } else {
                                                 Log.w(TAG, "⚠ Failed to re-apply battery optimization exemption for $packageName")
                                             }
