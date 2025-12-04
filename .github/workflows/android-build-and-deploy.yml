@@ -197,40 +197,53 @@ jobs:
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
         run: |
-          echo "🔍 Testing backend connectivity..."
-          echo "Backend URL: $BACKEND_URL"
-          
-          # Test if frontend (public URL) is reachable
-          if curl -f -s -o /dev/null -w "%{http_code}" "$BACKEND_URL" > /dev/null 2>&1; then
-            echo "✅ Frontend is reachable"
-          else
-            echo "⚠️  Frontend might not be reachable, but continuing..."
-          fi
-
-      - name: Check backend connectivity
-        env:
-          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
-        run: |
           echo "🔍 Checking backend connectivity..."
           echo "Backend URL: $BACKEND_URL"
           
-          # Check if frontend is accessible
+          # Check if frontend is accessible (with retry for cold starts)
           echo "Testing frontend accessibility..."
-          FRONTEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL" || echo "000")
-          if [ "$FRONTEND_CODE" = "000" ]; then
-            echo "❌ ERROR: Cannot reach frontend at $BACKEND_URL"
-            echo "   This usually means the deployment is down or the URL is incorrect"
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            FRONTEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$BACKEND_URL" || echo "000")
+            
+            if [ "$FRONTEND_CODE" = "000" ]; then
+              echo "❌ Attempt $i/$MAX_RETRIES: Cannot reach frontend at $BACKEND_URL"
+              if [ $i -lt $MAX_RETRIES ]; then
+                echo "   Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            elif [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
+              echo "⚠️  Attempt $i/$MAX_RETRIES: Frontend returned HTTP $FRONTEND_CODE (app may be starting)"
+              if [ $i -lt $MAX_RETRIES ]; then
+                echo "   Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            elif [ "$FRONTEND_CODE" = "200" ] || [ "$FRONTEND_CODE" = "301" ] || [ "$FRONTEND_CODE" = "302" ]; then
+              echo "✅ Frontend is accessible (HTTP $FRONTEND_CODE)"
+              break
+            else
+              echo "✅ Frontend responded (HTTP $FRONTEND_CODE)"
+              break
+            fi
+          done
+          
+          # Final check after retries
+          if [ "$FRONTEND_CODE" = "000" ] || [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
+            echo ""
+            echo "❌ ERROR: Replit app is not reachable after $MAX_RETRIES attempts"
+            echo "   HTTP Status: $FRONTEND_CODE"
+            echo "   Please ensure the Frontend and Backend workflows are running in Replit"
             exit 1
           fi
-          echo "✅ Frontend is accessible (HTTP $FRONTEND_CODE)"
           
           # Check if backend health endpoint is accessible via proxy
           echo "Testing backend health via proxy..."
           HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL/api/proxy/healthz" || echo "000")
           if [ "$HEALTH_CODE" = "000" ] || [ "$HEALTH_CODE" = "502" ] || [ "$HEALTH_CODE" = "504" ]; then
             echo "⚠️  WARNING: Backend health check failed (HTTP $HEALTH_CODE)"
-            echo "   The backend may not be running or the proxy cannot connect"
-            echo "   This might be a temporary issue - will attempt registration anyway"
+            echo "   The backend may still be starting up - will attempt upload anyway"
           elif [ "$HEALTH_CODE" = "200" ]; then
             echo "✅ Backend is healthy and accessible via proxy"
           else
