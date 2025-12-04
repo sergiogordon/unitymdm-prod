@@ -2528,11 +2528,8 @@ async def heartbeat(
         # This field now tracks Unity app activity
         monitored_foreground_recent_s = payload.monitored_foreground_recent_s
 
-        print(f"[MONITORING-DEBUG] {device.alias}: monitored_foreground_recent_s={monitored_foreground_recent_s}")
-
         # Treat -1 as sentinel value for "not available" (normalize to None)
         if monitored_foreground_recent_s is not None and monitored_foreground_recent_s < 0:
-            print(f"[MONITORING-DEBUG] {device.alias}: Normalizing {monitored_foreground_recent_s} to None (data unavailable)")
             monitored_foreground_recent_s = None
 
         # Evaluate service status only if app is installed
@@ -2646,7 +2643,6 @@ async def heartbeat(
     # Unity field ALWAYS reflects io.unitynodes.unityapp, NOT the monitored package
     # Defensive check: ensure app_versions exists before accessing it
     if not payload.app_versions:
-        print(f"[UNITY-STATUS-DEBUG] {device.alias}: payload.app_versions is None or empty - defaulting to not_installed")
         last_status_dict["unity"] = {
             "package": "io.unitynodes.unityapp",
             "status": "not_installed"
@@ -2655,28 +2651,18 @@ async def heartbeat(
         unity_app_info = payload.app_versions.get("io.unitynodes.unityapp")
 
         if not unity_app_info:
-            print(f"[UNITY-STATUS-DEBUG] {device.alias}: io.unitynodes.unityapp key not found in app_versions (available keys: {list(payload.app_versions.keys())}) - defaulting to not_installed")
             last_status_dict["unity"] = {
                 "package": "io.unitynodes.unityapp",
                 "status": "not_installed"
             }
         elif unity_app_info.installed:
             # Unity app is installed - determine running status using foreground recency
-            # Android agent sends monitored_foreground_recent_s specifically for Unity
-            # Use this directly with a 10 minute threshold (600 seconds)
             unity_fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
 
             if unity_fg_seconds is not None:
-                # Unity is running if it was in foreground within the last 10 minutes
-                if unity_fg_seconds < 600:
-                    unity_status = "running"
-                else:
-                    unity_status = "down"
-                print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity installed, fg_seconds={unity_fg_seconds}, status={unity_status}")
+                unity_status = "running" if unity_fg_seconds < 600 else "down"
             else:
-                # No foreground data available - app is installed but not running
                 unity_status = "down"
-                print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity installed but no foreground data - status=down")
 
             last_status_dict["unity"] = {
                 "package": "io.unitynodes.unityapp",
@@ -2684,8 +2670,6 @@ async def heartbeat(
                 "status": unity_status
             }
         else:
-            # Unity app not installed
-            print(f"[UNITY-STATUS-DEBUG] {device.alias}: Unity app not installed (installed=False)")
             last_status_dict["unity"] = {
                 "package": "io.unitynodes.unityapp",
                 "status": "not_installed"
@@ -2699,17 +2683,7 @@ async def heartbeat(
     device.last_status = json.dumps(last_status_dict)
 
     # Auto-relaunch logic: Check if monitored app is down and auto-relaunch is enabled
-    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: auto_relaunch_enabled={device.auto_relaunch_enabled}, monitored_package={device.monitored_package}")
-    if payload.app_versions:
-        all_packages = list(payload.app_versions.keys())
-        print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Available packages in payload: {all_packages}")
-        for pkg_name, pkg_info in payload.app_versions.items():
-            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Package '{pkg_name}': installed={pkg_info.installed if pkg_info else 'N/A'}")
-    else:
-        print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_versions in payload")
-
-    # Auto-relaunch logic: Use monitoring settings package if available, otherwise use device.monitored_package
-    # This ensures consistency with service monitoring logic
+    # Use monitoring settings package if available, otherwise use device.monitored_package
     auto_relaunch_package = None
     if device.auto_relaunch_enabled:
         # Prefer monitoring_settings package if monitoring is enabled, otherwise use device.monitored_package
@@ -2719,7 +2693,6 @@ async def heartbeat(
             auto_relaunch_package = device.monitored_package
         
         if auto_relaunch_package:
-            # Android app now sends full package names as keys (e.g., io.unitynodes.unityapp)
             # Try primary lookup first, then fallback to io.unitynodes.unityapp for consistency
             app_info = payload.app_versions.get(auto_relaunch_package) if payload.app_versions else None
             package_used = auto_relaunch_package
@@ -2732,69 +2705,34 @@ async def heartbeat(
                 if app_info:
                     package_used = fallback_package
                     used_fallback = True
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Primary package '{auto_relaunch_package}' not found, using fallback '{fallback_package}'")
-
-            if app_info:
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Found app_info for '{package_used}' (fallback={used_fallback}): installed={app_info.installed}")
-            else:
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No app_info found for '{auto_relaunch_package}' or fallback 'io.unitynodes.unityapp'")
 
             # Check if app is installed
             if app_info and app_info.installed:
-                # Check if app is running using monitored_foreground_recent_s
-                # Use the same monitoring threshold as service monitoring evaluation
                 fg_seconds = payload.monitored_foreground_recent_s
-
-                # Treat -1 as sentinel value for "not available" (normalize to None)
                 if fg_seconds is not None and fg_seconds < 0:
                     fg_seconds = None
 
                 if fg_seconds is not None:
-                    # We have valid foreground data - use monitoring threshold to determine if running
-                    # Use the same threshold logic as service monitoring for consistency
-                    if monitoring_settings.get("enabled") and monitoring_settings.get("threshold_min"):
-                        threshold_min = monitoring_settings["threshold_min"]
-                    else:
-                        threshold_min = device.monitored_threshold_min or 10
+                    threshold_min = monitoring_settings.get("threshold_min") or device.monitored_threshold_min or 10
                     threshold_seconds = threshold_min * 60
                     is_app_running = fg_seconds <= threshold_seconds
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: foreground_recent_seconds={fg_seconds}, threshold={threshold_seconds}s ({threshold_min}min), is_app_running={is_app_running}")
                 else:
-                    # No foreground data available but app is installed - assume down to trigger relaunch
-                    # This matches service monitoring logic which also treats missing foreground data as "down"
                     is_app_running = False
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: No foreground data available, app is installed - assuming down (is_app_running=False)")
             else:
-                # App not installed or app_info not found - don't try to relaunch
                 is_app_running = True  # Prevent relaunch loop for uninstalled apps
-                if not app_info:
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App info not found in payload - skipping relaunch (package '{auto_relaunch_package}' not in app_versions)")
-                else:
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App not installed (installed=False) - skipping relaunch")
 
             # If app is not running, trigger FCM relaunch
-            fcm_token_status = "present" if device.fcm_token else "MISSING"
-            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Final check - is_app_running={is_app_running}, fcm_token={fcm_token_status}")
-
-            if not is_app_running:
-                if not device.fcm_token:
-                    print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Cannot trigger relaunch - FCM token is MISSING")
-                else:
-                    try:
-                        print(f"[AUTO-RELAUNCH] {device.alias}: {package_used} is down, sending relaunch command (using package: {package_used})")
-                        asyncio.create_task(send_fcm_launch_app(device.fcm_token, package_used, device.id))
-                        log_device_event(db, device.id, "auto_relaunch_triggered", {
-                            "package": package_used,
-                            "used_fallback": used_fallback,
-                            "original_package": auto_relaunch_package
-                        })
-                    except Exception as e:
-                        print(f"[AUTO-RELAUNCH] Failed to send relaunch for {device.alias}: {e}")
-            else:
-                print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: App is running (is_app_running=True) - skipping relaunch")
-        else:
-            # Auto-relaunch enabled but no package configured
-            print(f"[AUTO-RELAUNCH-DEBUG] {device.alias}: Auto-relaunch enabled but no monitored package configured")
+            if not is_app_running and device.fcm_token:
+                try:
+                    asyncio.create_task(send_fcm_launch_app(device.fcm_token, package_used, device.id))
+                    log_device_event(db, device.id, "auto_relaunch_triggered", {
+                        "package": package_used,
+                        "used_fallback": used_fallback,
+                        "original_package": auto_relaunch_package
+                    })
+                except Exception as e:
+                    structured_logger.log_event("auto_relaunch.failed", level="ERROR", 
+                                               device_id=device.id, error=str(e))
 
     db.commit()
 
