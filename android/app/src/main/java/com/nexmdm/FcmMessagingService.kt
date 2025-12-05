@@ -1494,27 +1494,31 @@ class FcmMessagingService : FirebaseMessagingService() {
                                         if (packageName == "io.unitynodes.unityapp") {
                                             Log.i(TAG, "Re-applying battery optimization exemption for Unity app after unhide")
                                             
-                                            // Increased delay to ensure unhide is fully processed (3000ms as per plan)
-                                            Thread.sleep(3000)
-                                            
-                                            // Force refresh app state to help Android recognize app is no longer hidden
-                                            try {
-                                                val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-                                                // This helps Android recognize the app is no longer hidden
-                                                am.killBackgroundProcesses(packageName)
-                                                Thread.sleep(500) // Increased delay after refresh
-                                            } catch (e: Exception) {
-                                                Log.w(TAG, "Failed to refresh app state: ${e.message}")
-                                            }
-                                            
-                                            val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
-                                            if (exemptSuccess) {
-                                                Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")
+                                            // Move battery exemption work to background thread to avoid blocking main thread
+                                            // Use coroutines to handle delays without blocking
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                // Increased delay to ensure unhide is fully processed (3000ms as per plan)
+                                                kotlinx.coroutines.delay(3000)
                                                 
-                                                // Additional delay after applying exemption before launching (3000ms as per plan)
-                                                Thread.sleep(3000)
-                                            } else {
-                                                Log.w(TAG, "⚠ Failed to re-apply battery optimization exemption for $packageName")
+                                                // Force refresh app state to help Android recognize app is no longer hidden
+                                                try {
+                                                    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                                                    // This helps Android recognize the app is no longer hidden
+                                                    am.killBackgroundProcesses(packageName)
+                                                    kotlinx.coroutines.delay(500) // Increased delay after refresh
+                                                } catch (e: Exception) {
+                                                    Log.w(TAG, "Failed to refresh app state: ${e.message}")
+                                                }
+                                                
+                                                val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
+                                                if (exemptSuccess) {
+                                                    Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")
+                                                    
+                                                    // Additional delay after applying exemption before launching (3000ms as per plan)
+                                                    kotlinx.coroutines.delay(3000)
+                                                } else {
+                                                    Log.w(TAG, "⚠ Failed to re-apply battery optimization exemption for $packageName")
+                                                }
                                             }
                                         }
                                         

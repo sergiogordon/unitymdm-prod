@@ -2735,12 +2735,36 @@ async def heartbeat(
                 "status": "not_installed"
             }
         elif unity_app_info.installed:
-            # Unity app is installed - determine running status using foreground recency
-            unity_fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
-
-            if unity_fg_seconds is not None:
+            # Unity app is installed - determine running status
+            # Check process running status first (works for background processes)
+            process_running = getattr(payload, 'unity_process_running', None)
+            
+            # Get foreground recency - only use if it's actually for Unity
+            # monitored_foreground_recent_s represents the configured monitored package (may not be Unity)
+            is_unity_monitored = monitoring_settings.get("package") == "io.unitynodes.unityapp"
+            
+            unity_fg_seconds = None
+            if is_unity_monitored:
+                # Only use foreground data if Unity is actually the monitored package
+                fg_seconds_raw = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+                # Exclude -1 sentinel value (unavailable data) before comparison
+                if fg_seconds_raw is not None and fg_seconds_raw >= 0:
+                    unity_fg_seconds = fg_seconds_raw
+            
+            # Unity is running if:
+            # 1. Process exists (running in foreground OR background), OR
+            # 2. App was in foreground within last 10 minutes (only if Unity is the monitored package)
+            if process_running is True:
+                # Process check succeeded and found process - Unity is running
+                unity_status = "running"
+            elif process_running is False:
+                # Process check succeeded and found no process - Unity is definitively not running
+                unity_status = "down"
+            elif unity_fg_seconds is not None:
+                # Process check unavailable (null) - use foreground data as fallback
                 unity_status = "running" if unity_fg_seconds < 600 else "down"
             else:
+                # No process or foreground data available - assume down
                 unity_status = "down"
 
             last_status_dict["unity"] = {
@@ -6711,6 +6735,31 @@ async def update_installation_status(
 
     db.commit()
 
+    # Check if this installation is part of a reinstall-unity-and-launch operation
+    # If so, trigger launch_app after a delay
+    if payload.status == "completed":
+        reinstall_exec = db.query(RemoteExec).filter(
+            RemoteExec.mode == "reinstall_unity_and_launch",
+            RemoteExec.targets.contains(f'"{device.id}"')
+        ).order_by(RemoteExec.created_at.desc()).first()
+        
+        if reinstall_exec:
+            raw_request = json.loads(reinstall_exec.raw_request) if reinstall_exec.raw_request else {}
+            launch_correlations = raw_request.get("launch_correlations", {})
+            package_name = raw_request.get("package_name", "io.unitynodes.unityapp")
+            
+            if device.id in launch_correlations:
+                # Schedule launch_app dispatch after 2-3 second delay
+                launch_correlation_id = launch_correlations[device.id]
+                asyncio.create_task(
+                    trigger_launch_after_install(
+                        device_id=device.id,
+                        package_name=package_name,
+                        correlation_id=launch_correlation_id,
+                        exec_id=reinstall_exec.id
+                    )
+                )
+
     await manager.broadcast({
         "type": "installation_update",
         "device_id": str(device.id),
@@ -6720,6 +6769,92 @@ async def update_installation_status(
     })
 
     return {"success": True}
+
+async def trigger_launch_after_install(
+    device_id: str,
+    package_name: str,
+    correlation_id: str,
+    exec_id: str
+):
+    """
+    Helper function to trigger launch_app after installation completes.
+    Waits 2-3 seconds, then dispatches launch_app FCM command.
+    """
+    import httpx
+    
+    # Wait 2-3 seconds for installation to fully complete
+    await asyncio.sleep(2.5)
+    
+    # Create a new database session for this async task
+    db_session = SessionLocal()
+    try:
+        # Refresh device to get latest FCM token
+        device = db_session.query(Device).filter(Device.id == device_id).first()
+        if not device or not device.fcm_token:
+            # Update result record to show error
+            result = db_session.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_id,
+                RemoteExecResult.device_id == device_id,
+                RemoteExecResult.correlation_id == correlation_id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = "No FCM token available"
+                db_session.commit()
+            return
+        
+        # Get FCM credentials
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+        
+        # Dispatch launch_app FCM command
+        semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+        db_results = {}
+        
+        async with httpx.AsyncClient() as client:
+            await dispatch_launch_app_to_device(
+                device=device,
+                package_name=package_name,
+                correlation_id=correlation_id,
+                semaphore=semaphore,
+                client=client,
+                fcm_url=fcm_url,
+                access_token=access_token,
+                db_results=db_results
+            )
+        
+        # Update result record with dispatch status
+        result = db_session.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == exec_id,
+            RemoteExecResult.device_id == device_id,
+            RemoteExecResult.correlation_id == correlation_id
+        ).first()
+        
+        if result:
+            result_data = db_results.get(device_id, {})
+            if result_data.get("status") == "sent":
+                result.status = "pending"  # Will be updated by ACK
+            else:
+                result.status = "error"
+                result.error = result_data.get("error", "FCM dispatch failed")
+            db_session.commit()
+    except Exception as e:
+        # Update result record to show error
+        try:
+            result = db_session.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == exec_id,
+                RemoteExecResult.device_id == device_id,
+                RemoteExecResult.correlation_id == correlation_id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = f"Launch trigger failed: {str(e)}"
+                db_session.commit()
+        except:
+            pass
+    finally:
+        db_session.close()
 
 # =============================================================================
 # ⚠️  END CRITICAL APK ENDPOINTS ⚠️
@@ -7942,6 +8077,23 @@ async def restart_app(
     db.commit()
     db.refresh(launch_exec)
     
+    ui_clicks_exec = RemoteExec(
+        mode="restart_app_ui_clicks",
+        raw_request=json.dumps({
+            "package_name": request.package_name,
+            "step": "ui_clicks",
+            "linked_exec_id": launch_exec.id
+        }),
+        targets=json.dumps([d.id for d in devices]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        total_targets=len(devices),
+        status="pending"
+    )
+    db.add(ui_clicks_exec)
+    db.commit()
+    db.refresh(ui_clicks_exec)
+    
     # Get FCM credentials
     try:
         access_token = get_access_token()
@@ -7954,10 +8106,11 @@ async def restart_app(
         db.commit()
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
     
-    # Create result records for all three steps
+    # Create result records for all four steps
     force_stop_correlations = {}
     exempt_correlations = {}
     launch_correlations = {}
+    ui_clicks_correlations = {}
     
     for device in devices:
         # Force stop result
@@ -7990,6 +8143,17 @@ async def restart_app(
             device_id=device.id,
             alias=device.alias,
             correlation_id=launch_correlation,
+            status="pending"
+        ))
+        
+        # UI clicks result
+        ui_clicks_correlation = str(uuid.uuid4())
+        ui_clicks_correlations[device.id] = ui_clicks_correlation
+        db.add(RemoteExecResult(
+            exec_id=ui_clicks_exec.id,
+            device_id=device.id,
+            alias=device.alias,
+            correlation_id=ui_clicks_correlation,
             status="pending"
         ))
     
@@ -8122,17 +8286,144 @@ async def restart_app(
     
     db.commit()
     
+    # 15-second delay to allow app to load and show permission prompt
+    await asyncio.sleep(15.0)
+    
+    # Step 4: Dispatch UI clicks commands (with retry logic)
+    ui_clicks_exec.status = "dispatching"
+    db.commit()
+    
+    # First tap: input tap 500 885 (with retry logic - 3 attempts)
+    # Use base correlation ID for all retry attempts (updates same result record)
+    first_tap_results = {}
+    first_tap_success = set()
+    
+    for attempt in range(3):
+        attempt_results = {}
+        async with httpx.AsyncClient() as client:
+            tasks = [
+                dispatch_fcm_to_device(
+                    device=device,
+                    exec_id=ui_clicks_exec.id,
+                    mode="shell",
+                    payload={"script": "input tap 500 885"},
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token,
+                    db_results=attempt_results,
+                    correlation_id=ui_clicks_correlations[device.id]  # Use base correlation ID
+                )
+                for device in devices if device.id not in first_tap_success
+            ]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Track successful dispatches
+        for device_id, result in attempt_results.items():
+            if result.get("status") == "sent":
+                first_tap_success.add(device_id)
+                if device_id not in first_tap_results:
+                    first_tap_results[device_id] = result
+        
+        # If all devices succeeded or this is the last attempt, break
+        if len(first_tap_success) == len(devices) or attempt == 2:
+            break
+        
+        # Wait 1 second between retries
+        if attempt < 2:
+            await asyncio.sleep(1.0)
+    
+    # Check if first tap failed for any devices - abort for those devices
+    failed_devices = set(device.id for device in devices) - first_tap_success
+    if failed_devices:
+        for device_id in failed_devices:
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == ui_clicks_exec.id,
+                RemoteExecResult.device_id == device_id
+            ).first()
+            if result:
+                result.status = "error"
+                result.error = "First tap failed after 3 retry attempts - aborted"
+    
+    # Wait 2 seconds before second tap
+    await asyncio.sleep(2.0)
+    
+    # Second tap: input tap 590 980 (with retry logic - 3 attempts, only for devices that succeeded first tap)
+    # Use same correlation ID (updates same result record with second tap result)
+    second_tap_results = {}
+    second_tap_success = set()
+    
+    for attempt in range(3):
+        attempt_results = {}
+        async with httpx.AsyncClient() as client:
+            tasks = [
+                dispatch_fcm_to_device(
+                    device=device,
+                    exec_id=ui_clicks_exec.id,
+                    mode="shell",
+                    payload={"script": "input tap 590 980"},
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token,
+                    db_results=attempt_results,
+                    correlation_id=ui_clicks_correlations[device.id]  # Use same correlation ID
+                )
+                for device in devices if device.id in first_tap_success and device.id not in second_tap_success
+            ]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Track successful dispatches
+        for device_id, result in attempt_results.items():
+            if result.get("status") == "sent":
+                second_tap_success.add(device_id)
+                if device_id not in second_tap_results:
+                    second_tap_results[device_id] = result
+        
+        # If all eligible devices succeeded or this is the last attempt, break
+        if len(second_tap_success) == len(first_tap_success) or attempt == 2:
+            break
+        
+        # Wait 1 second between retries
+        if attempt < 2:
+            await asyncio.sleep(1.0)
+    
+    # Update UI clicks exec counts and status
+    ui_clicks_sent = len(first_tap_success)
+    ui_clicks_errors = len(devices) - ui_clicks_sent
+    ui_clicks_exec.sent_count = ui_clicks_sent
+    ui_clicks_exec.error_count = ui_clicks_errors
+    ui_clicks_exec.status = "pending" if ui_clicks_sent > 0 else "failed"
+    
+    # Update result records for devices where second tap failed
+    for device_id in first_tap_success:
+        if device_id not in second_tap_success:
+            result = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == ui_clicks_exec.id,
+                RemoteExecResult.device_id == device_id
+            ).first()
+            if result:
+                # Partial success - first tap worked but second failed
+                result.status = "error"
+                result.error = "First tap succeeded but second tap failed after 3 retry attempts"
+    
+    db.commit()
+    
     structured_logger.log_event(
         "remote_exec.restart_app.dispatched",
         force_stop_exec_id=force_stop_exec.id,
         exempt_exec_id=exempt_exec.id,
         launch_exec_id=launch_exec.id,
+        ui_clicks_exec_id=ui_clicks_exec.id,
         package_name=request.package_name,
         user=user.username,
         total_targets=len(devices),
         force_stop_sent=fs_sent,
         exempt_sent=exempt_sent,
         launch_sent=launch_sent,
+        ui_clicks_sent=ui_clicks_sent,
         client_ip=client_ip
     )
     
@@ -8141,12 +8432,14 @@ async def restart_app(
         "force_stop_exec_id": force_stop_exec.id,
         "exempt_exec_id": exempt_exec.id,
         "launch_exec_id": launch_exec.id,
+        "ui_clicks_exec_id": ui_clicks_exec.id,
         "package_name": request.package_name,
         "stats": {
             "total_targets": len(devices),
             "force_stop": {"sent": fs_sent, "errors": fs_errors},
             "battery_exemption": {"sent": exempt_sent, "errors": exempt_errors},
-            "launch": {"sent": launch_sent, "errors": launch_errors}
+            "launch": {"sent": launch_sent, "errors": launch_errors},
+            "ui_clicks": {"sent": ui_clicks_sent, "errors": ui_clicks_errors}
         }
     }
 
@@ -8158,7 +8451,7 @@ async def get_restart_app_status(
 ):
     """
     Get combined status for a restart-app operation.
-    Returns status of all three steps: force-stop, battery exemption, and launch.
+    Returns status of all four steps: force-stop, battery exemption, launch, and UI clicks.
     """
     # Get force-stop exec (primary)
     force_stop_exec = db.query(RemoteExec).filter(
@@ -8169,7 +8462,7 @@ async def get_restart_app_status(
     if not force_stop_exec:
         raise HTTPException(status_code=404, detail="Restart operation not found")
     
-    # Get linked exemption and launch execs
+    # Get linked exemption, launch, and UI clicks execs
     raw_request = json.loads(force_stop_exec.raw_request) if force_stop_exec.raw_request else {}
     package_name = raw_request.get("package_name", "unknown")
     
@@ -8187,7 +8480,14 @@ async def get_restart_app_status(
         RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=15)
     ).first()
     
-    # Get results for all three steps
+    ui_clicks_exec = db.query(RemoteExec).filter(
+        RemoteExec.mode == "restart_app_ui_clicks",
+        RemoteExec.created_by == force_stop_exec.created_by,
+        RemoteExec.created_at >= force_stop_exec.created_at,
+        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=30)
+    ).first()
+    
+    # Get results for all four steps
     force_stop_results = db.query(RemoteExecResult).filter(
         RemoteExecResult.exec_id == force_stop_exec.id
     ).all()
@@ -8202,6 +8502,12 @@ async def get_restart_app_status(
     if launch_exec:
         launch_results = db.query(RemoteExecResult).filter(
             RemoteExecResult.exec_id == launch_exec.id
+        ).all()
+    
+    ui_clicks_results = []
+    if ui_clicks_exec:
+        ui_clicks_results = db.query(RemoteExecResult).filter(
+            RemoteExecResult.exec_id == ui_clicks_exec.id
         ).all()
     
     # Timeout logic: Mark pending results older than 5 minutes as timed_out
@@ -8232,6 +8538,14 @@ async def get_restart_app_status(
             result.updated_at = datetime.now(timezone.utc)
             timeout_updated = True
     
+    # Check UI clicks results
+    for result in ui_clicks_results:
+        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
+            result.status = "timed_out"
+            result.error = "Operation timed out after 5 minutes"
+            result.updated_at = datetime.now(timezone.utc)
+            timeout_updated = True
+    
     # Commit timeout updates if any
     if timeout_updated:
         db.commit()
@@ -8247,6 +8561,10 @@ async def get_restart_app_status(
             launch_results = db.query(RemoteExecResult).filter(
                 RemoteExecResult.exec_id == launch_exec.id
             ).all()
+        if ui_clicks_exec:
+            ui_clicks_results = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == ui_clicks_exec.id
+            ).all()
     
     # Build per-device combined status
     device_statuses = {}
@@ -8261,7 +8579,8 @@ async def get_restart_app_status(
                 "error": r.error
             },
             "battery_exemption": {"status": "pending"},
-            "launch": {"status": "pending"}
+            "launch": {"status": "pending"},
+            "ui_clicks": {"status": "pending"}
         }
     
     for r in exempt_results:
@@ -8282,25 +8601,37 @@ async def get_restart_app_status(
                 "error": r.error
             }
     
+    for r in ui_clicks_results:
+        if r.device_id in device_statuses:
+            device_statuses[r.device_id]["ui_clicks"] = {
+                "status": r.status,
+                "exit_code": r.exit_code,
+                "output": r.output_preview,
+                "error": r.error
+            }
+    
     # Compute overall status per device
     for d in device_statuses.values():
         fs_status = d["force_stop"]["status"]
         exempt_status = d["battery_exemption"]["status"]
         launch_status = d["launch"]["status"]
+        ui_clicks_status = d["ui_clicks"]["status"]
         fs_ok = fs_status == "OK"
         exempt_ok = exempt_status == "OK"
         launch_ok = launch_status == "OK"
+        ui_clicks_ok = ui_clicks_status == "OK"
         
         # Check for timed_out (terminal state)
         fs_timed_out = fs_status == "timed_out"
         exempt_timed_out = exempt_status == "timed_out"
         launch_timed_out = launch_status == "timed_out"
+        ui_clicks_timed_out = ui_clicks_status == "timed_out"
         
-        if fs_ok and exempt_ok and launch_ok:
+        if fs_ok and exempt_ok and launch_ok and ui_clicks_ok:
             d["overall_status"] = "ok"
-        elif fs_timed_out or exempt_timed_out or launch_timed_out:
+        elif fs_timed_out or exempt_timed_out or launch_timed_out or ui_clicks_timed_out:
             d["overall_status"] = "timed_out"
-        elif fs_status == "pending" or exempt_status == "pending" or launch_status == "pending":
+        elif fs_status == "pending" or exempt_status == "pending" or launch_status == "pending" or ui_clicks_status == "pending":
             d["overall_status"] = "pending"
         else:
             d["overall_status"] = "failed"
@@ -8337,18 +8668,420 @@ async def get_restart_app_status(
         overall_status = "pending"
         failure_reason = None
     
-    return {
+    result = {
         "restart_id": restart_id,
         "package_name": package_name,
         "status": overall_status,
         "failure_reason": failure_reason,
         "created_at": force_stop_exec.created_at.isoformat() + "Z",
         "created_by": force_stop_exec.created_by,
+        "force_stop_exec_id": force_stop_exec.id,
         "stats": {
             "total": total,
             "ok": ok_count,
             "failed": failed_count,
             "timed_out": timed_out_count,
+            "pending": pending_count
+        },
+        "devices": list(device_statuses.values())
+    }
+    
+    if exempt_exec:
+        result["exempt_exec_id"] = exempt_exec.id
+    if launch_exec:
+        result["launch_exec_id"] = launch_exec.id
+    if ui_clicks_exec:
+        result["ui_clicks_exec_id"] = ui_clicks_exec.id
+    
+    return result
+
+# --- Unity Soft Update Refresh Endpoint ---
+
+def find_latest_unity_apk(db: Session) -> Optional[ApkVersion]:
+    """
+    Find the latest Unity APK where version_name starts with 'Unity'.
+    Returns the most recently uploaded Unity APK, or None if not found.
+    """
+    unity_apk = db.query(ApkVersion).filter(
+        ApkVersion.version_name.like('Unity%'),
+        ApkVersion.is_active == True
+    ).order_by(ApkVersion.uploaded_at.desc()).first()
+    return unity_apk
+
+class ReinstallUnityAndLaunchRequest(BaseModel):
+    device_ids: List[str]
+    dry_run: bool = False
+
+@app.post("/v1/apk/reinstall-unity-and-launch")
+async def reinstall_unity_and_launch(
+    request: ReinstallUnityAndLaunchRequest,
+    req: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Reinstall the latest Unity APK and launch the app.
+    Processes devices in batches of 5, waits for installation completion,
+    then triggers launch_app after a 2-3 second delay.
+    """
+    import httpx
+    
+    # Rate limit check
+    rate_key = f"remote_exec_batch:{user.id}"
+    if not remote_exec_batch_limiter.is_allowed(rate_key):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+    
+    # Find latest Unity APK
+    unity_apk = find_latest_unity_apk(db)
+    if not unity_apk:
+        raise HTTPException(status_code=404, detail="No Unity APK found. Upload an APK with version_name starting with 'Unity'.")
+    
+    # Get devices
+    devices = db.query(Device).filter(Device.id.in_(request.device_ids)).all()
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices found")
+    
+    # Filter devices with FCM tokens
+    devices_with_fcm = [d for d in devices if d.fcm_token]
+    if not devices_with_fcm:
+        raise HTTPException(status_code=400, detail="No devices with FCM tokens found")
+    
+    # Dry run mode
+    if request.dry_run:
+        return {
+            "dry_run": True,
+            "target_count": len(devices_with_fcm),
+            "unity_apk": {
+                "id": unity_apk.id,
+                "version_name": unity_apk.version_name,
+                "version_code": unity_apk.version_code
+            },
+            "sample_devices": [{"id": d.id, "alias": d.alias} for d in devices_with_fcm[:10]]
+        }
+    
+    client_ip = req.client.host if req.client else "unknown"
+    
+    # Create primary RemoteExec record for tracking
+    reinstall_exec = RemoteExec(
+        mode="reinstall_unity_and_launch",
+        raw_request=json.dumps({
+            "apk_id": unity_apk.id,
+            "version_name": unity_apk.version_name,
+            "version_code": unity_apk.version_code,
+            "package_name": unity_apk.package_name if hasattr(unity_apk, 'package_name') else "io.unitynodes.unityapp"
+        }),
+        targets=json.dumps([d.id for d in devices_with_fcm]),
+        created_by=user.username,
+        created_by_ip=client_ip,
+        total_targets=len(devices_with_fcm),
+        status="dispatching"
+    )
+    db.add(reinstall_exec)
+    db.commit()
+    db.refresh(reinstall_exec)
+    
+    # Create ApkInstallation records for all devices
+    installations = []
+    now = datetime.now(timezone.utc)
+    
+    for device in devices_with_fcm:
+        installation = ApkInstallation(
+            device_id=device.id,
+            apk_version_id=unity_apk.id,
+            status="pending",
+            initiated_at=now,
+            initiated_by=user.username
+        )
+        db.add(installation)
+        installations.append(installation)
+    
+    db.commit()
+    
+    # Refresh installations to get IDs
+    for installation in installations:
+        db.refresh(installation)
+    
+    # Create RemoteExecResult records for installation tracking
+    install_correlations = {}
+    launch_correlations = {}
+    
+    for device in devices_with_fcm:
+        installation = next((inst for inst in installations if inst.device_id == device.id), None)
+        if installation:
+            # Installation result record
+            install_correlation = str(uuid.uuid4())
+            install_correlations[device.id] = {
+                "correlation_id": install_correlation,
+                "installation_id": installation.id
+            }
+            db.add(RemoteExecResult(
+                exec_id=reinstall_exec.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=install_correlation,
+                status="pending"
+            ))
+            
+            # Launch result record (will be updated when launch is triggered)
+            launch_correlation = str(uuid.uuid4())
+            launch_correlations[device.id] = launch_correlation
+            db.add(RemoteExecResult(
+                exec_id=reinstall_exec.id,
+                device_id=device.id,
+                alias=device.alias,
+                correlation_id=launch_correlation,
+                status="pending"
+            ))
+    
+    db.commit()
+    
+    # Store correlations in raw_request for later retrieval
+    raw_request_data = json.loads(reinstall_exec.raw_request)
+    raw_request_data["install_correlations"] = install_correlations
+    raw_request_data["launch_correlations"] = launch_correlations
+    reinstall_exec.raw_request = json.dumps(raw_request_data)
+    db.commit()
+    
+    # Get FCM credentials
+    try:
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+    except Exception as e:
+        reinstall_exec.status = "failed"
+        reinstall_exec.error_count = len(devices_with_fcm)
+        
+        # Update all RemoteExecResult records to show error status
+        for device in devices_with_fcm:
+            # Update installation result records
+            install_results = db.query(RemoteExecResult).filter(
+                RemoteExecResult.exec_id == reinstall_exec.id,
+                RemoteExecResult.device_id == device.id
+            ).all()
+            for result in install_results:
+                result.status = "error"
+                result.error = f"FCM authentication failed: {str(e)}"
+        
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    
+    # Process devices in batches of 5
+    batch_size = 5
+    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    installation_map = {inst.device_id: inst for inst in installations}
+    
+    total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
+    sent_count = 0
+    error_count = 0
+    
+    async with httpx.AsyncClient() as client:
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(devices_with_fcm))
+            batch_devices = devices_with_fcm[start_idx:end_idx]
+            
+            # Dispatch APK installation FCM for this batch
+            tasks = [
+                dispatch_apk_fcm_to_device(
+                    device=device,
+                    apk=unity_apk,
+                    installation=installation_map[device.id],
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token
+                )
+                for device in batch_devices
+            ]
+            
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results
+            for i, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    error_count += 1
+                    device = batch_devices[i]
+                    # Update installation result record (with defensive check)
+                    if device.id in install_correlations:
+                        result_record = db.query(RemoteExecResult).filter(
+                            RemoteExecResult.exec_id == reinstall_exec.id,
+                            RemoteExecResult.device_id == device.id,
+                            RemoteExecResult.correlation_id == install_correlations[device.id]["correlation_id"]
+                        ).first()
+                        if result_record:
+                            result_record.status = "error"
+                            result_record.error = f"FCM dispatch failed: {str(result)}"
+                elif result.get("status") == "sent":
+                    sent_count += 1
+                else:
+                    error_count += 1
+                    device_id = result.get("device_id")
+                    if device_id and device_id in install_correlations:
+                        result_record = db.query(RemoteExecResult).filter(
+                            RemoteExecResult.exec_id == reinstall_exec.id,
+                            RemoteExecResult.device_id == device_id,
+                            RemoteExecResult.correlation_id == install_correlations[device_id]["correlation_id"]
+                        ).first()
+                        if result_record:
+                            result_record.status = "error"
+                            result_record.error = result.get("error", "Unknown error")
+            
+            # Wait for batch to complete before next batch (except last batch)
+            if batch_num < total_batches - 1:
+                await asyncio.sleep(2.0)
+    
+    # Update exec record
+    reinstall_exec.sent_count = sent_count
+    reinstall_exec.error_count = error_count
+    reinstall_exec.status = "pending" if sent_count > 0 else "failed"
+    db.commit()
+    
+    structured_logger.log_event(
+        "apk.reinstall_unity_and_launch.dispatched",
+        exec_id=reinstall_exec.id,
+        apk_id=unity_apk.id,
+        version_name=unity_apk.version_name,
+        user=user.username,
+        total_targets=len(devices_with_fcm),
+        sent_count=sent_count,
+        error_count=error_count,
+        client_ip=client_ip
+    )
+    
+    return {
+        "exec_id": reinstall_exec.id,
+        "apk_id": unity_apk.id,
+        "version_name": unity_apk.version_name,
+        "version_code": unity_apk.version_code,
+        "stats": {
+            "total_targets": len(devices_with_fcm),
+            "sent": sent_count,
+            "errors": error_count
+        }
+    }
+
+@app.get("/v1/apk/reinstall-unity-and-launch/{exec_id}/status")
+async def get_reinstall_unity_and_launch_status(
+    exec_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get combined status for a reinstall-unity-and-launch operation.
+    Returns status of both installation and launch steps per device.
+    """
+    reinstall_exec = db.query(RemoteExec).filter(
+        RemoteExec.id == exec_id,
+        RemoteExec.mode == "reinstall_unity_and_launch"
+    ).first()
+    
+    if not reinstall_exec:
+        raise HTTPException(status_code=404, detail="Reinstall operation not found")
+    
+    raw_request = json.loads(reinstall_exec.raw_request) if reinstall_exec.raw_request else {}
+    apk_id = raw_request.get("apk_id")
+    package_name = raw_request.get("package_name", "io.unitynodes.unityapp")
+    
+    # Get all RemoteExecResult records for this exec
+    results = db.query(RemoteExecResult).filter(
+        RemoteExecResult.exec_id == reinstall_exec.id
+    ).all()
+    
+    # Get ApkInstallation records
+    installations = []
+    if apk_id:
+        installations = db.query(ApkInstallation).filter(
+            ApkInstallation.apk_version_id == apk_id,
+            ApkInstallation.device_id.in_([r.device_id for r in results])
+        ).all()
+    
+    # Build per-device status
+    device_statuses = {}
+    install_correlations = raw_request.get("install_correlations", {})
+    launch_correlations = raw_request.get("launch_correlations", {})
+    
+    # Initialize device statuses
+    device_ids = set(r.device_id for r in results)
+    for device_id in device_ids:
+        device_statuses[device_id] = {
+            "device_id": device_id,
+            "installation": {"status": "pending"},
+            "launch": {"status": "pending"},
+            "overall_status": "pending"
+        }
+    
+    # Update installation status from ApkInstallation records
+    for installation in installations:
+        if installation.device_id in device_statuses:
+            install_status = "pending"
+            if installation.status == "completed":
+                install_status = "ok"
+            elif installation.status == "failed":
+                install_status = "failed"
+            
+            device_statuses[installation.device_id]["installation"] = {
+                "status": install_status,
+                "installation_id": installation.id,
+                "error": installation.error_message
+            }
+    
+    # Update launch status from RemoteExecResult records
+    for result in results:
+        device_id = result.device_id
+        if device_id in device_statuses:
+            # Check if this is a launch result (correlation_id matches launch_correlations)
+            if device_id in launch_correlations and result.correlation_id == launch_correlations[device_id]:
+                launch_status = "pending"
+                if result.status == "OK":
+                    launch_status = "ok"
+                elif result.status in ["error", "FAILED"]:
+                    launch_status = "failed"
+                elif result.status == "timed_out":
+                    launch_status = "timed_out"
+                
+                device_statuses[device_id]["launch"] = {
+                    "status": launch_status,
+                    "exit_code": result.exit_code,
+                    "output": result.output_preview,
+                    "error": result.error
+                }
+    
+    # Compute overall status per device
+    for device_id, status in device_statuses.items():
+        install_status = status["installation"]["status"]
+        launch_status = status["launch"]["status"]
+        
+        install_ok = install_status == "ok"
+        launch_ok = launch_status == "ok"
+        
+        if install_ok and launch_ok:
+            status["overall_status"] = "ok"
+        elif install_status == "failed" or launch_status == "failed":
+            status["overall_status"] = "failed"
+        elif install_status == "pending" or launch_status == "pending":
+            status["overall_status"] = "pending"
+        else:
+            status["overall_status"] = "failed"
+    
+    # Compute overall stats
+    total = len(device_statuses)
+    ok_count = sum(1 for s in device_statuses.values() if s["overall_status"] == "ok")
+    failed_count = sum(1 for s in device_statuses.values() if s["overall_status"] == "failed")
+    pending_count = total - ok_count - failed_count
+    
+    overall_status = "ok" if ok_count == total else ("failed" if failed_count > 0 else "pending")
+    
+    return {
+        "exec_id": exec_id,
+        "apk_id": apk_id,
+        "package_name": package_name,
+        "status": overall_status,
+        "created_at": reinstall_exec.created_at.isoformat() + "Z",
+        "created_by": reinstall_exec.created_by,
+        "stats": {
+            "total": total,
+            "ok": ok_count,
+            "failed": failed_count,
             "pending": pending_count
         },
         "devices": list(device_statuses.values())

@@ -61,7 +61,8 @@ const FCM_PRESETS = {
   enable_dnd: { type: "set_dnd", enable: "true" },
   disable_dnd: { type: "set_dnd", enable: "false" },
   exempt_unity_app: { type: "exempt_unity_app" },
-  enable_stay_awake: { type: "enable_stay_awake" }
+  enable_stay_awake: { type: "enable_stay_awake" },
+  soft_update_refresh: { type: "soft_update_refresh" } // Special preset - handled separately
 }
 
 const SHELL_PRESETS = {
@@ -116,6 +117,12 @@ export default function RemoteExecutionPage() {
   const [isPollingRestart, setIsPollingRestart] = useState(false)
   const [restartId, setRestartId] = useState<string | null>(null)
   const [restartPollStartTime, setRestartPollStartTime] = useState<number | null>(null)
+  
+  const [isReinstallingUnity, setIsReinstallingUnity] = useState(false)
+  const [reinstallExecId, setReinstallExecId] = useState<string | null>(null)
+  const [isPollingReinstall, setIsPollingReinstall] = useState(false)
+  const [reinstallResults, setReinstallResults] = useState<any>(null)
+  const [reinstallPollStartTime, setReinstallPollStartTime] = useState<number | null>(null)
   const [deviceFilter, setDeviceFilter] = useState("")
   
   const RESTART_POLL_TIMEOUT_MS = 60000
@@ -229,6 +236,18 @@ export default function RemoteExecutionPage() {
       if (interval) clearInterval(interval)
     }
   }, [isPollingRestart, restartId])
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (isPollingReinstall && reinstallExecId) {
+      interval = setInterval(() => {
+        fetchReinstallStatus(reinstallExecId)
+      }, 2000)
+    }
+    return () => {
+      if (interval) clearInterval(interval)
+    }
+  }, [isPollingReinstall, reinstallExecId])
 
   // Clear preview results when mode or target scope changes
   useEffect(() => {
@@ -390,6 +409,163 @@ export default function RemoteExecutionPage() {
       console.error("Failed to fetch restart app status:", error)
       setIsPollingRestart(false)
       setRestartPollStartTime(null)
+    }
+  }
+
+  const fetchReinstallStatus = async (execId: string) => {
+    try {
+      if (reinstallPollStartTime && Date.now() - reinstallPollStartTime > RESTART_POLL_TIMEOUT_MS) {
+        setIsPollingReinstall(false)
+        setReinstallPollStartTime(null)
+        toast({
+          title: "Reinstall Timed Out",
+          description: "Polling stopped after 60 seconds. Check device status manually.",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const token = getAuthToken()
+      if (!token) return
+
+      const response = await fetch(`/api/proxy/v1/apk/reinstall-unity-and-launch/${execId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setReinstallResults(data)
+        
+        const terminalStates = ['ok', 'failed']
+        if (data.status === 'ok' || data.status === 'failed') {
+          setIsPollingReinstall(false)
+          setReinstallPollStartTime(null)
+          
+          if (data.status === 'ok') {
+            toast({
+              title: "Soft Update Refresh Complete",
+              description: `Successfully reinstalled and launched on ${data.stats?.ok || 0} device(s)`,
+            })
+          } else {
+            const statsParts = []
+            if (data.stats?.ok > 0) statsParts.push(`${data.stats.ok} OK`)
+            if (data.stats?.failed > 0) statsParts.push(`${data.stats.failed} failed`)
+            if (data.stats?.pending > 0) statsParts.push(`${data.stats.pending} pending`)
+            
+            toast({
+              title: "Soft Update Refresh Failed",
+              description: statsParts.length > 0 ? statsParts.join(', ') : 'Unknown status',
+              variant: "destructive"
+            })
+          }
+        }
+      } else {
+        setIsPollingReinstall(false)
+        setReinstallPollStartTime(null)
+        toast({
+          title: "Error",
+          description: "Failed to fetch reinstall status",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error("Failed to fetch reinstall status:", error)
+      setIsPollingReinstall(false)
+      setReinstallPollStartTime(null)
+    }
+  }
+
+  const handleSoftUpdateRefresh = async () => {
+    const token = getAuthToken()
+    if (!token) {
+      toast({
+        title: "Session expired",
+        description: "Please sign in again to continue.",
+        variant: "destructive"
+      })
+      router.push("/login")
+      return
+    }
+
+    // Get selected device IDs
+    const deviceIds = scopeType === "aliases" 
+      ? selectedDeviceIds 
+      : (scopeType === "filter" 
+        ? filteredDevicesForSelector.map(d => d.id)
+        : allDevices.map(d => d.id))
+
+    if (deviceIds.length === 0) {
+      toast({
+        title: "No devices selected",
+        description: "Please select at least one device",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (requireConfirmation && deviceIds.length > 25) {
+      const confirmed = confirm(`You are about to reinstall Unity APK and launch on ${deviceIds.length} devices. Continue?`)
+      if (!confirmed) return
+    }
+
+    setIsReinstallingUnity(true)
+    
+    try {
+      const response = await fetch("/api/proxy/v1/apk/reinstall-unity-and-launch", {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          device_ids: deviceIds,
+          dry_run: false
+        })
+      })
+
+      if (response.status === 401) {
+        router.push('/login')
+        return
+      }
+
+      if (response.ok) {
+        const data = await response.json()
+        setReinstallExecId(data.exec_id)
+        setIsPollingReinstall(true)
+        setReinstallPollStartTime(Date.now())
+        toast({
+          title: "Soft Update Refresh Started",
+          description: `Reinstalling Unity APK on ${data.stats?.sent || 0} device(s)`
+        })
+        fetchRecentExecutions()
+      } else {
+        const errorText = await response.text()
+        let errorDetail = "Failed to start reinstall"
+        try {
+          const error = JSON.parse(errorText)
+          errorDetail = error.detail || errorDetail
+        } catch (e) {
+          errorDetail = errorText || errorDetail
+        }
+        
+        toast({
+          title: `Reinstall Failed (${response.status})`,
+          description: errorDetail,
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error("Failed to start reinstall:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start reinstall",
+        variant: "destructive"
+      })
+    } finally {
+      setIsReinstallingUnity(false)
     }
   }
 
@@ -643,6 +819,12 @@ export default function RemoteExecutionPage() {
     }
     const authToken = token
 
+    // Special handling for soft_update_refresh preset
+    if (selectedPreset === "soft_update_refresh" && mode === "fcm") {
+      handleSoftUpdateRefresh()
+      return
+    }
+    
     console.log("[REMOTE-EXEC] Starting execution...")
     setIsExecuting(true)
     
@@ -795,6 +977,13 @@ export default function RemoteExecutionPage() {
   }
 
   const applyPreset = (presetName: string) => {
+    // Special handling for soft_update_refresh - it's not a regular FCM preset
+    if (presetName === "soft_update_refresh") {
+      setSelectedPreset(presetName)
+      setFcmPayload("") // Clear FCM payload since this uses a different endpoint
+      return
+    }
+    
     const preset = FCM_PRESETS[presetName as keyof typeof FCM_PRESETS]
     if (preset) {
       setFcmPayload(JSON.stringify(preset, null, 2))
@@ -1099,6 +1288,7 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="exempt_unity_app">🔋 Exempt Unity App from Battery Optimization</SelectItem>
                           <SelectItem value="enable_stay_awake">🔋 Enable Stay Awake When Charging</SelectItem>
+                          <SelectItem value="soft_update_refresh">🔄 Soft Update Refresh (Reinstall Unity & Launch)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
