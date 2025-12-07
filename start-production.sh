@@ -56,7 +56,16 @@ fi
 # Start frontend on port 5000 using production build
 cd ../frontend
 echo "Starting frontend server..."
-BACKEND_URL=http://localhost:8000 npm start -- -p 5000 -H 0.0.0.0 &
+
+# Check if standalone build exists (Next.js standalone mode)
+if [ -f ".next/standalone/server.js" ]; then
+    echo "Using standalone build..."
+    PORT=5000 HOSTNAME=0.0.0.0 BACKEND_URL=http://localhost:8000 node .next/standalone/server.js &
+else
+    echo "Standalone build not found, using npm start..."
+    BACKEND_URL=http://localhost:8000 npm start -- -p 5000 -H 0.0.0.0 &
+fi
+
 FRONTEND_PID=$!
 echo "✅ Frontend started on port 5000 (PID: $FRONTEND_PID)"
 
