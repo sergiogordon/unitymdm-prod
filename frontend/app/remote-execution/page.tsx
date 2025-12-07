@@ -177,9 +177,10 @@ export default function RemoteExecutionPage() {
   const isExecuteDisabled = useMemo(() => {
     let disabled = false
     // Allow execution if soft_update_refresh preset is selected (even with empty payload)
+    // Note: handleSoftUpdateRefresh uses isReinstallingUnity, not isExecuting
     if (mode === "fcm" && selectedPreset === "soft_update_refresh") {
-      disabled = isExecuting
-      console.log("[BUTTON-DISABLED] soft_update_refresh selected", { disabled, isExecuting })
+      disabled = isExecuting || isReinstallingUnity
+      console.log("[BUTTON-DISABLED] soft_update_refresh selected", { disabled, isExecuting, isReinstallingUnity })
     } else if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
       // For other FCM commands, require a payload
       disabled = true
@@ -193,7 +194,7 @@ export default function RemoteExecutionPage() {
       console.log("[BUTTON-DISABLED] Default case", { disabled, isExecuting })
     }
     return disabled
-  }, [mode, selectedPreset, fcmPayload, shellCommand, isExecuting])
+  }, [mode, selectedPreset, fcmPayload, shellCommand, isExecuting, isReinstallingUnity])
 
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -527,8 +528,10 @@ export default function RemoteExecutionPage() {
   }
 
   const handleSoftUpdateRefresh = async () => {
+    console.log("[SOFT-UPDATE] handleSoftUpdateRefresh called", { scopeType, selectedDeviceIds: selectedDeviceIds.length, allDevices: allDevices.length })
     const token = getAuthToken()
     if (!token) {
+      console.error("[SOFT-UPDATE] No token")
       toast({
         title: "Session expired",
         description: "Please sign in again to continue.",
@@ -545,7 +548,10 @@ export default function RemoteExecutionPage() {
         ? filteredDevicesForSelector.map(d => d.id)
         : allDevices.map(d => d.id))
 
+    console.log("[SOFT-UPDATE] Device IDs calculated", { deviceIds: deviceIds.length, scopeType })
+
     if (deviceIds.length === 0) {
+      console.warn("[SOFT-UPDATE] No devices selected")
       toast({
         title: "No devices selected",
         description: "Please select at least one device",
@@ -562,17 +568,25 @@ export default function RemoteExecutionPage() {
     setIsReinstallingUnity(true)
     
     try {
+      const requestBody = {
+        device_ids: deviceIds,
+        dry_run: false
+      }
+      console.log("[SOFT-UPDATE] Making request to /api/proxy/v1/apk/reinstall-unity-and-launch", { 
+        deviceCount: deviceIds.length,
+        requestBody 
+      })
+      
       const response = await fetch("/api/proxy/v1/apk/reinstall-unity-and-launch", {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          device_ids: deviceIds,
-          dry_run: false
-        })
+        body: JSON.stringify(requestBody)
       })
+      
+      console.log("[SOFT-UPDATE] Response status:", response.status, response.statusText)
 
       if (response.status === 401) {
         router.push('/login')
@@ -868,10 +882,17 @@ export default function RemoteExecutionPage() {
     const authToken = token
 
     // Special handling for soft_update_refresh preset
+    console.log("[REMOTE-EXEC] Checking preset condition", { 
+      selectedPreset, 
+      mode, 
+      condition: selectedPreset === "soft_update_refresh" && mode === "fcm" 
+    })
     if (selectedPreset === "soft_update_refresh" && mode === "fcm") {
+      console.log("[REMOTE-EXEC] Calling handleSoftUpdateRefresh")
       handleSoftUpdateRefresh()
       return
     }
+    console.log("[REMOTE-EXEC] Not calling handleSoftUpdateRefresh, continuing with normal execution")
     
     console.log("[REMOTE-EXEC] Starting execution...")
     setIsExecuting(true)
