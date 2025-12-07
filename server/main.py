@@ -8711,6 +8711,175 @@ class ReinstallUnityAndLaunchRequest(BaseModel):
     device_ids: List[str]
     dry_run: bool = False
 
+
+async def _run_reinstall_unity_fcm_dispatch(
+    exec_id: int,
+    apk_id: int,
+    apk_version_name: str,
+    apk_version_code: int,
+    apk_package_name: str,
+    device_data: List[dict],
+    installation_data: List[dict],
+    install_correlations: dict,
+    launch_correlations: dict,
+    username: str,
+    client_ip: str
+):
+    """
+    Background task to dispatch FCM messages for reinstall-unity-and-launch.
+    Runs asynchronously after the endpoint returns.
+    """
+    import httpx
+    
+    db = SessionLocal()
+    try:
+        reinstall_exec = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+        if not reinstall_exec:
+            structured_logger.log_event(
+                "apk.reinstall_unity_and_launch.background_error",
+                exec_id=exec_id,
+                error="RemoteExec not found"
+            )
+            return
+        
+        apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+        if not apk:
+            reinstall_exec.status = "failed"
+            reinstall_exec.error_count = len(device_data)
+            db.commit()
+            return
+        
+        try:
+            access_token = get_access_token()
+            project_id = get_firebase_project_id()
+            fcm_url = build_fcm_v1_url(project_id)
+        except Exception as e:
+            reinstall_exec.status = "failed"
+            reinstall_exec.error_count = len(device_data)
+            
+            for device_info in device_data:
+                install_results = db.query(RemoteExecResult).filter(
+                    RemoteExecResult.exec_id == exec_id,
+                    RemoteExecResult.device_id == device_info["id"]
+                ).all()
+                for result in install_results:
+                    result.status = "error"
+                    result.error = f"FCM authentication failed: {str(e)}"
+            
+            db.commit()
+            structured_logger.log_event(
+                "apk.reinstall_unity_and_launch.fcm_auth_failed",
+                exec_id=exec_id,
+                error=str(e)
+            )
+            return
+        
+        devices = db.query(Device).filter(Device.id.in_([d["id"] for d in device_data])).all()
+        device_map = {d.id: d for d in devices}
+        
+        installations = db.query(ApkInstallation).filter(
+            ApkInstallation.id.in_([i["id"] for i in installation_data])
+        ).all()
+        installation_map = {inst.device_id: inst for inst in installations}
+        
+        batch_size = 5
+        semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+        
+        total_batches = (len(device_data) + batch_size - 1) // batch_size
+        sent_count = 0
+        error_count = 0
+        
+        async with httpx.AsyncClient() as client:
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(device_data))
+                batch_device_ids = [d["id"] for d in device_data[start_idx:end_idx]]
+                batch_devices = [device_map[did] for did in batch_device_ids if did in device_map]
+                
+                tasks = [
+                    dispatch_apk_fcm_to_device(
+                        device=device,
+                        apk=apk,
+                        installation=installation_map.get(device.id),
+                        semaphore=semaphore,
+                        client=client,
+                        fcm_url=fcm_url,
+                        access_token=access_token
+                    )
+                    for device in batch_devices
+                    if device.id in installation_map
+                ]
+                
+                if tasks:
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    for i, result in enumerate(batch_results):
+                        device = batch_devices[i]
+                        if isinstance(result, Exception):
+                            error_count += 1
+                            if device.id in install_correlations:
+                                result_record = db.query(RemoteExecResult).filter(
+                                    RemoteExecResult.exec_id == exec_id,
+                                    RemoteExecResult.device_id == device.id,
+                                    RemoteExecResult.correlation_id == install_correlations[device.id]["correlation_id"]
+                                ).first()
+                                if result_record:
+                                    result_record.status = "error"
+                                    result_record.error = f"FCM dispatch failed: {str(result)}"
+                        elif result.get("status") == "sent":
+                            sent_count += 1
+                        else:
+                            error_count += 1
+                            device_id = result.get("device_id")
+                            if device_id and device_id in install_correlations:
+                                result_record = db.query(RemoteExecResult).filter(
+                                    RemoteExecResult.exec_id == exec_id,
+                                    RemoteExecResult.device_id == device_id,
+                                    RemoteExecResult.correlation_id == install_correlations[device_id]["correlation_id"]
+                                ).first()
+                                if result_record:
+                                    result_record.status = "error"
+                                    result_record.error = result.get("error", "Unknown error")
+                    
+                    db.commit()
+                
+                if batch_num < total_batches - 1:
+                    await asyncio.sleep(2.0)
+        
+        reinstall_exec.sent_count = sent_count
+        reinstall_exec.error_count = error_count
+        reinstall_exec.status = "pending" if sent_count > 0 else "failed"
+        db.commit()
+        
+        structured_logger.log_event(
+            "apk.reinstall_unity_and_launch.dispatched",
+            exec_id=exec_id,
+            apk_id=apk_id,
+            version_name=apk_version_name,
+            user=username,
+            total_targets=len(device_data),
+            sent_count=sent_count,
+            error_count=error_count,
+            client_ip=client_ip
+        )
+        
+    except Exception as e:
+        structured_logger.log_event(
+            "apk.reinstall_unity_and_launch.background_error",
+            exec_id=exec_id,
+            error=str(e)
+        )
+        try:
+            reinstall_exec = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
+            if reinstall_exec:
+                reinstall_exec.status = "failed"
+                db.commit()
+        except:
+            pass
+    finally:
+        db.close()
+
+
 @app.post("/v1/apk/reinstall-unity-and-launch")
 async def reinstall_unity_and_launch(
     request: ReinstallUnityAndLaunchRequest,
@@ -8720,32 +8889,25 @@ async def reinstall_unity_and_launch(
 ):
     """
     Reinstall the latest Unity APK and launch the app.
-    Processes devices in batches of 5, waits for installation completion,
-    then triggers launch_app after a 2-3 second delay.
+    Returns immediately with exec_id, dispatches FCM in background.
+    Poll the status endpoint for progress updates.
     """
-    import httpx
-    
-    # Rate limit check
     rate_key = f"remote_exec_batch:{user.id}"
     if not remote_exec_batch_limiter.is_allowed(rate_key):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
     
-    # Find latest Unity APK
     unity_apk = find_latest_unity_apk(db)
     if not unity_apk:
         raise HTTPException(status_code=404, detail="No Unity APK found. Upload an APK with version_name starting with 'Unity'.")
     
-    # Get devices
     devices = db.query(Device).filter(Device.id.in_(request.device_ids)).all()
     if not devices:
         raise HTTPException(status_code=404, detail="No devices found")
     
-    # Filter devices with FCM tokens
     devices_with_fcm = [d for d in devices if d.fcm_token]
     if not devices_with_fcm:
         raise HTTPException(status_code=400, detail="No devices with FCM tokens found")
     
-    # Dry run mode
     if request.dry_run:
         return {
             "dry_run": True,
@@ -8760,7 +8922,6 @@ async def reinstall_unity_and_launch(
     
     client_ip = req.client.host if req.client else "unknown"
     
-    # Create primary RemoteExec record for tracking
     reinstall_exec = RemoteExec(
         mode="reinstall_unity_and_launch",
         raw_request=json.dumps({
@@ -8779,7 +8940,6 @@ async def reinstall_unity_and_launch(
     db.commit()
     db.refresh(reinstall_exec)
     
-    # Create ApkInstallation records for all devices
     installations = []
     now = datetime.now(timezone.utc)
     
@@ -8796,18 +8956,15 @@ async def reinstall_unity_and_launch(
     
     db.commit()
     
-    # Refresh installations to get IDs
     for installation in installations:
         db.refresh(installation)
     
-    # Create RemoteExecResult records for installation tracking
     install_correlations = {}
     launch_correlations = {}
     
     for device in devices_with_fcm:
         installation = next((inst for inst in installations if inst.device_id == device.id), None)
         if installation:
-            # Installation result record
             install_correlation = str(uuid.uuid4())
             install_correlations[device.id] = {
                 "correlation_id": install_correlation,
@@ -8821,7 +8978,6 @@ async def reinstall_unity_and_launch(
                 status="pending"
             ))
             
-            # Launch result record (will be updated when launch is triggered)
             launch_correlation = str(uuid.uuid4())
             launch_correlations[device.id] = launch_correlation
             db.add(RemoteExecResult(
@@ -8834,116 +8990,36 @@ async def reinstall_unity_and_launch(
     
     db.commit()
     
-    # Store correlations in raw_request for later retrieval
     raw_request_data = json.loads(reinstall_exec.raw_request)
     raw_request_data["install_correlations"] = install_correlations
     raw_request_data["launch_correlations"] = launch_correlations
     reinstall_exec.raw_request = json.dumps(raw_request_data)
     db.commit()
     
-    # Get FCM credentials
-    try:
-        access_token = get_access_token()
-        project_id = get_firebase_project_id()
-        fcm_url = build_fcm_v1_url(project_id)
-    except Exception as e:
-        reinstall_exec.status = "failed"
-        reinstall_exec.error_count = len(devices_with_fcm)
-        
-        # Update all RemoteExecResult records to show error status
-        for device in devices_with_fcm:
-            # Update installation result records
-            install_results = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == reinstall_exec.id,
-                RemoteExecResult.device_id == device.id
-            ).all()
-            for result in install_results:
-                result.status = "error"
-                result.error = f"FCM authentication failed: {str(e)}"
-        
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
+    device_data = [{"id": d.id, "alias": d.alias, "fcm_token": d.fcm_token} for d in devices_with_fcm]
+    installation_data = [{"id": inst.id, "device_id": inst.device_id} for inst in installations]
     
-    # Process devices in batches of 5
-    batch_size = 5
-    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
-    installation_map = {inst.device_id: inst for inst in installations}
-    
-    total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
-    sent_count = 0
-    error_count = 0
-    
-    async with httpx.AsyncClient() as client:
-        for batch_num in range(total_batches):
-            start_idx = batch_num * batch_size
-            end_idx = min(start_idx + batch_size, len(devices_with_fcm))
-            batch_devices = devices_with_fcm[start_idx:end_idx]
-            
-            # Dispatch APK installation FCM for this batch
-            tasks = [
-                dispatch_apk_fcm_to_device(
-                    device=device,
-                    apk=unity_apk,
-                    installation=installation_map[device.id],
-                    semaphore=semaphore,
-                    client=client,
-                    fcm_url=fcm_url,
-                    access_token=access_token
-                )
-                for device in batch_devices
-            ]
-            
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results
-            for i, result in enumerate(batch_results):
-                if isinstance(result, Exception):
-                    error_count += 1
-                    device = batch_devices[i]
-                    # Update installation result record (with defensive check)
-                    if device.id in install_correlations:
-                        result_record = db.query(RemoteExecResult).filter(
-                            RemoteExecResult.exec_id == reinstall_exec.id,
-                            RemoteExecResult.device_id == device.id,
-                            RemoteExecResult.correlation_id == install_correlations[device.id]["correlation_id"]
-                        ).first()
-                        if result_record:
-                            result_record.status = "error"
-                            result_record.error = f"FCM dispatch failed: {str(result)}"
-                elif result.get("status") == "sent":
-                    sent_count += 1
-                else:
-                    error_count += 1
-                    device_id = result.get("device_id")
-                    if device_id and device_id in install_correlations:
-                        result_record = db.query(RemoteExecResult).filter(
-                            RemoteExecResult.exec_id == reinstall_exec.id,
-                            RemoteExecResult.device_id == device_id,
-                            RemoteExecResult.correlation_id == install_correlations[device_id]["correlation_id"]
-                        ).first()
-                        if result_record:
-                            result_record.status = "error"
-                            result_record.error = result.get("error", "Unknown error")
-            
-            # Wait for batch to complete before next batch (except last batch)
-            if batch_num < total_batches - 1:
-                await asyncio.sleep(2.0)
-    
-    # Update exec record
-    reinstall_exec.sent_count = sent_count
-    reinstall_exec.error_count = error_count
-    reinstall_exec.status = "pending" if sent_count > 0 else "failed"
-    db.commit()
+    asyncio.create_task(_run_reinstall_unity_fcm_dispatch(
+        exec_id=reinstall_exec.id,
+        apk_id=unity_apk.id,
+        apk_version_name=unity_apk.version_name,
+        apk_version_code=unity_apk.version_code,
+        apk_package_name=unity_apk.package_name if hasattr(unity_apk, 'package_name') else "io.unitynodes.unityapp",
+        device_data=device_data,
+        installation_data=installation_data,
+        install_correlations=install_correlations,
+        launch_correlations=launch_correlations,
+        username=user.username,
+        client_ip=client_ip
+    ))
     
     structured_logger.log_event(
-        "apk.reinstall_unity_and_launch.dispatched",
+        "apk.reinstall_unity_and_launch.started",
         exec_id=reinstall_exec.id,
         apk_id=unity_apk.id,
         version_name=unity_apk.version_name,
         user=user.username,
         total_targets=len(devices_with_fcm),
-        sent_count=sent_count,
-        error_count=error_count,
         client_ip=client_ip
     )
     
@@ -8952,10 +9028,11 @@ async def reinstall_unity_and_launch(
         "apk_id": unity_apk.id,
         "version_name": unity_apk.version_name,
         "version_code": unity_apk.version_code,
+        "status": "dispatching",
         "stats": {
             "total_targets": len(devices_with_fcm),
-            "sent": sent_count,
-            "errors": error_count
+            "sent": 0,
+            "errors": 0
         }
     }
 
