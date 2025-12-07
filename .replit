@@ -129,3 +129,4 @@ defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"
 
 [userenv.shared]
 BACKEND_URL = "http://localhost:8000"
+READ_FROM_LAST_STATUS = "true"

@@ -282,8 +282,11 @@ export default function RemoteExecutionPage() {
     return localStorage.getItem('auth_token')
   }
 
-  const fetchAllDevices = async () => {
+  const fetchAllDevices = async (retryCount = 0) => {
     setIsLoadingDevices(true)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    
     try {
       const token = getAuthToken()
       if (!token) return
@@ -292,8 +295,11 @@ export default function RemoteExecutionPage() {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
       
       if (response.status === 401) {
         router.push('/login')
@@ -303,9 +309,29 @@ export default function RemoteExecutionPage() {
       if (response.ok) {
         const data = await response.json()
         setAllDevices(data.devices || [])
+      } else {
+        throw new Error(`Server error: ${response.status}`)
       }
     } catch (error) {
+      clearTimeout(timeoutId)
+      const isTimeout = error instanceof Error && error.name === 'AbortError'
+      const errorMessage = isTimeout 
+        ? "Device list request timed out" 
+        : "Failed to load device list"
+      
       console.error("Failed to fetch devices:", error)
+      
+      if (retryCount < 2) {
+        console.log(`Retrying device fetch (attempt ${retryCount + 2}/3)...`)
+        setTimeout(() => fetchAllDevices(retryCount + 1), 1000 * (retryCount + 1))
+        return
+      }
+      
+      toast({
+        title: "Error Loading Devices",
+        description: `${errorMessage}. Please try refreshing the page.`,
+        variant: "destructive"
+      })
     } finally {
       setIsLoadingDevices(false)
     }

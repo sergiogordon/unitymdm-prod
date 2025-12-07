@@ -3040,11 +3040,11 @@ async def list_devices(
     dashboard endpoint that's cached (5 minute TTL for first page). It should
     never be rate limited to ensure dashboard functionality.
     """
-    # Cache first page only (5 minute TTL) - most common query
     cache_key = None
-    if page == 1 and limit == 25:
-        cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": 25})
-        cached_result = response_cache.get(cache_key, ttl_seconds=300)
+    cache_ttl = 300
+    if page == 1 and limit in (25, 100):
+        cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": limit})
+        cached_result = response_cache.get(cache_key, ttl_seconds=cache_ttl)
         if cached_result is not None:
             return cached_result
 
@@ -3147,9 +3147,8 @@ async def list_devices(
         }
     }
 
-    # Cache first page result
     if cache_key:
-        response_cache.set(cache_key, response, ttl_seconds=300, path="/v1/devices")
+        response_cache.set(cache_key, response, ttl_seconds=cache_ttl, path="/v1/devices")
 
     return response
 
