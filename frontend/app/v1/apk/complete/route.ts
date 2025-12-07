@@ -11,12 +11,19 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const formData = new FormData()
+    formData.append('upload_id', body.upload_id)
+    formData.append('package_name', body.package_name)
+    formData.append('version_name', body.version_name)
+    formData.append('version_code', body.version_code.toString())
+    formData.append('filename', body.filename)
+    formData.append('total_chunks', body.total_chunks.toString())
+    formData.append('build_type', body.build_type || 'release')
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 120000)
+
+    const headers: Record<string, string> = {}
     
     if (authHeader) {
       headers['Authorization'] = authHeader
@@ -27,7 +34,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(`${API_URL}/v1/apk/complete`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: formData,
       signal: controller.signal,
     })
 

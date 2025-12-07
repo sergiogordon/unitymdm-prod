@@ -6197,58 +6197,150 @@ async def download_apk_by_id(
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
     request: Request,
-    apk_id: int = Form(...),
+    upload_id: str = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
+    filename: str = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """Upload a chunk of an APK file. Used for large APKs."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Validate chunk index and total chunks
-    if not (0 <= chunk_index < total_chunks):
-        raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
-
-    # Use the optimized upload service
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        chunk_index=chunk_index,
-        total_chunks=total_chunks,
-        file=file,
-        request=request
-    )
+    """Upload a chunk of an APK file. Used for large APKs with chunked uploads."""
+    try:
+        if not (0 <= chunk_index < total_chunks):
+            raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
+        
+        chunk_data = await file.read()
+        chunk_key = f"chunks/{upload_id}/chunk_{chunk_index:04d}"
+        
+        storage_service = get_storage_service()
+        storage_service.client.upload_from_bytes(chunk_key, chunk_data)
+        
+        structured_logger.log_event(
+            "apk.chunk.uploaded",
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            total_chunks=total_chunks,
+            chunk_size=len(chunk_data),
+            user=current_user.username
+        )
+        
+        return {
+            "ok": True,
+            "upload_id": upload_id,
+            "chunk_index": chunk_index,
+            "total_chunks": total_chunks
+        }
+    except Exception as e:
+        structured_logger.log_event(
+            "apk.chunk.upload.error",
+            level="ERROR",
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+            error=str(e)
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to upload chunk: {str(e)}")
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
-    request: Request,
-    apk_id: int = Form(...),
+    upload_id: str = Form(...),
+    package_name: str = Form(...),
+    version_name: str = Form(...),
+    version_code: int = Form(...),
+    filename: str = Form(...),
     total_chunks: int = Form(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
+    build_type: str = Form("release"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """Mark an APK upload as complete and verify integrity."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Use the optimized upload service to complete the upload
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        total_chunks=total_chunks,
-        request=request
-    )
+    """Combine uploaded chunks and create APK record."""
+    try:
+        storage_service = get_storage_service()
+        
+        existing_version = db.query(ApkVersion).filter(
+            (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
+        ).first()
+        
+        if existing_version:
+            for i in range(total_chunks):
+                chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
+                try:
+                    storage_service.client.delete(chunk_key, ignore_not_found=True)
+                except:
+                    pass
+            return {
+                "ok": True,
+                "message": "APK version already exists (skipped)",
+                "apk_id": existing_version.id,
+                "already_existed": True
+            }
+        
+        all_chunks = []
+        for i in range(total_chunks):
+            chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
+            try:
+                chunk_data = storage_service.client.download_as_bytes(chunk_key)
+                all_chunks.append(chunk_data)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Missing chunk {i}: {str(e)}")
+        
+        complete_file = b"".join(all_chunks)
+        file_size = len(complete_file)
+        sha256_hash = hashlib.sha256(complete_file).hexdigest()
+        
+        object_name = f"apks/{version_name}_{version_code}.apk"
+        storage_service.client.upload_from_bytes(object_name, complete_file)
+        
+        for i in range(total_chunks):
+            chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
+            try:
+                storage_service.client.delete(chunk_key, ignore_not_found=True)
+            except:
+                pass
+        
+        apk_version = ApkVersion(
+            version_name=version_name,
+            version_code=version_code,
+            package_name=package_name,
+            build_type=build_type,
+            file_size=file_size,
+            sha256=sha256_hash,
+            file_path=object_name,
+            storage_url=object_name,
+            is_active=True,
+            uploaded_by=current_user.username
+        )
+        db.add(apk_version)
+        db.commit()
+        db.refresh(apk_version)
+        
+        structured_logger.log_event(
+            "apk.uploaded",
+            apk_id=apk_version.id,
+            version_name=version_name,
+            version_code=version_code,
+            file_size=file_size,
+            user=current_user.username
+        )
+        
+        return {
+            "ok": True,
+            "message": "APK uploaded successfully",
+            "apk_id": apk_version.id,
+            "version_name": apk_version.version_name,
+            "version_code": apk_version.version_code,
+            "storage_url": apk_version.storage_url
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.log_event(
+            "apk.complete.error",
+            level="ERROR",
+            upload_id=upload_id,
+            error=str(e)
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
 
 @app.post("/admin/apk/upload")
 async def upload_apk_admin(
@@ -9162,172 +9254,6 @@ async def get_reinstall_unity_and_launch_status(
         },
         "devices": list(device_statuses.values())
     }
-
-@app.post("/v1/apk/upload-chunk")
-async def upload_apk_chunk(
-    request: Request,
-    apk_id: int = Form(...),
-    chunk_index: int = Form(...),
-    total_chunks: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
-):
-    """Upload a chunk of an APK file. Used for large APKs."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Validate chunk index and total chunks
-    if not (0 <= chunk_index < total_chunks):
-        raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
-
-    # Use the optimized upload service
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        chunk_index=chunk_index,
-        total_chunks=total_chunks,
-        file=file,
-        request=request
-    )
-
-@app.post("/v1/apk/complete")
-async def complete_apk_upload(
-    request: Request,
-    apk_id: int = Form(...),
-    total_chunks: int = Form(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
-):
-    """Mark an APK upload as complete and verify integrity."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Use the optimized upload service to complete the upload
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        total_chunks=total_chunks,
-        request=request
-    )
-
-@app.post("/admin/apk/upload")
-async def upload_apk_admin(
-    request: Request,
-    apk_file: UploadFile = File(...),
-    version_name: str = Form(...),
-    version_code: int = Form(...),
-    description: str = Form(""),
-    build_type: str = Form("release"),
-    enabled: bool = Form(True),
-    x_admin_key: str = Header(..., alias="X-Admin-Key"),
-    db: Session = Depends(get_db)
-):
-    """Upload an APK file directly via admin interface (for smaller files).
-    
-    Idempotent: If APK with same version already exists, returns success with existing info.
-    This allows CI/CD re-runs without failure.
-    """
-    verify_admin_key(x_admin_key)
-
-    # Validate version code
-    if version_code <= 0:
-        raise HTTPException(status_code=422, detail="version_code must be a positive integer")
-
-    # Check for existing version with same code or name
-    existing_version = db.query(ApkVersion).filter(
-        (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
-    ).first()
-    
-    if existing_version:
-        # If version already exists, return success with existing info (idempotent)
-        # This allows CI/CD re-runs without failure
-        structured_logger.log_event(
-            "apk.upload.skipped_existing",
-            admin_user="admin",
-            existing_apk_id=existing_version.id,
-            version_name=existing_version.version_name,
-            version_code=existing_version.version_code,
-            reason="version_already_exists"
-        )
-        return {
-            "ok": True,
-            "message": "APK version already exists (skipped upload)",
-            "apk_id": existing_version.id,
-            "version_name": existing_version.version_name,
-            "version_code": existing_version.version_code,
-            "storage_url": existing_version.storage_url,
-            "already_existed": True
-        }
-
-    # Save the APK file to object storage
-    try:
-        storage_service = get_storage_service()
-        file_content = await apk_file.read()
-        file_size = len(file_content)
-        sha256_hash = hashlib.sha256(file_content).hexdigest()
-
-        # Construct object name
-        object_name = f"apks/{version_name}_{version_code}.apk"
-        # upload_file is synchronous, do not await
-        storage_service.upload_file(file_content, object_name)
-
-        apk_version = ApkVersion(
-            version_name=version_name,
-            version_code=version_code,
-            notes=description,
-            build_type=build_type,
-            file_size=file_size,
-            sha256=sha256_hash,
-            file_path=object_name,
-            storage_url=object_name,
-            is_active=enabled,
-            uploaded_by="admin",
-            package_name="com.nexmdm"
-        )
-        db.add(apk_version)
-        db.commit()
-        db.refresh(apk_version)
-
-        structured_logger.log_event(
-            "apk.uploaded",
-            admin_user="admin",
-            apk_id=apk_version.id,
-            version_name=version_name,
-            version_code=version_code,
-            file_size=file_size,
-            sha256_hash=sha256_hash
-        )
-
-        return {
-            "ok": True,
-            "message": "APK uploaded successfully",
-            "apk_id": apk_version.id,
-            "version_name": apk_version.version_name,
-            "version_code": apk_version.version_code,
-            "storage_url": apk_version.storage_url
-        }
-
-    except ObjectNotFoundError as e:
-        raise HTTPException(status_code=500, detail=f"Object storage error: {str(e)}")
-    except Exception as e:
-        structured_logger.log_event(
-            "apk.upload.fail",
-            level="ERROR",
-            admin_user="admin",
-            version_name=version_name,
-            version_code=version_code,
-            error=str(e)
-        )
-        raise HTTPException(status_code=500, detail=f"Failed to upload APK: {str(e)}")
 
 @app.get("/admin/apks")
 async def get_admin_apks(
