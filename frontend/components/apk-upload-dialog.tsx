@@ -75,6 +75,13 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
   ): Promise<boolean> => {
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
+        console.log(`[UPLOAD] Uploading chunk ${chunkIndex + 1}/${totalChunks} (attempt ${attempt + 1}/${retries})`, {
+          uploadId,
+          chunkIndex,
+          chunkSize: chunk.size,
+          filename: file!.name
+        })
+
         const formData = new FormData()
         formData.append('file', chunk)
         formData.append('upload_id', uploadId)
@@ -83,6 +90,12 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
         formData.append('filename', file!.name)
 
         const token = localStorage.getItem('auth_token')
+        if (!token) {
+          console.error('[UPLOAD] No auth token found')
+          toast.error('Authentication required. Please sign in again.')
+          return false
+        }
+
         const response = await fetch('/v1/apk/upload-chunk', {
           method: 'POST',
           headers: {
@@ -92,15 +105,47 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
         })
 
         if (response.ok) {
+          const responseData = await response.json().catch(() => ({}))
+          console.log(`[UPLOAD] Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully`, responseData)
           return true
         }
 
+        const errorText = await response.text().catch(() => 'Unknown error')
+        const errorData = (() => {
+          try {
+            return JSON.parse(errorText)
+          } catch {
+            return { error: errorText || `HTTP ${response.status}: ${response.statusText}` }
+          }
+        })()
+
+        console.error(`[UPLOAD] Chunk ${chunkIndex + 1}/${totalChunks} upload failed (attempt ${attempt + 1}/${retries})`, {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        })
+
         if (attempt < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          const delay = 1000 * (attempt + 1)
+          console.log(`[UPLOAD] Retrying chunk ${chunkIndex + 1} in ${delay}ms...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        } else {
+          const errorMessage = errorData.error || errorData.details || `HTTP ${response.status}: ${response.statusText}`
+          toast.error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}: ${errorMessage}`)
         }
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        console.error(`[UPLOAD] Chunk ${chunkIndex + 1}/${totalChunks} upload error (attempt ${attempt + 1}/${retries})`, {
+          error: errorMessage,
+          errorObject: error
+        })
+
         if (attempt < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          const delay = 1000 * (attempt + 1)
+          console.log(`[UPLOAD] Retrying chunk ${chunkIndex + 1} in ${delay}ms after error...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        } else {
+          toast.error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}: ${errorMessage}`)
         }
       }
     }
@@ -119,6 +164,16 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
     const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
 
+    console.log('[UPLOAD] Starting upload', {
+      filename: file.name,
+      fileSize: file.size,
+      totalChunks,
+      uploadId,
+      packageName,
+      versionName,
+      versionCode
+    })
+
     try {
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         const start = chunkIndex * CHUNK_SIZE
@@ -128,7 +183,7 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
         const success = await uploadChunkWithRetry(chunk, uploadId, chunkIndex, totalChunks)
         
         if (!success) {
-          toast.error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`)
+          console.error(`[UPLOAD] Upload failed at chunk ${chunkIndex + 1}/${totalChunks}`)
           setIsUploading(false)
           setUploadProgress(0)
           return
@@ -136,9 +191,19 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
 
         const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100)
         setUploadProgress(progress)
+        console.log(`[UPLOAD] Progress: ${progress}% (${chunkIndex + 1}/${totalChunks} chunks)`)
       }
 
+      console.log('[UPLOAD] All chunks uploaded, finalizing...')
       const token = localStorage.getItem('auth_token')
+      if (!token) {
+        console.error('[UPLOAD] No auth token for finalization')
+        toast.error('Authentication required. Please sign in again.')
+        setIsUploading(false)
+        setUploadProgress(0)
+        return
+      }
+
       const completeResponse = await fetch('/v1/apk/complete', {
         method: 'POST',
         headers: {
@@ -157,16 +222,39 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
       })
 
       if (completeResponse.ok) {
+        const completeData = await completeResponse.json().catch(() => ({}))
+        console.log('[UPLOAD] Upload completed successfully', completeData)
         toast.success('APK uploaded successfully')
+        setIsUploading(false)
+        setUploadProgress(0)
         onUploadComplete()
         handleClose()
       } else {
-        const error = await completeResponse.json()
-        toast.error(error.error || 'Failed to finalize upload')
+        const errorText = await completeResponse.text().catch(() => 'Unknown error')
+        const errorData = (() => {
+          try {
+            return JSON.parse(errorText)
+          } catch {
+            return { error: errorText || `HTTP ${completeResponse.status}: ${completeResponse.statusText}` }
+          }
+        })()
+        
+        console.error('[UPLOAD] Finalization failed', {
+          status: completeResponse.status,
+          statusText: completeResponse.statusText,
+          error: errorData
+        })
+        
+        const errorMessage = errorData.error || errorData.details || `HTTP ${completeResponse.status}: ${completeResponse.statusText}`
+        toast.error(`Failed to finalize upload: ${errorMessage}`)
       }
     } catch (error) {
-      console.error('Upload error:', error)
-      toast.error('Failed to upload APK')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error('[UPLOAD] Upload error:', {
+        error: errorMessage,
+        errorObject: error
+      })
+      toast.error(`Failed to upload APK: ${errorMessage}`)
     } finally {
       setIsUploading(false)
       setUploadProgress(0)
