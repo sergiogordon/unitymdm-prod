@@ -173,6 +173,28 @@ export default function RemoteExecutionPage() {
     return result
   }, [allDevices, deviceFilter])
 
+  // Calculate if Execute button should be disabled
+  const isExecuteDisabled = useMemo(() => {
+    let disabled = false
+    // Allow execution if soft_update_refresh preset is selected (even with empty payload)
+    if (mode === "fcm" && selectedPreset === "soft_update_refresh") {
+      disabled = isExecuting
+      console.log("[BUTTON-DISABLED] soft_update_refresh selected", { disabled, isExecuting })
+    } else if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
+      // For other FCM commands, require a payload
+      disabled = true
+      console.log("[BUTTON-DISABLED] FCM mode with empty payload", { disabled, fcmPayload })
+    } else if (mode === "shell" && (!shellCommand || !shellCommand.trim())) {
+      // For shell commands, require a command
+      disabled = true
+      console.log("[BUTTON-DISABLED] Shell mode with empty command", { disabled, shellCommand })
+    } else {
+      disabled = isExecuting
+      console.log("[BUTTON-DISABLED] Default case", { disabled, isExecuting })
+    }
+    return disabled
+  }, [mode, selectedPreset, fcmPayload, shellCommand, isExecuting])
+
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
       const aAlias = (a.alias || '').toUpperCase()
@@ -699,7 +721,7 @@ export default function RemoteExecutionPage() {
     if (!token) return
 
     // Validate command data before preview
-    if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
+    if (mode === "fcm" && selectedPreset !== "soft_update_refresh" && (!fcmPayload || !fcmPayload.trim())) {
       toast({
         title: "Validation Error",
         description: "Please enter a valid FCM payload",
@@ -1301,7 +1323,15 @@ export default function RemoteExecutionPage() {
                         value={fcmPayload}
                         onChange={(e) => {
                           setFcmPayload(e.target.value)
-                          setSelectedPreset("")  // Clear preset selection on manual edit
+                          // Clear preset selection on manual edit - user is overriding the preset
+                          // For soft_update_refresh, if user types something, they want to use that payload instead
+                          if (selectedPreset === "soft_update_refresh" && e.target.value.trim() !== "") {
+                            // User is overriding soft_update_refresh with a manual payload
+                            setSelectedPreset("")
+                          } else if (selectedPreset !== "soft_update_refresh") {
+                            // For other presets, always clear on manual edit
+                            setSelectedPreset("")
+                          }
                         }}
                         rows={8}
                         className="font-mono text-sm"
@@ -1372,9 +1402,27 @@ export default function RemoteExecutionPage() {
                 </div>
 
                 <Button 
-                  onClick={handleExecute} 
-                  disabled={isExecuting || (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) || (mode === "shell" && (!shellCommand || !shellCommand.trim()))}
+                  onClick={(e) => {
+                    console.log("[BUTTON] onClick fired", { 
+                      disabled: isExecuteDisabled, 
+                      isExecuting,
+                      mode,
+                      selectedPreset,
+                      fcmPayloadLength: fcmPayload.length,
+                      eventType: e.type
+                    })
+                    if (!isExecuteDisabled) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      handleExecute()
+                    } else {
+                      console.warn("[BUTTON] Button is disabled, not executing", { isExecuteDisabled })
+                    }
+                  }}
+                  disabled={isExecuteDisabled}
                   className="w-full mt-4"
+                  type="button"
+                  style={{ pointerEvents: isExecuteDisabled ? 'none' : 'auto', cursor: isExecuteDisabled ? 'not-allowed' : 'pointer' }}
                 >
                   <Play className="w-4 h-4 mr-2" />
                   {isExecuting ? "Executing..." : "Execute"}
