@@ -224,7 +224,17 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
       if (completeResponse.ok) {
         const completeData = await completeResponse.json().catch(() => ({}))
         console.log('[UPLOAD] Upload completed successfully', completeData)
-        toast.success('APK uploaded successfully')
+        
+        // Check if version code was auto-incremented due to duplicate
+        if (completeData.version_code_modified) {
+          toast.success(
+            `APK uploaded successfully. Version code auto-incremented from ${completeData.original_version_code} to ${completeData.version_code} to avoid duplicate.`,
+            { duration: 5000 }
+          )
+        } else {
+          toast.success('APK uploaded successfully')
+        }
+        
         setIsUploading(false)
         setUploadProgress(0)
         onUploadComplete()

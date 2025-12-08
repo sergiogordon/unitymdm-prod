@@ -30,6 +30,7 @@ import os
 import time
 import hashlib
 import httpx
+import random
 
 from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
@@ -5598,6 +5599,62 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return True, None
         return False, f"Package {package_name} is not in the enabled bloatware list"
 
+    # Special handling for am broadcast (token-based validation for security)
+    if len(tokens) >= 2 and tokens[0] == "am" and tokens[1] == "broadcast":
+        # Must have --receiver-foreground flag
+        if "--receiver-foreground" not in tokens:
+            return False, "am broadcast requires --receiver-foreground flag"
+        
+        # Must have -a com.nexmdm.CONFIGURE
+        try:
+            action_idx = tokens.index("-a")
+            if action_idx + 1 >= len(tokens) or tokens[action_idx + 1] != "com.nexmdm.CONFIGURE":
+                return False, "Only com.nexmdm.CONFIGURE action is allowed"
+        except ValueError:
+            return False, "am broadcast requires -a flag with action"
+        
+        # Must have -n com.nexmdm/.ConfigReceiver
+        try:
+            receiver_idx = tokens.index("-n")
+            if receiver_idx + 1 >= len(tokens) or tokens[receiver_idx + 1] != "com.nexmdm/.ConfigReceiver":
+                return False, "Only com.nexmdm/.ConfigReceiver receiver is allowed"
+        except ValueError:
+            return False, "am broadcast requires -n flag with receiver"
+        
+        # Validate required extras: server_url, admin_key or token, alias
+        extras = {}
+        i = 0
+        while i < len(tokens):
+            if tokens[i] in ["--es", "--ez", "--ei", "--el", "--ef", "--eu", "--ecn"]:
+                if i + 2 < len(tokens):
+                    key = tokens[i + 1]
+                    value = tokens[i + 2]
+                    extras[key] = value
+                    i += 3
+                    continue
+            i += 1
+        
+        # Check required extras
+        if "server_url" not in extras:
+            return False, "am broadcast requires --es server_url"
+        if "admin_key" not in extras and "token" not in extras:
+            return False, "am broadcast requires --es admin_key or --es token"
+        if "alias" not in extras:
+            return False, "am broadcast requires --es alias"
+        
+        # Validate server_url format (basic URL validation)
+        server_url = extras["server_url"]
+        if not (server_url.startswith("http://") or server_url.startswith("https://")):
+            return False, "server_url must start with http:// or https://"
+        
+        # Optional extras validation (only allow known safe extras)
+        allowed_optional_extras = ["hmac_primary_key", "hmac_rotation_key"]
+        for key in extras:
+            if key not in ["server_url", "admin_key", "token", "alias"] + allowed_optional_extras:
+                return False, f"Unknown extra parameter: {key}"
+        
+        return True, None
+
     # Regex-based validation for other commands
     allow_patterns = [
         r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
@@ -6257,24 +6314,7 @@ async def complete_apk_upload(
     try:
         storage_service = get_storage_service()
         
-        existing_version = db.query(ApkVersion).filter(
-            (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
-        ).first()
-        
-        if existing_version:
-            for i in range(total_chunks):
-                chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
-                try:
-                    storage_service.client.delete(chunk_key, ignore_not_found=True)
-                except:
-                    pass
-            return {
-                "ok": True,
-                "message": "APK version already exists (skipped)",
-                "apk_id": existing_version.id,
-                "already_existed": True
-            }
-        
+        # Download and assemble chunks first
         all_chunks = []
         for i in range(total_chunks):
             chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
@@ -6288,7 +6328,43 @@ async def complete_apk_upload(
         file_size = len(complete_file)
         sha256_hash = hashlib.sha256(complete_file).hexdigest()
         
-        object_name = f"apks/{version_name}_{version_code}.apk"
+        # Handle duplicate version_code by auto-incrementing version_code
+        # The unique constraint is on (package_name, version_code), so we must change version_code
+        original_version_code = version_code
+        modified_version_code = version_code
+        max_attempts = 10
+        
+        for attempt in range(max_attempts):
+            # Check for duplicate: same package_name AND version_code (matches database unique constraint)
+            existing_version = db.query(ApkVersion).filter(
+                (ApkVersion.package_name == package_name) & (ApkVersion.version_code == modified_version_code)
+            ).first()
+            
+            if not existing_version:
+                # No duplicate found, proceed with upload
+                break
+            
+            # Duplicate found, increment version_code by a random amount (1-100)
+            # This ensures we can always find a unique version_code
+            increment = random.randint(1, 100)
+            modified_version_code = modified_version_code + increment
+            
+            if attempt == max_attempts - 1:
+                # Last attempt failed, raise error (shouldn't happen with random increment)
+                for i in range(total_chunks):
+                    chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
+                    try:
+                        storage_service.client.delete(chunk_key, ignore_not_found=True)
+                    except:
+                        pass
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Unable to find unique version code after {max_attempts} attempts. Please try a different version code."
+                )
+        
+        # Use modified version code for storage and database
+        version_code_modified = modified_version_code != original_version_code
+        object_name = f"apks/{version_name}_{modified_version_code}.apk"
         storage_service.client.upload_from_bytes(object_name, complete_file)
         
         for i in range(total_chunks):
@@ -6300,7 +6376,7 @@ async def complete_apk_upload(
         
         apk_version = ApkVersion(
             version_name=version_name,
-            version_code=version_code,
+            version_code=modified_version_code,
             package_name=package_name,
             build_type=build_type,
             file_size=file_size,
@@ -6314,22 +6390,31 @@ async def complete_apk_upload(
         db.commit()
         db.refresh(apk_version)
         
+        # Log if version code was modified
+        log_message = "APK uploaded successfully"
+        if version_code_modified:
+            log_message = f"APK uploaded successfully (version code auto-incremented from {original_version_code} to {modified_version_code} due to duplicate)"
+        
         structured_logger.log_event(
             "apk.uploaded",
             apk_id=apk_version.id,
             version_name=version_name,
-            version_code=version_code,
+            version_code=modified_version_code,
+            original_version_code=original_version_code if version_code_modified else None,
             file_size=file_size,
-            user=current_user.username
+            user=current_user.username,
+            version_code_modified=version_code_modified
         )
         
         return {
             "ok": True,
-            "message": "APK uploaded successfully",
+            "message": log_message,
             "apk_id": apk_version.id,
             "version_name": apk_version.version_name,
             "version_code": apk_version.version_code,
-            "storage_url": apk_version.storage_url
+            "original_version_code": original_version_code if version_code_modified else None,
+            "storage_url": apk_version.storage_url,
+            "version_code_modified": version_code_modified
         }
     except HTTPException:
         raise

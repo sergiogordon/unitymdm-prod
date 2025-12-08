@@ -39,12 +39,13 @@ export async function POST(request: NextRequest) {
     // Validate that chunkIndex and totalChunks are valid numbers
     const chunkIndexNum = parseInt(chunkIndex, 10)
     const totalChunksNum = parseInt(totalChunks, 10)
-    if (isNaN(chunkIndexNum) || isNaN(totalChunksNum) || chunkIndexNum < 0 || totalChunksNum <= 0) {
+    if (isNaN(chunkIndexNum) || isNaN(totalChunksNum) || chunkIndexNum < 0 || totalChunksNum <= 0 || chunkIndexNum >= totalChunksNum) {
       console.error('APK chunk upload error: Invalid numeric values for chunk index/total chunks', {
         chunkIndex,
         totalChunks,
         chunkIndexNum,
-        totalChunksNum
+        totalChunksNum,
+        invalidRange: chunkIndexNum >= totalChunksNum
       })
       return NextResponse.json({ error: 'Invalid numeric values for chunk index/total chunks' }, { status: 400 })
     }
