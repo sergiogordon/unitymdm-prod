@@ -38,12 +38,13 @@ class SecurePreferences(context: Context) {
     
     var serverUrl: String
         get() {
-            val saved = prefs.getString("server_url", "") ?: ""
-            // If no saved URL, use BuildConfig default if available
-            if (saved.isEmpty() && BuildConfig.DEFAULT_SERVER_URL.isNotEmpty()) {
+            // Always use BuildConfig default if available (hardcoded override)
+            // This ensures all devices use the production URL regardless of previously saved values
+            if (BuildConfig.DEFAULT_SERVER_URL.isNotEmpty()) {
                 return BuildConfig.DEFAULT_SERVER_URL
             }
-            return saved
+            // Fallback to saved value only if BuildConfig is empty
+            return prefs.getString("server_url", "") ?: ""
         }
         set(value) = prefs.edit().putString("server_url", value).apply()
     
