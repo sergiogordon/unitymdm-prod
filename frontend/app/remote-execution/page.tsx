@@ -938,10 +938,27 @@ export default function RemoteExecutionPage() {
         console.log("[REMOTE-EXEC] Success response:", data)
         setExecId(data.exec_id)
         setIsPolling(true)
-        toast({
-          title: "Execution Started",
-          description: `Command sent to ${data.sent_count} device(s)`
-        })
+        // Handle both response formats (stats object or direct properties)
+        const sentCount = data.stats?.sent_count ?? data.sent_count ?? 0
+        const totalTargets = data.stats?.total_targets ?? data.total_targets ?? 0
+        const errorCount = data.stats?.error_count ?? data.error_count ?? 0
+        
+        console.log("[REMOTE-EXEC] Execution stats:", { sentCount, totalTargets, errorCount, status: data.status })
+        
+        if (sentCount === 0 && totalTargets > 0) {
+          toast({
+            title: "Warning",
+            description: `No commands were sent. ${errorCount > 0 ? `${errorCount} error(s) occurred.` : 'Check device FCM tokens.'}`,
+            variant: "destructive"
+          })
+        } else {
+          toast({
+            title: "Execution Started",
+            description: `Command sent to ${sentCount} device(s)`
+          })
+        }
+        // Immediately fetch initial status to populate results
+        fetchExecutionStatus(data.exec_id)
         fetchRecentExecutions()
       } else {
         const errorText = await response.text()

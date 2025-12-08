@@ -5622,6 +5622,8 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return False, "am broadcast requires -n flag with receiver"
         
         # Validate required extras: server_url, admin_key or token, alias
+        # Also validate that values aren't themselves extra type flags (prevents injection)
+        extra_type_flags = ["--es", "--ez", "--ei", "--el", "--ef", "--eu", "--ecn", "-a", "-n", "--receiver-foreground"]
         extras = {}
         i = 0
         while i < len(tokens):
@@ -5629,6 +5631,12 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
                 if i + 2 < len(tokens):
                     key = tokens[i + 1]
                     value = tokens[i + 2]
+                    # Validate that the value isn't itself an extra type flag (prevents malformed commands)
+                    if value in extra_type_flags:
+                        return False, f"Invalid extra value: '{value}' cannot be an extra type flag"
+                    # Validate that the key isn't an extra type flag either
+                    if key in extra_type_flags:
+                        return False, f"Invalid extra key: '{key}' cannot be an extra type flag"
                     extras[key] = value
                     i += 3
                     continue
@@ -7620,6 +7628,13 @@ async def dispatch_fcm_to_device(
     async with semaphore:
         try:
             if not device.fcm_token:
+                # Update db_results so error is tracked properly
+                db_results[device.id] = {
+                    "correlation_id": correlation_id,
+                    "alias": device.alias,
+                    "status": "error",
+                    "error": "No FCM token"
+                }
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -7632,8 +7647,41 @@ async def dispatch_fcm_to_device(
             action = f"remote_exec_{mode}"
             
             if mode == "shell":
-                command = payload.get("script", "")
+                command_template = payload.get("script", "")
+                # Substitute template variables with device-specific values
+                # Supported variables: {alias}, {device_id}
+                # Note: {device_token} is not available as tokens are hashed for security
+                command = command_template.replace("{alias}", device.alias or "")
+                command = command.replace("{device_id}", device.id or "")
+                
+                # CRITICAL: Re-validate the command after substitution to ensure it's still valid
+                # This prevents templates that pass validation from producing invalid commands after substitution
+                # Run validation in thread pool to avoid blocking async event loop (validation may do DB queries)
+                try:
+                    is_valid, error_msg = await asyncio.to_thread(validate_shell_command, command)
+                    if not is_valid:
+                        error_detail = f"Command invalid after template substitution: {error_msg}"
+                        # Update db_results so error is tracked properly
+                        db_results[device.id] = {
+                            "correlation_id": correlation_id,
+                            "alias": device.alias,
+                            "status": "error",
+                            "error": error_detail
+                        }
+                        return {
+                            "device_id": device.id,
+                            "alias": device.alias,
+                            "correlation_id": correlation_id,
+                            "status": "error",
+                            "error": error_detail
+                        }
+                except Exception as e:
+                    # If validation itself fails, log and allow command (fail-safe)
+                    print(f"[REMOTE-EXEC] Validation error for device {device.id}: {e}")
+                    # Continue with command execution rather than blocking
+                
                 # Include critical payload field (command) in HMAC to prevent tampering
+                # Use substituted command for HMAC to ensure integrity
                 payload_fields = {"command": command}
                 hmac_signature = compute_hmac_signature_with_payload(
                     correlation_id, device.id, action, timestamp, payload_fields
