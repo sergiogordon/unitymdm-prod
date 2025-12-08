@@ -20,6 +20,7 @@ import {
 import { format } from "date-fns"
 import { toZonedTime } from "date-fns-tz"
 import { useTheme } from "@/contexts/ThemeContext"
+import { clearApkBuildCache } from "@/lib/apk-build-cache"
 
 interface ApkBuild {
   build_id: number
@@ -132,6 +133,8 @@ export default function ApkManagementPage() {
         throw new Error('Delete failed')
       }
       
+      // Clear cache when APK is deleted
+      clearApkBuildCache()
       fetchApkBuilds()
       setSelectedBuildIds(prev => {
         const next = new Set(prev)
@@ -201,6 +204,8 @@ export default function ApkManagementPage() {
 
     // Update UI optimistically - remove successfully deleted items
     if (successfulDeletes.length > 0) {
+      // Clear cache when APKs are deleted
+      clearApkBuildCache()
       setApkBuilds(prev => prev.filter(apk => !successfulDeletes.includes(apk.build_id)))
       setSelectedBuildIds(prev => {
         const next = new Set(prev)
@@ -391,6 +396,8 @@ export default function ApkManagementPage() {
         isOpen={showUploadModal}
         onClose={() => setShowUploadModal(false)}
         onUploadComplete={() => {
+          // Clear cache when APK is uploaded
+          clearApkBuildCache()
           fetchApkBuilds()
         }}
       />

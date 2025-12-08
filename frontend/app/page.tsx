@@ -20,6 +20,10 @@ import {
   isVersionOutdated,
   type ApkBuild,
 } from "@/lib/version-utils"
+import {
+  getCachedApkBuilds,
+  setCachedApkBuilds,
+} from "@/lib/apk-build-cache"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 
@@ -139,15 +143,34 @@ export default function Page() {
     }
   }, [authChecked, lastUpdated])
 
-  // Fetch APK builds for version comparison
+  // Fetch APK builds for version comparison (with caching)
   useEffect(() => {
     if (authChecked) {
       const fetchApkBuilds = async () => {
         try {
-          const response = await fetch('/admin/apk/builds?build_type=release&limit=50')
-          if (response.ok) {
-            const data = await response.json()
-            setAllApkBuilds(data.builds || [])
+          // Check cache first
+          const cached = getCachedApkBuilds('release', 50)
+          if (cached) {
+            setAllApkBuilds(cached)
+            // Fetch in background to refresh cache
+            fetch('/admin/apk/builds?build_type=release&limit=50')
+              .then(res => res.ok ? res.json() : null)
+              .then(data => {
+                if (data?.builds) {
+                  setCachedApkBuilds('release', 50, data.builds)
+                  setAllApkBuilds(data.builds)
+                }
+              })
+              .catch(() => {}) // Silent fail for background refresh
+          } else {
+            // Fetch and cache
+            const response = await fetch('/admin/apk/builds?build_type=release&limit=50')
+            if (response.ok) {
+              const data = await response.json()
+              const builds = data.builds || []
+              setAllApkBuilds(builds)
+              setCachedApkBuilds('release', 50, builds)
+            }
           }
         } catch (err) {
           console.error('Failed to fetch APK builds:', err)
