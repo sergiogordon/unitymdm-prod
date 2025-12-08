@@ -11,6 +11,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
+import {
+  getLatestAgentVersion,
+  getLatestUnityVersion,
+  isVersionOutdated,
+  type ApkBuild as ApkBuildType,
+} from "@/lib/version-utils"
 
 interface Device {
   id: string
@@ -18,6 +24,10 @@ interface Device {
   fcm_token: string | null
   last_seen: string
   status: "online" | "offline"
+  last_status?: {
+    agent?: { version?: string }
+    unity?: { version?: string; status?: string }
+  }
 }
 
 interface ApkBuild {
@@ -75,6 +85,11 @@ export default function ApkDeployPage() {
   const [recentDeployments, setRecentDeployments] = useState<RecentDeployment[]>([])
   const [loadingRecentDeployments, setLoadingRecentDeployments] = useState(false)
   
+  // Version filtering state
+  const [allApkBuilds, setAllApkBuilds] = useState<ApkBuildType[]>([])
+  const [filterOutdatedAgent, setFilterOutdatedAgent] = useState(false)
+  const [filterOutdatedUnity, setFilterOutdatedUnity] = useState(false)
+  
   // Batching state
   const [isBatching, setIsBatching] = useState(false)
   const [currentBatch, setCurrentBatch] = useState(0)
@@ -82,6 +97,15 @@ export default function ApkDeployPage() {
   const [batchProgress, setBatchProgress] = useState<Map<string, { status: string; progress?: number }>>(new Map())
   const [batchResults, setBatchResults] = useState<DeploymentResult[]>([])
   const [cancelled, setCancelled] = useState(false)
+
+  // Calculate latest versions from APK builds
+  const latestAgentVersion = useMemo(() => {
+    return getLatestAgentVersion(allApkBuilds)
+  }, [allApkBuilds])
+
+  const latestUnityVersion = useMemo(() => {
+    return getLatestUnityVersion(allApkBuilds)
+  }, [allApkBuilds])
 
   const filteredDevices = useMemo(() => {
     let result = [...devices]
@@ -91,6 +115,21 @@ export default function ApkDeployPage() {
       result = result.filter(device => 
         device.alias.toLowerCase().startsWith(filterLower)
       )
+    }
+    
+    // Version filtering
+    if (filterOutdatedAgent || filterOutdatedUnity) {
+      result = result.filter(device => {
+        const agentOutdated = filterOutdatedAgent 
+          ? isVersionOutdated(device.last_status?.agent?.version, latestAgentVersion)
+          : false
+        const unityOutdated = filterOutdatedUnity
+          ? isVersionOutdated(device.last_status?.unity?.version, latestUnityVersion)
+          : false
+        
+        // Show device if it's outdated in at least one category when filters are active
+        return agentOutdated || unityOutdated
+      })
     }
     
     result.sort((a, b) => {
@@ -127,7 +166,7 @@ export default function ApkDeployPage() {
     })
     
     return result
-  }, [devices, aliasFilter])
+  }, [devices, aliasFilter, filterOutdatedAgent, filterOutdatedUnity, latestAgentVersion, latestUnityVersion])
 
   useEffect(() => {
     fetchData()
@@ -173,8 +212,12 @@ export default function ApkDeployPage() {
       const apkData = await apkRes.json()
       const devicesData = await devicesRes.json()
 
+      // Store all APK builds for version comparison
+      const builds = apkData.builds || []
+      setAllApkBuilds(builds)
+
       // Find the specific APK by build_id
-      const targetApk = apkData.builds?.find((b: ApkBuild) => b.build_id === parseInt(apkId))
+      const targetApk = builds.find((b: ApkBuild) => b.build_id === parseInt(apkId))
       
       if (targetApk) {
         setApk(targetApk)
@@ -714,12 +757,74 @@ export default function ApkDeployPage() {
                     onChange={(e) => setAliasFilter(e.target.value)}
                     className="pl-10"
                   />
-                  {aliasFilter && (
+                  {(aliasFilter || filterOutdatedAgent || filterOutdatedUnity) && (
                     <div className="mt-2 text-xs text-muted-foreground">
                       Showing {filteredDevices.length} of {devices.length} devices
                       {selectedDevices.size > 0 && ` (${selectedDevices.size} selected total)`}
                     </div>
                   )}
+                </div>
+                
+                {/* Version Filters */}
+                <div className="rounded-lg border border-border bg-muted/50 p-4">
+                  <div className="mb-3 text-sm font-medium text-card-foreground">Version Filters</div>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="filter-outdated-agent"
+                          checked={filterOutdatedAgent}
+                          onCheckedChange={(checked) => setFilterOutdatedAgent(checked === true)}
+                          disabled={!latestAgentVersion}
+                        />
+                        <label
+                          htmlFor="filter-outdated-agent"
+                          className="text-sm cursor-pointer"
+                        >
+                          Show only devices with outdated Agent version
+                        </label>
+                      </div>
+                      {latestAgentVersion && (
+                        <span className="text-xs text-muted-foreground">
+                          Latest: {latestAgentVersion}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="filter-outdated-unity"
+                          checked={filterOutdatedUnity}
+                          onCheckedChange={(checked) => setFilterOutdatedUnity(checked === true)}
+                          disabled={!latestUnityVersion}
+                        />
+                        <label
+                          htmlFor="filter-outdated-unity"
+                          className="text-sm cursor-pointer"
+                        >
+                          Show only devices with outdated Unity version
+                        </label>
+                      </div>
+                      {latestUnityVersion && (
+                        <span className="text-xs text-muted-foreground">
+                          Latest: {latestUnityVersion}
+                        </span>
+                      )}
+                    </div>
+                    {(filterOutdatedAgent || filterOutdatedUnity) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setFilterOutdatedAgent(false)
+                          setFilterOutdatedUnity(false)
+                        }}
+                        className="h-7 text-xs"
+                      >
+                        Clear version filters
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
 

@@ -14,6 +14,14 @@ import { useDevices } from "@/hooks/use-devices"
 import { isAuthenticated, fetchDeviceStats } from "@/lib/api-client"
 import { useSettings } from "@/contexts/SettingsContext"
 import { ArrowUpDown, Filter } from "lucide-react"
+import {
+  getLatestAgentVersion,
+  getLatestUnityVersion,
+  isVersionOutdated,
+  type ApkBuild,
+} from "@/lib/version-utils"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Button } from "@/components/ui/button"
 
 type AliasFilter = "all" | "D" | "S"
 type SortOrder = "none" | "alias-asc" | "alias-desc"
@@ -50,6 +58,11 @@ export default function Page() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("none")
   const [selectedDevice, setSelectedDevice] = useState<Device | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
+  
+  // Version filtering state
+  const [allApkBuilds, setAllApkBuilds] = useState<ApkBuild[]>([])
+  const [filterOutdatedAgent, setFilterOutdatedAgent] = useState(false)
+  const [filterOutdatedUnity, setFilterOutdatedUnity] = useState(false)
   
   // Separate stats state for accurate KPI counters
   const [stats, setStats] = useState({ total: 0, online: 0, offline: 0, low_battery: 0 })
@@ -125,6 +138,24 @@ export default function Page() {
         .catch(err => console.error('Failed to fetch stats:', err))
     }
   }, [authChecked, lastUpdated])
+
+  // Fetch APK builds for version comparison
+  useEffect(() => {
+    if (authChecked) {
+      const fetchApkBuilds = async () => {
+        try {
+          const response = await fetch('/admin/apk/builds?build_type=release&limit=50')
+          if (response.ok) {
+            const data = await response.json()
+            setAllApkBuilds(data.builds || [])
+          }
+        } catch (err) {
+          console.error('Failed to fetch APK builds:', err)
+        }
+      }
+      fetchApkBuilds()
+    }
+  }, [authChecked])
   
   // Only fetch devices after auth is confirmed
   const shouldFetch = authChecked
@@ -142,6 +173,15 @@ export default function Page() {
     changePageSize
   } = useDevices(shouldFetch)
 
+  // Calculate latest versions from APK builds
+  const latestAgentVersion = useMemo(() => {
+    return getLatestAgentVersion(allApkBuilds)
+  }, [allApkBuilds])
+
+  const latestUnityVersion = useMemo(() => {
+    return getLatestUnityVersion(allApkBuilds)
+  }, [allApkBuilds])
+
   // Filter and sort devices
   const filteredAndSortedDevices = useMemo(() => {
     let result = devices.filter((device) => {
@@ -152,6 +192,21 @@ export default function Page() {
       
       if (aliasFilter !== "all") {
         if (!device.alias.toUpperCase().startsWith(aliasFilter)) return false
+      }
+      
+      // Version filtering
+      if (filterOutdatedAgent || filterOutdatedUnity) {
+        const agentOutdated = filterOutdatedAgent
+          ? isVersionOutdated(device.agent?.version, latestAgentVersion)
+          : false
+        const unityOutdated = filterOutdatedUnity
+          ? isVersionOutdated(device.unity?.version, latestUnityVersion)
+          : false
+        
+        // Show device if it's outdated in at least one category when filters are active
+        if (!agentOutdated && !unityOutdated) {
+          return false
+        }
       }
       
       return true
@@ -203,7 +258,7 @@ export default function Page() {
     }
     
     return result
-  }, [devices, selectedFilter, aliasFilter, sortOrder])
+  }, [devices, selectedFilter, aliasFilter, sortOrder, filterOutdatedAgent, filterOutdatedUnity, latestAgentVersion, latestUnityVersion])
 
   const filteredDevices = filteredAndSortedDevices
 
@@ -275,6 +330,66 @@ export default function Page() {
         />
 
         <FilterBar selected={selectedFilter} onSelect={setSelectedFilter} />
+
+        {/* Version Filters */}
+        {(filterOutdatedAgent || filterOutdatedUnity || latestAgentVersion || latestUnityVersion) && (
+          <div className="mb-4 rounded-lg border border-border bg-muted/50 p-4">
+            <div className="mb-3 text-sm font-medium text-card-foreground">Version Filters</div>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="filter-outdated-agent-dashboard"
+                  checked={filterOutdatedAgent}
+                  onCheckedChange={(checked) => setFilterOutdatedAgent(checked === true)}
+                  disabled={!latestAgentVersion}
+                />
+                <label
+                  htmlFor="filter-outdated-agent-dashboard"
+                  className="text-sm cursor-pointer"
+                >
+                  Show only devices with outdated Agent version
+                </label>
+                {latestAgentVersion && (
+                  <span className="text-xs text-muted-foreground ml-2">
+                    (Latest: {latestAgentVersion})
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="filter-outdated-unity-dashboard"
+                  checked={filterOutdatedUnity}
+                  onCheckedChange={(checked) => setFilterOutdatedUnity(checked === true)}
+                  disabled={!latestUnityVersion}
+                />
+                <label
+                  htmlFor="filter-outdated-unity-dashboard"
+                  className="text-sm cursor-pointer"
+                >
+                  Show only devices with outdated Unity version
+                </label>
+                {latestUnityVersion && (
+                  <span className="text-xs text-muted-foreground ml-2">
+                    (Latest: {latestUnityVersion})
+                  </span>
+                )}
+              </div>
+              {(filterOutdatedAgent || filterOutdatedUnity) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFilterOutdatedAgent(false)
+                    setFilterOutdatedUnity(false)
+                  }}
+                  className="h-7 text-xs"
+                >
+                  Clear version filters
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
