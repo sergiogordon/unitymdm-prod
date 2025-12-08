@@ -70,6 +70,10 @@ android {
         
         buildConfigField "String", "VERSION_NAME", "\"${appVersionName}\""
         buildConfigField "int", "VERSION_CODE", "${appVersionCode}"
+        
+        // Default server URL (can be overridden via DEFAULT_SERVER_URL environment variable)
+        def defaultServerUrl = System.getenv("DEFAULT_SERVER_URL") ?: "https://unitymdm.replit.app"
+        buildConfigField "String", "DEFAULT_SERVER_URL", "\"${defaultServerUrl}\""
     }
 
     signingConfigs {

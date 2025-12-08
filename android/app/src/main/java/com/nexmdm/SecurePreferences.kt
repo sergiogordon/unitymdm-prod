@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.nexmdm.BuildConfig
 
 class SecurePreferences(context: Context) {
     
@@ -36,7 +37,14 @@ class SecurePreferences(context: Context) {
         }
     
     var serverUrl: String
-        get() = prefs.getString("server_url", "") ?: ""
+        get() {
+            val saved = prefs.getString("server_url", "") ?: ""
+            // If no saved URL, use BuildConfig default if available
+            if (saved.isEmpty() && BuildConfig.DEFAULT_SERVER_URL.isNotEmpty()) {
+                return BuildConfig.DEFAULT_SERVER_URL
+            }
+            return saved
+        }
         set(value) = prefs.edit().putString("server_url", value).apply()
     
     var deviceToken: String
