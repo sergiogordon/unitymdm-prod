@@ -5622,8 +5622,7 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return False, "am broadcast requires -n flag with receiver"
         
         # Validate required extras: server_url, admin_key or token, alias
-        # Also validate that values aren't themselves extra type flags (prevents injection)
-        extra_type_flags = ["--es", "--ez", "--ei", "--el", "--ef", "--eu", "--ecn", "-a", "-n", "--receiver-foreground"]
+        # Maximally permissive: only check that required extras are present, allow any values
         extras = {}
         i = 0
         while i < len(tokens):
@@ -5631,18 +5630,13 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
                 if i + 2 < len(tokens):
                     key = tokens[i + 1]
                     value = tokens[i + 2]
-                    # Validate that the value isn't itself an extra type flag (prevents malformed commands)
-                    if value in extra_type_flags:
-                        return False, f"Invalid extra value: '{value}' cannot be an extra type flag"
-                    # Validate that the key isn't an extra type flag either
-                    if key in extra_type_flags:
-                        return False, f"Invalid extra key: '{key}' cannot be an extra type flag"
+                    # Allow any key-value pairs, no validation of values
                     extras[key] = value
                     i += 3
                     continue
             i += 1
         
-        # Check required extras
+        # Check required extras are present (but allow any values, including empty)
         if "server_url" not in extras:
             return False, "am broadcast requires --es server_url"
         if "admin_key" not in extras and "token" not in extras:
@@ -5650,16 +5644,8 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
         if "alias" not in extras:
             return False, "am broadcast requires --es alias"
         
-        # Validate server_url format (basic URL validation)
-        server_url = extras["server_url"]
-        if not (server_url.startswith("http://") or server_url.startswith("https://")):
-            return False, "server_url must start with http:// or https://"
-        
-        # Optional extras validation (only allow known safe extras)
-        allowed_optional_extras = ["hmac_primary_key", "hmac_rotation_key"]
-        for key in extras:
-            if key not in ["server_url", "admin_key", "token", "alias"] + allowed_optional_extras:
-                return False, f"Unknown extra parameter: {key}"
+        # No format validation - allow any values for all extras
+        # Allow any additional extra parameters as well
         
         return True, None
 

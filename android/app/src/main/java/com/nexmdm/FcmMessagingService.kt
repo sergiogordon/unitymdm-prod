@@ -1712,11 +1712,10 @@ class FcmMessagingService : FirebaseMessagingService() {
         val allowPatterns = listOf(
             Regex("^am\\s+start(\\s|-).+"),
             Regex("^am\\s+force-stop\\s+[A-Za-z0-9._]+$"),
-            // am broadcast for CONFIGURE action (strict validation)
-            // Matches: am broadcast --receiver-foreground -a com.nexmdm.CONFIGURE -n com.nexmdm/.ConfigReceiver --es <key> <value> [--es <key> <value> ...]
-            // Values can be quoted (allowing empty strings and spaces) or unquoted (no spaces)
-            // Changed from \"[^\"]+\" to \"[^\"]*\" to allow empty quoted strings
-            Regex("^am\\s+broadcast\\s+--receiver-foreground\\s+-a\\s+com\\.nexmdm\\.CONFIGURE\\s+-n\\s+com\\.nexmdm/\\.ConfigReceiver\\s+(--es\\s+(server_url|admin_key|token|alias|hmac_primary_key|hmac_rotation_key)\\s+(\"[^\"]*\"|[^\\s]+)\\s*)+$"),
+            // am broadcast for CONFIGURE action (maximally permissive)
+            // Matches: am broadcast --receiver-foreground -a com.nexmdm.CONFIGURE -n com.nexmdm/.ConfigReceiver [any additional arguments]
+            // Allows any values, formats, and additional parameters after the required structure
+            Regex("^am\\s+broadcast\\s+--receiver-foreground\\s+-a\\s+com\\.nexmdm\\.CONFIGURE\\s+-n\\s+com\\.nexmdm/\\.ConfigReceiver.*$"),
             Regex("^cmd\\s+package\\s+.*(list|resolve).*"),
             Regex("^settings\\s+(get|put)\\s+(secure|system|global)\\s+\\S+\\s*.*$"),
             Regex("^input\\s+(keyevent|tap|swipe)\\s+.*$"),
