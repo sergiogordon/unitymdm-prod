@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const limit = searchParams.get('limit')
 
+    // Build URL - API_URL is already the base backend URL, append the path
     let url = `${API_URL}/v1/apk/installations`
     const params = new URLSearchParams()
     if (apkId) params.append('apk_id', apkId)
@@ -34,8 +35,9 @@ export async function GET(request: NextRequest) {
     if (limit) params.append('limit', limit)
     if (params.toString()) url += `?${params.toString()}`
 
+    // Increase timeout to 30 seconds for installation queries (they can be slow during deployments)
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000)
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
 
     const response = await fetch(url, {
       headers,
@@ -44,10 +46,36 @@ export async function GET(request: NextRequest) {
 
     clearTimeout(timeoutId)
 
+    if (!response.ok) {
+      const errorText = await response.text()
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        errorData = { detail: errorText || 'Unknown error' }
+      }
+      return NextResponse.json(
+        { error: errorData.detail || 'Failed to fetch installation status' },
+        { status: response.status }
+      )
+    }
+
     const data = await response.json()
     return NextResponse.json(data, { status: response.status })
   } catch (error) {
+    // Handle AbortError specifically (request timeout or cancellation)
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('Installation status fetch timeout')
+      return NextResponse.json(
+        { error: 'Request timeout - backend did not respond within 30 seconds' },
+        { status: 504 }
+      )
+    }
+    
     console.error('Installation status fetch error:', error)
-    return NextResponse.json({ error: 'Failed to fetch installation status' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Failed to fetch installation status', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    )
   }
 }

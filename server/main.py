@@ -6877,11 +6877,20 @@ async def list_apk_installations(
     
     installations = query.all()
     
-    # Track query performance for monitoring
-    metrics.inc_counter("apk_installations_queries_total", {
-        "has_apk_id": str(apk_id is not None),
-        "has_status": str(status is not None)
-    })
+    # Track query performance for monitoring (wrap in try/except to avoid breaking endpoint)
+    try:
+        metrics.inc_counter("apk_installations_queries_total", {
+            "has_apk_id": str(apk_id is not None),
+            "has_status": str(status is not None)
+        })
+    except Exception as e:
+        # Don't fail the request if metrics fail
+        structured_logger.log_event(
+            "metrics.error",
+            level="WARN",
+            error=str(e),
+            metric="apk_installations_queries_total"
+        )
     
     results = []
     for inst in installations:
