@@ -1,0 +1,185 @@
+Still getting failed with status code 500. Please review why this is still happening: 12-09 10:25:52.11
+5e26e252
+User
+INFO: 127.0.0.1:55292 - "POST /v1/heartbeat HTTP/1.1" 200 OK
+2025-12-09 10:25:52.11
+5e26e252
+User
+[HEARTBEAT] Received from D9
+
+2025-12-09 10:25:53.11
+5e26e252
+User
+{"ts": "2025-12-09T16:25:53.118058+00:00", "request_id": "9232e391-5644-4cdb-b340-b0c7be5badb9", "level": "INFO", "event": "auth.device_token.success", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "token_id_prefix": "ed9a8e0f", "lookup_method": "token_id", "latency_ms": 486.0968589782715}
+2025-12-09 10:25:53.11
+5e26e252
+User
+{"ts": "2025-12-09T16:25:53.118473+00:00", "request_id": "9232e391-5644-4cdb-b340-b0c7be5badb9", "level": "INFO", "event": "heartbeat.ingest", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "alias": "D6", "battery_pct": 100, "network_type": "cell", "uptime_s": 750872, "status": "received"}
+2025-12-09 10:25:53.21
+5e26e252
+User
+{"ts": "2025-12-09T16:25:53.215323+00:00", "request_id": "9232e391-5644-4cdb-b340-b0c7be5badb9", "level": "WARN", "event": "monitoring.evaluate.no_foreground_data", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "alias": "D6", "monitored_package": "io.unitynodes.unityapp", "reason": "foreground_data_unavailable", "service_up": false, "source": "device"}
+2025-12-09 10:25:53.51
+5e26e252
+User
+[HEARTBEAT] Received from D6
+2025-12-09 10:25:53.51
+5e26e252
+User
+INFO: 127.0.0.1:55292 - "POST /v1/heartbeat HTTP/1.1" 200 OK
+2025-12-09 10:25:54.18
+5e26e252
+User
+{"ts": "2025-12-09T16:25:54.180695+00:00", "request_id": "779dafc7-2564-4d03-b1c3-81e69abfcfc4", "level": "INFO", "event": "auth.device_token.success", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "token_id_prefix": "ed9a8e0f", "lookup_method": "token_id", "latency_ms": 522.8350162506104}
+2025-12-09 10:25:54.18
+5e26e252
+User
+{"ts": "2025-12-09T16:25:54.181154+00:00", "request_id": "779dafc7-2564-4d03-b1c3-81e69abfcfc4", "level": "INFO", "event": "heartbeat.ingest", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "alias": "D6", "battery_pct": 100, "network_type": "cell", "uptime_s": 751472, "status": "received"}
+2025-12-09 10:25:54.27
+5e26e252
+User
+{"ts": "2025-12-09T16:25:54.272826+00:00", "request_id": "779dafc7-2564-4d03-b1c3-81e69abfcfc4", "level": "WARN", "event": "monitoring.evaluate.no_foreground_data", "device_id": "92fe80c9-0d63-4607-a853-93dbfea55ac0", "alias": "D6", "monitored_package": "io.unitynodes.unityapp", "reason": "foreground_data_unavailable", "service_up": false, "source": "device"}
+2025-12-09 10:25:54.54
+5e26e252
+User
+[HEARTBEAT] Received from D6
+2025-12-09 10:25:54.54
+5e26e252
+User
+INFO: 127.0.0.1:55292 - "POST /v1/heartbeat HTTP/1.1" 200 OK
+2025-12-09 10:25:56.34
+5e26e252
+User
+[APK DOWNLOAD] Starting download for APK ID: 139
+2025-12-09 10:25:56.34
+5e26e252
+User
+[APK DOWNLOAD] Fetching from backend: http://localhost:8000/v1/apk/download/139
+2025-12-09 10:25:56.45
+5e26e252
+User
+[APK DOWNLOAD] Fetching from backend: http://localhost:8000/v1/apk/download/139
+2025-12-09 10:25:56.45
+5e26e252
+User
+[APK DOWNLOAD] Starting download for APK ID: 139
+2025-12-09 10:25:57.14
+5e26e252
+User
+{"ts": "2025-12-09T16:25:57.146343+00:00", "request_id": "bde10661-4507-410c-a006-426bbd819192", "level": "INFO", "event": "apk.download.streaming_mode", "apk_id": 139, "device_id": "9f230ccd-e0d9-489d-98c3-8fc659aaf3a8", "file_size": 127646711, "threshold": 52428800}
+2025-12-09 10:25:57.32
+5e26e252
+User
+{"ts": "2025-12-09T16:25:57.325704+00:00", "request_id": "b950d9a7-28f9-4b13-84ba-748f5554c13d", "level": "INFO", "event": "apk.download.streaming_mode", "apk_id": 139, "device_id": "644db23b-6ec0-476e-a2ae-43aeb62cdeec", "file_size": 127646711, "threshold": 52428800}
+2025-12-09 10:25:58.08
+5e26e252
+User
+[APK DOWNLOAD] Starting download for APK ID: 139
+2025-12-09 10:25:58.08
+5e26e252
+User
+[APK DOWNLOAD] Fetching from backend: http://localhost:8000/v1/apk/download/139
+2025-12-09 10:25:59.01
+5e26e252
+User
+{"ts": "2025-12-09T16:25:59.014808+00:00", "request_id": "bde10661-4507-410c-a006-426bbd819192", "level": "INFO", "event": "apk.download.success", "apk_id": 139, "device_id": "9f230ccd-e0d9-489d-98c3-8fc659aaf3a8", "file_size": 127646711, "duration_ms": 1868.265, "speed_kbps": 66722, "cache_hit": false, "streaming": true}
+2025-12-09 10:25:59.02
+5e26e252
+User
+INFO: 127.0.0.1:55292 - "GET /v1/apk/download/139 HTTP/1.1" 200 OK
+2025-12-09 10:25:59.02
+5e26e252
+User
+{"event": "storage.download.success", "key": "apks/1.0.2_87.apk", "file_size": 127646711}
+2025-12-09 10:25:59.02
+5e26e252
+User
+{"event": "storage.download.start", "key": "apks/1.0.2_87.apk"}
+2025-12-09 10:25:59.07
+5e26e252
+User
+[APK DOWNLOAD] Creating NextResponse with stream, Content-Length: 127646711
+2025-12-09 10:25:59.07
+5e26e252
+User
+[APK DOWNLOAD] Successfully created stream response in 2678ms
+2025-12-09 10:25:59.07
+5e26e252
+User
+[APK DOWNLOAD] Backend response status: 200, has body: true
+2025-12-09 10:25:59.92
+5e26e252
+User
+{"ts": "2025-12-09T16:25:59.925148+00:00", "request_id": "f8b780e9-ba3d-4815-8c01-c1f62e0a268a", "level": "INFO", "event": "apk.download.streaming_mode", "apk_id": 139, "device_id": "8060271d-9b7a-4368-b72a-39b6483299bc", "file_size": 127646711, "threshold": 52428800}
+2025-12-09 10:26:00.04
+5e26e252
+User
+{"ts": "2025-12-09T16:26:00.048891+00:00", "request_id": "b950d9a7-28f9-4b13-84ba-748f5554c13d", "level": "INFO", "event": "apk.download.success", "apk_id": 139, "device_id": "644db23b-6ec0-476e-a2ae-43aeb62cdeec", "file_size": 127646711, "duration_ms": 2722.9869999999996, "speed_kbps": 45778, "cache_hit": false, "streaming": true}
+2025-12-09 10:26:00.06
+5e26e252
+User
+{"event": "storage.download.start", "key": "apks/1.0.2_87.apk"}
+2025-12-09 10:26:00.06
+5e26e252
+User
+{"event": "storage.download.success", "key": "apks/1.0.2_87.apk", "file_size": 127646711}
+2025-12-09 10:26:00.06
+5e26e252
+User
+INFO: 127.0.0.1:36868 - "GET /v1/apk/download/139 HTTP/1.1" 200 OK
+2025-12-09 10:26:00.06
+5e26e252
+User
+[APK DOWNLOAD] Creating NextResponse with stream, Content-Length: 127646711
+2025-12-09 10:26:00.06
+5e26e252
+User
+[APK DOWNLOAD] Backend response status: 200, has body: true
+2025-12-09 10:26:00.06
+5e26e252
+User
+[APK DOWNLOAD] Successfully created stream response in 3607ms
+2025-12-09 10:26:02.20
+5e26e252
+User
+{"ts": "2025-12-09T16:26:02.203539+00:00", "request_id": "f8b780e9-ba3d-4815-8c01-c1f62e0a268a", "level": "INFO", "event": "apk.download.success", "apk_id": 139, "device_id": "8060271d-9b7a-4368-b72a-39b6483299bc", "file_size": 127646711, "duration_ms": 2278.1090000000004, "speed_kbps": 54718, "cache_hit": false, "streaming": true}
+2025-12-09 10:26:02.61
+5e26e252
+User
+INFO: 127.0.0.1:36908 - "POST /v1/apk/installation/update HTTP/1.1" 200 OK
+2025-12-09 10:26:07.07
+5e26e252
+User
+{"event": "storage.download.success", "key": "apks/1.0.2_87.apk", "file_size": 127646711}
+2025-12-09 10:26:07.07
+5e26e252
+User
+INFO: 127.0.0.1:36872 - "GET /v1/apk/download/139 HTTP/1.1" 200 OK
+2025-12-09 10:26:07.07
+5e26e252
+User
+{"event": "storage.download.start", "key": "apks/1.0.2_87.apk"}
+2025-12-09 10:26:07.08
+5e26e252
+User
+[APK DOWNLOAD] Successfully created stream response in 8994ms
+2025-12-09 10:26:07.08
+5e26e252
+User
+[APK DOWNLOAD] Backend response status: 200, has body: true
+2025-12-09 10:26:07.08
+5e26e252
+User
+INFO: 127.0.0.1:36894 - "GET /v1/apk/installations?apk_id=139 HTTP/1.1" 200 OK
+2025-12-09 10:26:07.08
+5e26e252
+User
+[APK DOWNLOAD] Creating NextResponse with stream, Content-Length: 127646711
+2025-12-09 10:26:07.60
+5e26e252
+User
+{"ts": "2025-12-09T16:26:07.607634+00:00", "request_id": "8feb3d21-726b-4a55-91b8-d2664845d9f2", "level": "INFO", "event": "heartbeat.ingest", "device_id": "6955f1e9-69bf-4304-892a-6886b4f020ba", "alias": "S14", "battery_pct": 44, "network_type": "wifi", "uptime_s": 94893, "status": "received"}
+2025-12-09 10:26:07.60
+5e26e252
+User
+{"ts": "2025-12-09T16:26:07.606993+00:00", "request_id": "8feb3d21-726b-4a55-91b8-d2664845d9f2", "level": "INFO", "event": "auth.device_token.success", "device_id": "6955f1e9-69bf-4304-892a-6886b4f020ba", "token_id_prefix": "c74f6bc7", "lookup_method": "token_id", "latency_ms": 526.2391567230225}
