@@ -92,6 +92,11 @@ class Config:
         manual_backend_url = os.getenv("BACKEND_URL")
         if manual_backend_url:
             self._backend_url = self._normalize_url(manual_backend_url)
+            # Force HTTPS in production (Android blocks cleartext HTTP)
+            if self.is_production and self._backend_url.startswith("http://"):
+                # Replace http:// with https:// for production
+                self._backend_url = self._backend_url.replace("http://", "https://", 1)
+                print(f"[CONFIG] WARNING: BACKEND_URL was HTTP, forced to HTTPS for production: {self._backend_url}")
             print(f"[CONFIG] Using manual BACKEND_URL: {self._backend_url}")
             return self._backend_url
         
@@ -108,11 +113,20 @@ class Config:
                 self._backend_url = f"http://localhost:{backend_port}"
             else:
                 # Development but with custom domain - assume backend on same domain
-                self._backend_url = server_url
+                # Ensure HTTPS for non-localhost in development too (Android security)
+                if server_url.startswith("http://") and "localhost" not in server_url and "127.0.0.1" not in server_url:
+                    self._backend_url = server_url.replace("http://", "https://", 1)
+                else:
+                    self._backend_url = server_url
         else:
             # Production: backend accessible at same domain as frontend
             # In Replit, backend and frontend typically share the same domain
-            self._backend_url = server_url
+            # Force HTTPS in production (Android blocks cleartext HTTP)
+            if server_url.startswith("http://"):
+                self._backend_url = server_url.replace("http://", "https://", 1)
+                print(f"[CONFIG] WARNING: server_url was HTTP, backend_url forced to HTTPS: {self._backend_url}")
+            else:
+                self._backend_url = server_url
         
         return self._backend_url
     
