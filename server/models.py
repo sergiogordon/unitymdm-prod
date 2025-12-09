@@ -156,6 +156,10 @@ class ApkInstallation(Base):
         Index('idx_installation_status', 'device_id', 'status'),
         Index('idx_installation_time', 'initiated_at'),
         Index('idx_installation_version_status', 'apk_version_id', 'status'),
+        # Composite index for efficient polling queries: filter by apk_version_id and status
+        Index('idx_installation_apk_status', 'apk_version_id', 'status', 'device_id'),
+        # Index for recent installations lookup (used in polling)
+        Index('idx_installation_apk_initiated', 'apk_version_id', 'initiated_at'),
     )
 
 class BatteryWhitelist(Base):

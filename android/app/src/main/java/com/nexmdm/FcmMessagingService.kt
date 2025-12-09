@@ -1212,35 +1212,72 @@ class FcmMessagingService : FirebaseMessagingService() {
             return
         }
         
+        // Report immediately with retry logic for critical status updates (completed/failed)
+        val isCriticalStatus = status == "completed" || status == "failed"
+        val maxRetries = if (isCriticalStatus) 3 else 1
+        
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val payload = mutableMapOf(
-                    "installation_id" to installationId,
-                    "status" to status,
-                    "download_progress" to progress
-                )
-                
-                if (errorMessage != null) {
-                    payload["error_message"] = errorMessage
+            var retryCount = 0
+            var success = false
+            
+            while (retryCount < maxRetries && !success) {
+                try {
+                    val payload = mutableMapOf(
+                        "installation_id" to installationId,
+                        "status" to status,
+                        "download_progress" to progress
+                    )
+                    
+                    if (errorMessage != null) {
+                        payload["error_message"] = errorMessage
+                    }
+                    
+                    val json = gson.toJson(payload)
+                    
+                    val request = Request.Builder()
+                        .url("${prefs.serverUrl}/v1/apk/installation/update")
+                        .post(json.toRequestBody("application/json".toMediaType()))
+                        .addHeader("X-Device-Token", prefs.deviceToken)
+                        .build()
+                    
+                    val response = client.newCall(request).execute()
+                    
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Installation status reported: $status ($progress%)")
+                        success = true
+                        
+                        // Clear pending installation ID if completed or failed
+                        if (isCriticalStatus && prefs.pendingInstallationId == installationId) {
+                            prefs.pendingInstallationId = -1
+                            Log.d(TAG, "Cleared pendingInstallationId after successful report")
+                        }
+                    } else {
+                        Log.e(TAG, "Failed to report installation status: ${response.code}")
+                        retryCount++
+                        
+                        if (retryCount < maxRetries) {
+                            // Exponential backoff: 1s, 2s, 4s
+                            val delayMs = (1000 * Math.pow(2.0, (retryCount - 1).toDouble())).toLong()
+                            Log.d(TAG, "Retrying installation status report in ${delayMs}ms (attempt ${retryCount + 1}/$maxRetries)")
+                            kotlinx.coroutines.delay(delayMs)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reporting installation status (attempt ${retryCount + 1}/$maxRetries)", e)
+                    retryCount++
+                    
+                    if (retryCount < maxRetries) {
+                        // Exponential backoff: 1s, 2s, 4s
+                        val delayMs = (1000 * Math.pow(2.0, (retryCount - 1).toDouble())).toLong()
+                        Log.d(TAG, "Retrying installation status report in ${delayMs}ms")
+                        kotlinx.coroutines.delay(delayMs)
+                    }
                 }
-                
-                val json = gson.toJson(payload)
-                
-                val request = Request.Builder()
-                    .url("${prefs.serverUrl}/v1/apk/installation/update")
-                    .post(json.toRequestBody("application/json".toMediaType()))
-                    .addHeader("X-Device-Token", prefs.deviceToken)
-                    .build()
-                
-                val response = client.newCall(request).execute()
-                
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Installation status reported: $status ($progress%)")
-                } else {
-                    Log.e(TAG, "Failed to report installation status: ${response.code}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error reporting installation status", e)
+            }
+            
+            if (!success && isCriticalStatus) {
+                Log.w(TAG, "Failed to report critical installation status after $maxRetries attempts. " +
+                        "Status will be reported on next heartbeat.")
             }
         }
     }

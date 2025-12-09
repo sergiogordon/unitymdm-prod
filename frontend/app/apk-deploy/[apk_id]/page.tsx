@@ -355,7 +355,7 @@ export default function ApkDeployPage() {
   const pollInstallationStatus = async (
     deviceIds: string[],
     apkId: number,
-    maxWaitTime: number = 5 * 60 * 1000 // 5 minutes
+    maxWaitTime: number = 3 * 60 * 1000 // 3 minutes (reduced from 5 since devices report immediately)
   ): Promise<Map<string, { status: string; progress?: number }>> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
     if (!token) {
@@ -363,7 +363,8 @@ export default function ApkDeployPage() {
     }
 
     const startTime = Date.now()
-    const pollInterval = 2000 // 2 seconds
+    const initialPollInterval = 2000 // Start at 2 seconds
+    const maxPollInterval = 10000 // Cap at 10 seconds
     const terminalStatuses = ['completed', 'failed', 'timeout']
     const statusMap = new Map<string, { status: string; progress?: number }>()
 
@@ -373,7 +374,10 @@ export default function ApkDeployPage() {
     })
 
     let pollCount = 0
-    const maxPollAttempts = Math.floor(maxWaitTime / pollInterval)
+    // Calculate max attempts based on exponential backoff
+    // Sum of geometric series: a * (1 - r^n) / (1 - r) where r = 1.2
+    // Approximate: ~60 polls over 3 minutes with exponential backoff
+    const maxPollAttempts = 60
 
     while (pollCount < maxPollAttempts) {
       if (cancelled) {
@@ -397,7 +401,12 @@ export default function ApkDeployPage() {
 
         if (!response.ok) {
           // Retry on error, but don't fail immediately
-          await new Promise(resolve => setTimeout(resolve, pollInterval))
+          // Use exponential backoff for errors
+          const currentInterval = Math.min(
+            initialPollInterval * Math.pow(1.2, pollCount),
+            maxPollInterval
+          )
+          await new Promise(resolve => setTimeout(resolve, currentInterval))
           continue
         }
 
@@ -435,14 +444,25 @@ export default function ApkDeployPage() {
         // Continue polling on error, but increment count
         pollCount++
         if (pollCount < maxPollAttempts) {
-          await new Promise(resolve => setTimeout(resolve, pollInterval))
+          // Exponential backoff: start at 2s, increase by 20% each time, cap at 10s
+          const currentInterval = Math.min(
+            initialPollInterval * Math.pow(1.2, pollCount),
+            maxPollInterval
+          )
+          await new Promise(resolve => setTimeout(resolve, currentInterval))
         }
         continue
       }
 
       pollCount++
       if (pollCount < maxPollAttempts) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
+        // Exponential backoff: start at 2s, increase by 20% each time, cap at 10s
+        // This reduces load: 2s -> 2.4s -> 2.88s -> 3.46s -> ... -> 10s (max)
+        const currentInterval = Math.min(
+          initialPollInterval * Math.pow(1.2, pollCount),
+          maxPollInterval
+        )
+        await new Promise(resolve => setTimeout(resolve, currentInterval))
       }
     }
 

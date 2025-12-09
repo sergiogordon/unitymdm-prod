@@ -1151,6 +1151,31 @@ async def prometheus_metrics(x_admin: str = Header(None)):
     metrics.set_gauge("db_pool_checked_out", pool_stats["checked_out"])
     metrics.set_gauge("db_pool_overflow", pool_stats["overflow"])
     metrics.set_gauge("db_pool_in_use", pool_stats["checked_out"])  # Alias for alerts
+    
+    # Calculate pool utilization percentage
+    pool_size = pool_stats.get("size", 0)
+    pool_in_use = pool_stats.get("checked_out", 0)
+    pool_utilization = (pool_in_use / pool_size * 100) if pool_size > 0 else 0
+    metrics.set_gauge("db_pool_utilization_pct", pool_utilization)
+    
+    # Memory usage tracking (if available)
+    try:
+        import psutil
+        import os
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        metrics.set_gauge("memory_usage_bytes", memory_info.rss)
+        metrics.set_gauge("memory_usage_mb", memory_info.rss / 1024 / 1024)
+        metrics.set_gauge("memory_percent", process.memory_percent())
+    except ImportError:
+        # psutil not available, skip memory metrics
+        pass
+    except Exception as e:
+        structured_logger.log_event(
+            "metrics.memory_error",
+            level="WARN",
+            error=str(e)
+        )
 
     metrics_text = metrics.get_prometheus_text()
 
@@ -6048,107 +6073,134 @@ async def deploy_apk_v1(
     if batch_size is not None and batch_delay_seconds is None:
         batch_delay_seconds = 30
     
-    # Create semaphore for concurrency control
-    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    # OPTIMIZATION: Dispatch FCM in background task to return immediately
+    # This prevents the endpoint from blocking while waiting for FCM dispatch
+    # Capture variables needed in background task
+    devices_list = devices_with_fcm.copy()  # Copy list to avoid reference issues
+    installation_map_copy = installation_map.copy()  # Copy dict for background task
+    apk_id = apk.id
+    apk_obj = apk  # Keep reference to apk object
     
-    # Process devices
-    async with httpx.AsyncClient() as client:
-        if batch_size is not None and batch_size > 0:
-            # Process in batches with delays
-            total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
+    async def dispatch_fcm_background():
+        """Background task to dispatch FCM messages asynchronously."""
+        try:
+            # Create semaphore for concurrency control
+            semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
             
-            for batch_num in range(total_batches):
-                start_idx = batch_num * batch_size
-                end_idx = min(start_idx + batch_size, len(devices_with_fcm))
-                batch_devices = devices_with_fcm[start_idx:end_idx]
-                
-                # Create tasks for this batch
-                tasks = [
-                    dispatch_apk_fcm_to_device(
-                        device=device,
-                        apk=apk,
-                        installation=installation_map[device.id],
-                        semaphore=semaphore,
-                        client=client,
-                        fcm_url=fcm_url,
-                        access_token=access_token
-                    )
-                    for device in batch_devices
-                ]
-                
-                # Process batch in parallel
-                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Process results (track FCM failures, but installations are already created)
-                for i, result in enumerate(batch_results):
-                    if isinstance(result, Exception):
-                        # Handle exceptions - mark device as failed
-                        device = batch_devices[i]
-                        failed_devices.append({
-                            "device_id": device.id,
-                            "alias": device.alias,
-                            "reason": f"FCM error: {str(result)}"
-                        })
-                        continue
+            async with httpx.AsyncClient() as client:
+                if batch_size is not None and batch_size > 0:
+                    # Process in batches with delays
+                    total_batches = (len(devices_list) + batch_size - 1) // batch_size
                     
-                    if result.get("status") != "sent":
-                        failed_devices.append({
-                            "device_id": result["device_id"],
-                            "alias": result["alias"],
-                            "reason": result.get("error", "Unknown error")
-                        })
-                
-                # Wait before next batch (except for the last batch)
-                if batch_num < total_batches - 1 and batch_delay_seconds > 0:
-                    await asyncio.sleep(batch_delay_seconds)
-        else:
-            # Process all devices in parallel (backward compatible)
-            tasks = [
-                dispatch_apk_fcm_to_device(
-                    device=device,
-                    apk=apk,
-                    installation=installation_map[device.id],
-                    semaphore=semaphore,
-                    client=client,
-                    fcm_url=fcm_url,
-                    access_token=access_token
-                )
-                for device in devices_with_fcm
-            ]
+                    for batch_num in range(total_batches):
+                        start_idx = batch_num * batch_size
+                        end_idx = min(start_idx + batch_size, len(devices_list))
+                        batch_devices = devices_list[start_idx:end_idx]
+                        
+                        # Create tasks for this batch
+                        tasks = [
+                            dispatch_apk_fcm_to_device(
+                                device=device,
+                                apk=apk_obj,
+                                installation=installation_map_copy[device.id],
+                                semaphore=semaphore,
+                                client=client,
+                                fcm_url=fcm_url,
+                                access_token=access_token
+                            )
+                            for device in batch_devices
+                        ]
+                        
+                        # Process batch in parallel
+                        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        # Log FCM failures (but don't block response)
+                        for i, result in enumerate(batch_results):
+                            if isinstance(result, Exception):
+                                device = batch_devices[i]
+                                structured_logger.log_event(
+                                    "apk.deploy.fcm_error",
+                                    level="WARN",
+                                    device_id=device.id,
+                                    error=str(result)
+                                )
+                            elif result.get("status") != "sent":
+                                structured_logger.log_event(
+                                    "apk.deploy.fcm_failed",
+                                    level="WARN",
+                                    device_id=result.get("device_id"),
+                                    error=result.get("error", "Unknown error")
+                                )
+                        
+                        # Wait before next batch (except for the last batch)
+                        if batch_num < total_batches - 1 and batch_delay_seconds > 0:
+                            await asyncio.sleep(batch_delay_seconds)
+                else:
+                    # Process all devices in parallel (backward compatible)
+                    tasks = [
+                        dispatch_apk_fcm_to_device(
+                            device=device,
+                            apk=apk_obj,
+                            installation=installation_map_copy[device.id],
+                            semaphore=semaphore,
+                            client=client,
+                            fcm_url=fcm_url,
+                            access_token=access_token
+                        )
+                        for device in devices_list
+                    ]
+                    
+                    # Process all in parallel
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # Log FCM failures (but don't block response)
+                    for i, result in enumerate(results):
+                        if isinstance(result, Exception):
+                            device = devices_list[i]
+                            structured_logger.log_event(
+                                "apk.deploy.fcm_error",
+                                level="WARN",
+                                device_id=device.id,
+                                error=str(result)
+                            )
+                        elif result.get("status") != "sent":
+                            structured_logger.log_event(
+                                "apk.deploy.fcm_failed",
+                                level="WARN",
+                                device_id=result.get("device_id"),
+                                error=result.get("error", "Unknown error")
+                            )
             
-            # Process all in parallel
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Process results (track FCM failures, but installations are already created)
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    # Handle exceptions - mark device as failed
-                    device = devices_with_fcm[i]
-                    failed_devices.append({
-                        "device_id": device.id,
-                        "alias": device.alias,
-                        "reason": f"FCM error: {str(result)}"
-                    })
-                    continue
-                
-                if result.get("status") != "sent":
-                    failed_devices.append({
-                        "device_id": result["device_id"],
-                        "alias": result["alias"],
-                        "reason": result.get("error", "Unknown error")
-                    })
-
-    # All installations are considered successful (backward compatible behavior)
-    # failed_devices only contains FCM send failures
+            structured_logger.log_event(
+                "apk.deploy.fcm_dispatch_complete",
+                level="INFO",
+                apk_id=apk_id,
+                device_count=len(devices_list),
+                batch_size=batch_size,
+                batch_delay_seconds=batch_delay_seconds
+            )
+        except Exception as e:
+            structured_logger.log_event(
+                "apk.deploy.fcm_dispatch_error",
+                level="ERROR",
+                apk_id=apk_id,
+                error=str(e)
+            )
+    
+    # Start background FCM dispatch (fire and forget)
+    asyncio.create_task(dispatch_fcm_background())
+    
+    # Return immediately with installation records
+    # Frontend will poll for status updates
     structured_logger.log_event(
-        "apk.deploy.complete",
+        "apk.deploy.initiated",
         level="INFO",
         apk_id=apk.id,
-        success_count=len(installations),
-        failed_count=len(failed_devices),
+        installation_count=len(installations),
         total_devices=len(device_ids),
         batch_size=batch_size,
-        batch_delay_seconds=batch_delay_seconds
+        batch_delay_seconds=batch_delay_seconds,
+        async_dispatch=True
     )
 
     return {
@@ -6164,7 +6216,8 @@ async def deploy_apk_v1(
             }
             for inst in installations
         ],
-        "failed_devices": failed_devices
+        "failed_devices": failed_devices,
+        "message": "Deployment initiated. FCM dispatch in progress. Poll /v1/apk/installations for status updates."
     }
 
 @app.get("/v1/apk/download-latest")
@@ -6824,6 +6877,12 @@ async def list_apk_installations(
     
     installations = query.all()
     
+    # Track query performance for monitoring
+    metrics.inc_counter("apk_installations_queries_total", {
+        "has_apk_id": str(apk_id is not None),
+        "has_status": str(status is not None)
+    })
+    
     results = []
     for inst in installations:
         device = db.query(Device).filter(Device.id == inst.device_id).first()
@@ -6858,6 +6917,60 @@ async def list_apk_installations(
     
     return results
 
+@app.get("/v1/apk/deployments/{apk_id}/progress")
+async def get_deployment_progress(
+    apk_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get deployment progress statistics for a specific APK.
+    Returns counts by status and overall progress percentage.
+    """
+    installations = db.query(ApkInstallation).filter(
+        ApkInstallation.apk_version_id == apk_id
+    ).all()
+    
+    total = len(installations)
+    if total == 0:
+        return {
+            "apk_id": apk_id,
+            "total": 0,
+            "status_counts": {},
+            "progress_percent": 0,
+            "completed": 0,
+            "failed": 0,
+            "pending": 0,
+            "in_progress": 0
+        }
+    
+    status_counts = {}
+    terminal_statuses = ['completed', 'failed', 'timeout']
+    in_progress_statuses = ['pending', 'downloading', 'installing']
+    
+    for inst in installations:
+        status_counts[inst.status] = status_counts.get(inst.status, 0) + 1
+    
+    completed = status_counts.get('completed', 0)
+    failed = status_counts.get('failed', 0) + status_counts.get('timeout', 0)
+    pending = status_counts.get('pending', 0)
+    in_progress = sum(status_counts.get(s, 0) for s in in_progress_statuses)
+    
+    # Progress = (completed + failed) / total * 100
+    progress_percent = int(((completed + failed) / total) * 100) if total > 0 else 0
+    
+    return {
+        "apk_id": apk_id,
+        "total": total,
+        "status_counts": status_counts,
+        "progress_percent": progress_percent,
+        "completed": completed,
+        "failed": failed,
+        "pending": pending,
+        "in_progress": in_progress,
+        "terminal_count": completed + failed,
+        "non_terminal_count": total - completed - failed
+    }
 
 class InstallationUpdateRequest(BaseModel):
     installation_id: int
