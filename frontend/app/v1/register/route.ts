@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendUrl } from '@/lib/backend-url';
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
       requestBody.alias = alias;
     }
 
-    const backendUrl = `http://localhost:8000/v1/register`;
+    const backendUrl = `${getBackendUrl('/v1/register')}/v1/register`;
     const response = await fetch(backendUrl, {
       method: 'POST',
       headers: {

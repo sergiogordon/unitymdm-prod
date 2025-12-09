@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
-const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+import { getBackendUrl } from '@/lib/backend-url'
+
+const API_URL = getBackendUrl('/v1/remote/reboot')
 
 export async function POST(request: NextRequest) {
   try {

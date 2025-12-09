@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+import { getBackendUrl } from '@/lib/backend-url'
+
+const API_URL = getBackendUrl('/v1/settings/monitoring-defaults')
 
 export async function GET(request: NextRequest) {
   try {
