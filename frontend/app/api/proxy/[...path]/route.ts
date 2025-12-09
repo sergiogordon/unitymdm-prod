@@ -1,18 +1,14 @@
 /**
  * Next.js API Route Proxy
- * Forwards all requests to backend on port 8000
+ * Forwards all requests to backend
  * This solves Replit's firewall blocking direct port access from UUID domains
  * 
- * Supports PROD_BACKEND_URL environment variable for dev Replit to proxy to prod.
- * To revert: Remove/unset PROD_BACKEND_URL and restart.
+ * Uses BACKEND_URL environment variable to determine backend location.
+ * In production, set BACKEND_URL to your production backend URL.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendUrl } from '@/lib/backend-url'
-
-// Note: Backend URL is computed per-request based on route path
-// Device routes (/v1/*) proxy to prod when PROD_BACKEND_URL is set
-// Admin/auth routes always use local backend
 
 export async function GET(
   request: NextRequest,

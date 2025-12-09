@@ -1,8 +1,16 @@
 # Dev Replit Proxy to Prod - Configuration Guide
 
-## Overview
+> **⚠️ DEPRECATED:** This feature has been removed. The backend URL logic has been simplified.
+> 
+> **For production setup, see:** [`PRODUCTION_SETUP.md`](../../PRODUCTION_SETUP.md)
+> 
+> All routes now use the `BACKEND_URL` environment variable consistently. Set `BACKEND_URL=https://unitymdm.replit.app/` in both frontend and backend environments.
 
-This feature allows the dev Replit frontend to selectively proxy device requests to the production backend. This enables devices configured with the dev URL to reach the prod backend without requiring APK updates, while keeping admin/web UI routes pointing to the local dev database.
+## Overview (Historical - No Longer Supported)
+
+This feature allowed the dev Replit frontend to selectively proxy device requests to the production backend. This enabled devices configured with the dev URL to reach the prod backend without requiring APK updates, while keeping admin/web UI routes pointing to the local dev database.
+
+**This feature has been removed** - the code now uses a simplified `BACKEND_URL` approach.
 
 ## How It Works
 
