@@ -356,7 +356,7 @@ export default function ApkDeployPage() {
     deviceIds: string[],
     apkId: number,
     maxWaitTime: number = 3 * 60 * 1000 // 3 minutes (reduced from 5 since devices report immediately)
-  ): Promise<Map<string, { status: string; progress?: number }>> => {
+  ): Promise<Map<string, { status: string; progress?: number; error_message?: string }>> => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
     if (!token) {
       throw new Error('Authentication required')
@@ -366,7 +366,7 @@ export default function ApkDeployPage() {
     const initialPollInterval = 2000 // Start at 2 seconds
     const maxPollInterval = 10000 // Cap at 10 seconds
     const terminalStatuses = ['completed', 'failed', 'timeout']
-    const statusMap = new Map<string, { status: string; progress?: number }>()
+    const statusMap = new Map<string, { status: string; progress?: number; error_message?: string }>()
 
     // Initialize all devices as pending
     deviceIds.forEach(id => {
@@ -421,7 +421,8 @@ export default function ApkDeployPage() {
             const status = installation.status || 'pending'
             statusMap.set(deviceId, {
               status,
-              progress: installation.download_progress || 0
+              progress: installation.download_progress || 0,
+              error_message: installation.error_message || undefined
             })
             
             if (!terminalStatuses.includes(status)) {
@@ -632,6 +633,23 @@ export default function ApkDeployPage() {
         // Poll all devices together in a unified loop
         const statusMap = await pollInstallationStatus(allInstallationIds, parseInt(apkId))
         
+        // Fetch installations to get error messages
+        let installationsWithErrors: any[] = []
+        try {
+          const token = localStorage.getItem('auth_token')
+          const installResponse = await fetch(`/v1/apk/installations?apk_id=${apkId}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          if (installResponse.ok) {
+            installationsWithErrors = await installResponse.json()
+          }
+        } catch (e) {
+          console.warn('Failed to fetch installations for error messages:', e)
+        }
+        
         // Build results from status map and failed devices
         const deviceMap = new Map(devices.map(d => [d.id, d]))
         const allDetails: Array<{
@@ -645,22 +663,35 @@ export default function ApkDeployPage() {
         statusMap.forEach((statusInfo, deviceId) => {
           const device = deviceMap.get(deviceId)
           const isSuccess = statusInfo.status === 'completed'
+          let reason: string | undefined
+          if (!isSuccess) {
+            if (statusInfo.status === 'timeout') {
+              reason = 'Deployment timeout'
+            } else if (statusInfo.error_message) {
+              reason = statusInfo.error_message
+            } else {
+              reason = `Status: ${statusInfo.status}`
+            }
+          }
           allDetails.push({
             device_id: deviceId,
             alias: device?.alias || 'Unknown',
             success: isSuccess,
-            reason: isSuccess ? undefined : (statusInfo.status === 'timeout' ? 'Deployment timeout' : `Status: ${statusInfo.status}`)
+            reason
           })
         })
 
-        // Process failed devices
+        // Process failed devices - include error messages from installations
         allFailedDevices.forEach((failed: any) => {
           if (!allDetails.find(d => d.device_id === failed.device_id)) {
+            // Try to find installation error message
+            const installation = installationsWithErrors.find((inst: any) => inst.device_id === failed.device_id)
+            const errorMessage = installation?.error_message || failed.reason || 'Unknown error'
             allDetails.push({
               device_id: failed.device_id || '',
               alias: failed.alias || 'Unknown',
               success: false,
-              reason: failed.reason || 'Unknown error'
+              reason: errorMessage
             })
           }
         })
@@ -699,11 +730,21 @@ export default function ApkDeployPage() {
         statusMap.forEach((statusInfo, deviceId) => {
           const device = deviceMap.get(deviceId)
           const isSuccess = statusInfo.status === 'completed'
+          let reason: string | undefined
+          if (!isSuccess) {
+            if (statusInfo.status === 'timeout') {
+              reason = 'Deployment timeout'
+            } else if (statusInfo.error_message) {
+              reason = statusInfo.error_message
+            } else {
+              reason = `Status: ${statusInfo.status}`
+            }
+          }
           details.push({
             device_id: deviceId,
             alias: device?.alias || 'Unknown',
             success: isSuccess,
-            reason: isSuccess ? undefined : (statusInfo.status === 'timeout' ? 'Deployment timeout' : `Status: ${statusInfo.status}`)
+            reason
           })
         })
 

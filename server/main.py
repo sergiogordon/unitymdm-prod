@@ -5916,6 +5916,42 @@ async def dispatch_apk_fcm_to_device(
             response = await client.post(fcm_url, json=fcm_message, headers=headers, timeout=10.0)
             
             if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    # Check FCM response for errors (FCM v1 API returns errors in response even with 200 status)
+                    if isinstance(response_data, dict):
+                        # Check for error in response
+                        error_info = response_data.get("error")
+                        if error_info:
+                            if isinstance(error_info, dict):
+                                error_code = error_info.get("code")
+                                error_msg = error_info.get("message", f"FCM error code: {error_code}")
+                            else:
+                                error_code = None
+                                error_msg = str(error_info)
+                            
+                            # Handle specific FCM error codes
+                            if error_code in ["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"]:
+                                error_msg = f"Invalid FCM token: {error_msg}"
+                            elif error_code:
+                                error_msg = f"FCM error ({error_code}): {error_msg}"
+                            
+                            return {
+                                "device_id": device.id,
+                                "alias": device.alias,
+                                "installation_id": installation.id,
+                                "status": "error",
+                                "error": error_msg
+                            }
+                except Exception as parse_error:
+                    # If JSON parsing fails, assume success (legacy behavior)
+                    structured_logger.log_event(
+                        "apk.deploy.fcm_response_parse_error",
+                        level="WARN",
+                        device_id=device.id,
+                        error=str(parse_error)
+                    )
+                
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -5923,7 +5959,20 @@ async def dispatch_apk_fcm_to_device(
                     "status": "sent"
                 }
             else:
-                error_msg = f"FCM failed: {response.status_code}"
+                # Try to parse error response
+                try:
+                    error_data = response.json()
+                    if isinstance(error_data, dict):
+                        error_info = error_data.get("error", {})
+                        if isinstance(error_info, dict):
+                            error_msg = error_info.get("message", f"FCM failed: HTTP {response.status_code}")
+                        else:
+                            error_msg = str(error_info) if error_info else f"FCM failed: HTTP {response.status_code}"
+                    else:
+                        error_msg = f"FCM failed: HTTP {response.status_code}"
+                except:
+                    error_msg = f"FCM failed: HTTP {response.status_code}"
+                
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -6114,23 +6163,68 @@ async def deploy_apk_v1(
                         # Process batch in parallel
                         batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                         
-                        # Log FCM failures (but don't block response)
+                        # Log FCM failures and update installation status in database
                         for i, result in enumerate(batch_results):
                             if isinstance(result, Exception):
                                 device = batch_devices[i]
+                                error_msg = f"FCM dispatch exception: {str(result)}"
                                 structured_logger.log_event(
                                     "apk.deploy.fcm_error",
                                     level="WARN",
                                     device_id=device.id,
                                     error=str(result)
                                 )
+                                # Update installation status in database
+                                try:
+                                    db_session = SessionLocal()
+                                    try:
+                                        installation = db_session.query(ApkInstallation).filter(
+                                            ApkInstallation.id == installation_map_copy[device.id].id
+                                        ).first()
+                                        if installation and installation.status == "pending":
+                                            installation.status = "failed"
+                                            installation.error_message = error_msg
+                                            installation.completed_at = datetime.now(timezone.utc)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+                                except Exception as db_error:
+                                    structured_logger.log_event(
+                                        "apk.deploy.db_update_error",
+                                        level="ERROR",
+                                        device_id=device.id,
+                                        error=str(db_error)
+                                    )
                             elif result.get("status") != "sent":
+                                device_id = result.get("device_id")
+                                error_msg = result.get("error", "Unknown FCM error")
                                 structured_logger.log_event(
                                     "apk.deploy.fcm_failed",
                                     level="WARN",
-                                    device_id=result.get("device_id"),
-                                    error=result.get("error", "Unknown error")
+                                    device_id=device_id,
+                                    error=error_msg
                                 )
+                                # Update installation status in database
+                                try:
+                                    db_session = SessionLocal()
+                                    try:
+                                        installation = db_session.query(ApkInstallation).filter(
+                                            ApkInstallation.id == installation_map_copy[device_id].id
+                                        ).first()
+                                        if installation and installation.status == "pending":
+                                            installation.status = "failed"
+                                            installation.error_message = f"FCM dispatch failed: {error_msg}"
+                                            installation.completed_at = datetime.now(timezone.utc)
+                                            db_session.commit()
+                                    finally:
+                                        db_session.close()
+                                except Exception as db_error:
+                                    structured_logger.log_event(
+                                        "apk.deploy.db_update_error",
+                                        level="ERROR",
+                                        device_id=device_id,
+                                        error=str(db_error)
+                                    )
                         
                         # Wait before next batch (except for the last batch)
                         if batch_num < total_batches - 1 and batch_delay_seconds > 0:
@@ -6153,23 +6247,68 @@ async def deploy_apk_v1(
                     # Process all in parallel
                     results = await asyncio.gather(*tasks, return_exceptions=True)
                     
-                    # Log FCM failures (but don't block response)
+                    # Log FCM failures and update installation status in database
                     for i, result in enumerate(results):
                         if isinstance(result, Exception):
                             device = devices_list[i]
+                            error_msg = f"FCM dispatch exception: {str(result)}"
                             structured_logger.log_event(
                                 "apk.deploy.fcm_error",
                                 level="WARN",
                                 device_id=device.id,
                                 error=str(result)
                             )
+                            # Update installation status in database
+                            try:
+                                db_session = SessionLocal()
+                                try:
+                                    installation = db_session.query(ApkInstallation).filter(
+                                        ApkInstallation.id == installation_map_copy[device.id].id
+                                    ).first()
+                                    if installation and installation.status == "pending":
+                                        installation.status = "failed"
+                                        installation.error_message = error_msg
+                                        installation.completed_at = datetime.now(timezone.utc)
+                                        db_session.commit()
+                                finally:
+                                    db_session.close()
+                            except Exception as db_error:
+                                structured_logger.log_event(
+                                    "apk.deploy.db_update_error",
+                                    level="ERROR",
+                                    device_id=device.id,
+                                    error=str(db_error)
+                                )
                         elif result.get("status") != "sent":
+                            device_id = result.get("device_id")
+                            error_msg = result.get("error", "Unknown FCM error")
                             structured_logger.log_event(
                                 "apk.deploy.fcm_failed",
                                 level="WARN",
-                                device_id=result.get("device_id"),
-                                error=result.get("error", "Unknown error")
+                                device_id=device_id,
+                                error=error_msg
                             )
+                            # Update installation status in database
+                            try:
+                                db_session = SessionLocal()
+                                try:
+                                    installation = db_session.query(ApkInstallation).filter(
+                                        ApkInstallation.id == installation_map_copy[device_id].id
+                                    ).first()
+                                    if installation and installation.status == "pending":
+                                        installation.status = "failed"
+                                        installation.error_message = f"FCM dispatch failed: {error_msg}"
+                                        installation.completed_at = datetime.now(timezone.utc)
+                                        db_session.commit()
+                                finally:
+                                    db_session.close()
+                            except Exception as db_error:
+                                structured_logger.log_event(
+                                    "apk.deploy.db_update_error",
+                                    level="ERROR",
+                                    device_id=device_id,
+                                    error=str(db_error)
+                                )
             
             structured_logger.log_event(
                 "apk.deploy.fcm_dispatch_complete",
