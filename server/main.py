@@ -7129,7 +7129,7 @@ class InstallationUpdateRequest(BaseModel):
 @app.post("/v1/apk/installation/update")
 async def update_installation_status(
     payload: InstallationUpdateRequest,
-    x_device_token: str = Header(...),
+    x_device_token: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -7138,17 +7138,25 @@ async def update_installation_status(
     Update installation status from device.
     Used by Android devices to report APK installation progress.
     """
+    # Authenticate device token first (consistent with other endpoints)
+    if not x_device_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    # Get installation and verify it belongs to this device
     installation = db.query(ApkInstallation).filter(
         ApkInstallation.id == payload.installation_id
     ).first()
 
     if not installation:
         raise HTTPException(status_code=404, detail="Installation not found")
-
-    device = db.query(Device).filter(Device.id == installation.device_id).first()
-
-    if not device or not verify_token(x_device_token, device.token_hash):
-        raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    # Verify installation belongs to the authenticated device
+    if installation.device_id != device.id:
+        raise HTTPException(status_code=403, detail="Installation does not belong to this device")
 
     installation.status = payload.status
     if payload.download_progress is not None:
