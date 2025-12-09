@@ -13,6 +13,7 @@ class Config:
     
     def __init__(self):
         self._server_url: Optional[str] = None
+        self._backend_url: Optional[str] = None
         self._is_production: Optional[bool] = None
         
     @property
@@ -69,6 +70,51 @@ class Config:
                 self._server_url = "http://localhost:5000"
         
         return self._server_url
+    
+    @property
+    def backend_url(self) -> str:
+        """
+        Get the backend URL for direct API access (bypasses Next.js proxy).
+        Used for large file downloads to avoid proxy timeout/streaming issues.
+        
+        Priority:
+        1. Manual override via BACKEND_URL environment variable
+        2. Production: Same as server_url (backend accessible at same domain)
+        3. Development: http://localhost:8000 (default FastAPI port)
+        
+        Returns:
+            str: The backend URL with https:// prefix (or http:// for localhost)
+        """
+        if self._backend_url is not None:
+            return self._backend_url
+        
+        # Check for manual override first
+        manual_backend_url = os.getenv("BACKEND_URL")
+        if manual_backend_url:
+            self._backend_url = self._normalize_url(manual_backend_url)
+            print(f"[CONFIG] Using manual BACKEND_URL: {self._backend_url}")
+            return self._backend_url
+        
+        # If no explicit backend URL, use server_url (backend accessible at same domain)
+        # In most deployments, backend and frontend share the same domain
+        # For Replit, backend typically runs on the same domain
+        server_url = self.server_url
+        
+        # In development, backend typically runs on localhost:8000
+        if not self.is_production:
+            # Check if there's a specific backend port configured
+            backend_port = os.getenv("BACKEND_PORT", "8000")
+            if "localhost" in server_url or "127.0.0.1" in server_url:
+                self._backend_url = f"http://localhost:{backend_port}"
+            else:
+                # Development but with custom domain - assume backend on same domain
+                self._backend_url = server_url
+        else:
+            # Production: backend accessible at same domain as frontend
+            # In Replit, backend and frontend typically share the same domain
+            self._backend_url = server_url
+        
+        return self._backend_url
     
     @staticmethod
     def _normalize_url(url: str) -> str:
@@ -179,6 +225,7 @@ class Config:
         print("="*60)
         print(f"Environment: {'Production' if self.is_production else 'Development'}")
         print(f"Server URL: {self.server_url}")
+        print(f"Backend URL: {self.backend_url}")
         print(f"Admin Key: {'✓ Set' if self.get_admin_key() else '✗ Missing'}")
         print(f"Database: {self.get_database_url()}")
         

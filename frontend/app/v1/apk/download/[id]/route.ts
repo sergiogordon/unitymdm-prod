@@ -134,15 +134,30 @@ export async function GET(
     const contentLength = response.headers.get('Content-Length')
     if (contentLength) {
       headers.set('Content-Length', contentLength)
+      console.log(`[APK DOWNLOAD] Content-Length: ${contentLength} bytes (${Math.round(parseInt(contentLength) / 1024 / 1024)}MB)`)
+    } else {
+      console.warn('[APK DOWNLOAD] No Content-Length header from backend - this may cause issues')
+    }
+    
+    // Check for chunked transfer encoding (from FastAPI StreamingResponse)
+    const transferEncoding = response.headers.get('Transfer-Encoding')
+    if (transferEncoding) {
+      console.log(`[APK DOWNLOAD] Backend using ${transferEncoding} transfer encoding`)
+      // Remove transfer-encoding header as it's connection-specific
+      // Next.js will handle the streaming automatically
     }
     
     // Stream the response body directly
     // Next.js should handle ReadableStream from fetch responses correctly
+    // For large files with StreamingResponse from FastAPI, we need to ensure
+    // the stream is properly passed through without buffering
     try {
       console.log(`[APK DOWNLOAD] Creating NextResponse with stream, Content-Length: ${contentLength || 'unknown'}`)
       
+      // For streaming responses, ensure we don't buffer
       // Pass the response body stream directly to NextResponse
       // This preserves streaming for large files without buffering
+      // The stream will be consumed by the client as it's read
       const streamResponse = new NextResponse(response.body, {
         status: response.status,
         headers,
@@ -153,14 +168,14 @@ export async function GET(
       
       return streamResponse
     } catch (streamError) {
-      console.error('Error creating NextResponse with stream:', streamError)
+      console.error('[APK DOWNLOAD] Error creating NextResponse with stream:', streamError)
       const errorDetails = streamError instanceof Error ? {
         message: streamError.message,
         name: streamError.name,
         stack: streamError.stack?.substring(0, 500) // Limit stack trace length
       } : { error: 'Unknown stream error' }
       
-      console.error('Stream error details:', JSON.stringify(errorDetails, null, 2))
+      console.error('[APK DOWNLOAD] Stream error details:', JSON.stringify(errorDetails, null, 2))
       
       return NextResponse.json(
         { 

@@ -5883,7 +5883,8 @@ async def dispatch_apk_fcm_to_device(
             hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
             
             # Generate the download URL for the APK
-            download_url = f"{config.server_url}/v1/apk/download/{apk.id}"
+            # Use backend_url to bypass Next.js proxy and avoid streaming issues
+            download_url = f"{config.backend_url}/v1/apk/download/{apk.id}"
             
             fcm_message = {
                 "message": {
@@ -6046,27 +6047,43 @@ async def deploy_apk_v1(
         else:
             devices_with_fcm.append(device)
 
-    # Create all ApkInstallation records in bulk
+    # Create all ApkInstallation records in bulk with error handling
     installations = []
     now = datetime.now(timezone.utc)
     
-    for device in devices_with_fcm:
-        installation = ApkInstallation(
-            device_id=device.id,
-            apk_version_id=apk.id,
-            status="pending",
-            initiated_at=now,
-            initiated_by=user.username
+    try:
+        for device in devices_with_fcm:
+            installation = ApkInstallation(
+                device_id=device.id,
+                apk_version_id=apk.id,
+                status="pending",
+                initiated_at=now,
+                initiated_by=user.username
+            )
+            db.add(installation)
+            installations.append(installation)
+        
+        # Bulk commit all installations
+        db.commit()
+        
+        # Refresh all installations to get their IDs
+        for installation in installations:
+            db.refresh(installation)
+    except Exception as db_error:
+        # Rollback on any database error
+        db.rollback()
+        structured_logger.log_event(
+            "apk.deploy.db_error",
+            level="ERROR",
+            apk_id=apk_id,
+            device_count=len(devices_with_fcm),
+            error=str(db_error),
+            error_type=type(db_error).__name__
         )
-        db.add(installation)
-        installations.append(installation)
-    
-    # Bulk commit all installations
-    db.commit()
-    
-    # Refresh all installations to get their IDs
-    for installation in installations:
-        db.refresh(installation)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create installations: {str(db_error)}"
+        )
     
     # Create mapping of device_id to installation
     installation_map = {inst.device_id: inst for inst in installations}
