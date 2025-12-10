@@ -119,8 +119,8 @@ exposeLocalhost = true
 
 [deployment]
 deploymentTarget = "vm"
-run = ["bash", "-c", "cd /home/runner/workspace/frontend && npm start & cd /home/runner/workspace/server && python -m uvicorn main:app --host 0.0.0.0 --port 8000"]
-build = ["bash", "-c", "cd /home/runner/workspace/frontend && npm ci && npm run build"]
+run = ["bash", "-c", "cd frontend && npx next start -p 3000 & cd server && python -m uvicorn main:app --host 0.0.0.0 --port 8000 & wait"]
+build = ["bash", "-c", "cd frontend && npx next build"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"
