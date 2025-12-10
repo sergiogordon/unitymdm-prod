@@ -68,6 +68,15 @@
             android:turnScreenOn="true"
             android:excludeFromRecents="true" />
 
+        <activity
+            android:name=".AppLauncherActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true" />
+
         <service
             android:name=".MonitorService"
             android:foregroundServiceType="dataSync"

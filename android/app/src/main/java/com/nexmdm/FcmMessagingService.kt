@@ -32,6 +32,7 @@ class FcmMessagingService : FirebaseMessagingService() {
         private const val TAG = "FcmMessagingService"
         private const val RING_CHANNEL_ID = "ring_channel"
         private const val RING_NOTIFICATION_ID = 999
+        private const val LAUNCHER_CHANNEL_ID = "launcher_channel"
     }
     
     private val gson = Gson()
@@ -1717,18 +1718,58 @@ class FcmMessagingService : FirebaseMessagingService() {
         // Add a short delay to ensure the system has fully registered the new app
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
-                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                    )
-                    startActivity(launchIntent)
-                    Log.i(TAG, "Successfully launched app after install: $packageName")
-                } else {
-                    Log.w(TAG, "Could not get launch intent for package: $packageName (app may not have a launcher activity)")
+                Log.i(TAG, "Launching installed app via full-screen intent: $packageName")
+                
+                // Create notification channel for app launcher (Android O+)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val channel = NotificationChannel(
+                        LAUNCHER_CHANNEL_ID,
+                        "App Launcher",
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = "Notifications for launching installed apps"
+                        enableVibration(false)
+                        setSound(null, null)
+                    }
+                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    notificationManager.createNotificationChannel(channel)
                 }
+                
+                // Create intent to launch AppLauncherActivity
+                val launcherIntent = Intent(this, AppLauncherActivity::class.java).apply {
+                    putExtra(AppLauncherActivity.EXTRA_PACKAGE_NAME, packageName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                
+                val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                
+                val fullScreenPendingIntent = PendingIntent.getActivity(
+                    this,
+                    0,
+                    launcherIntent,
+                    pendingIntentFlags
+                )
+                
+                // Build notification with full-screen intent
+                val notification = NotificationCompat.Builder(this, LAUNCHER_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle("App Installed")
+                    .setContentText("Launching $packageName...")
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_CALL)
+                    .setFullScreenIntent(fullScreenPendingIntent, true)
+                    .setAutoCancel(true)
+                    .build()
+                
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(AppLauncherActivity.LAUNCHER_NOTIFICATION_ID, notification)
+                
+                Log.i(TAG, "Full-screen intent notification posted for app launch: $packageName")
+                
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to launch app $packageName: ${e.message}", e)
             }
