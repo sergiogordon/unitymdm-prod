@@ -6486,6 +6486,17 @@ async def init_apk_upload(
 
     final_version_code = version_code
     final_version_name = version_name
+    final_package_name = package_name
+    
+    # Auto-detect Unity app package name from version_name prefix
+    if version_name.lower().startswith("unity"):
+        final_package_name = "io.unitynodes.unityapp"
+        structured_logger.log_event(
+            "apk.upload.unity_package_detected",
+            original_package_name=package_name,
+            detected_package_name=final_package_name,
+            version_name=version_name
+        )
     
     existing_version = db.query(ApkVersion).filter(
         (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
@@ -6507,7 +6518,7 @@ async def init_apk_upload(
     apk_version = ApkVersion(
         version_name=final_version_name,
         version_code=final_version_code,
-        package_name=package_name,
+        package_name=final_package_name,
         build_type=build_type,
         file_size=file_size,
         file_path=f"pending_upload_{final_version_code}",
@@ -6683,6 +6694,17 @@ async def upload_apk_admin(
     if existing_version:
         raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
 
+    # Auto-detect Unity app package name from version_name prefix
+    detected_package_name = "com.nexmdm"
+    if version_name.lower().startswith("unity"):
+        detected_package_name = "io.unitynodes.unityapp"
+        structured_logger.log_event(
+            "apk.upload.unity_package_detected",
+            original_package_name="com.nexmdm",
+            detected_package_name=detected_package_name,
+            version_name=version_name
+        )
+
     # Save the APK file to object storage
     try:
         storage_service = get_storage_service()
@@ -6706,7 +6728,7 @@ async def upload_apk_admin(
             storage_url=object_name,
             is_active=enabled,
             uploaded_by="admin",
-            package_name="com.nexmdm"
+            package_name=detected_package_name
         )
         db.add(apk_version)
         db.commit()
@@ -8588,93 +8610,6 @@ async def get_restart_app_status(
         },
         "devices": list(device_statuses.values())
     }
-
-@app.post("/admin/apk/upload")
-async def upload_apk_admin_duplicate(
-    request: Request,
-    apk_file: UploadFile = File(...),
-    version_name: str = Form(...),
-    version_code: int = Form(...),
-    description: str = Form(""),
-    build_type: str = Form("release"),
-    enabled: bool = Form(True),
-    x_admin_key: str = Header(..., alias="X-Admin-Key"),
-    db: Session = Depends(get_db)
-):
-    """Upload an APK file directly via admin interface (for smaller files)."""
-    verify_admin_key(x_admin_key)
-
-    # Validate version code
-    if version_code <= 0:
-        raise HTTPException(status_code=422, detail="version_code must be a positive integer")
-
-    # Check for existing version with same code or name
-    existing_version = db.query(ApkVersion).filter(
-        (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
-    ).first()
-    if existing_version:
-        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
-
-    # Save the APK file to object storage
-    try:
-        storage_service = get_storage_service()
-        file_content = await apk_file.read()
-        file_size = len(file_content)
-        sha256_hash = hashlib.sha256(file_content).hexdigest()
-
-        # Construct object name
-        object_name = f"apks/{version_name}_{version_code}.apk"
-        # upload_file is synchronous, do not await
-        storage_service.upload_file(file_content, object_name)
-
-        apk_version = ApkVersion(
-            version_name=version_name,
-            version_code=version_code,
-            notes=description,
-            build_type=build_type,
-            file_size=file_size,
-            sha256=sha256_hash,
-            file_path=object_name,
-            storage_url=object_name,
-            is_active=enabled,
-            uploaded_by="admin",
-            package_name="com.nexmdm"
-        )
-        db.add(apk_version)
-        db.commit()
-        db.refresh(apk_version)
-
-        structured_logger.log_event(
-            "apk.uploaded",
-            admin_user="admin",
-            apk_id=apk_version.id,
-            version_name=version_name,
-            version_code=version_code,
-            file_size=file_size,
-            sha256_hash=sha256_hash
-        )
-
-        return {
-            "ok": True,
-            "message": "APK uploaded successfully",
-            "apk_id": apk_version.id,
-            "version_name": apk_version.version_name,
-            "version_code": apk_version.version_code,
-            "storage_url": apk_version.storage_url
-        }
-
-    except ObjectNotFoundError as e:
-        raise HTTPException(status_code=500, detail=f"Object storage error: {str(e)}")
-    except Exception as e:
-        structured_logger.log_event(
-            "apk.upload.fail",
-            level="ERROR",
-            admin_user="admin",
-            version_name=version_name,
-            version_code=version_code,
-            error=str(e)
-        )
-        raise HTTPException(status_code=500, detail=f"Failed to upload APK: {str(e)}")
 
 @app.get("/admin/apks")
 async def get_admin_apks(
