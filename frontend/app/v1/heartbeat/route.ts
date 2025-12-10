@@ -33,14 +33,38 @@ export async function POST(request: NextRequest) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const error = await response.json();
-      return NextResponse.json(error, { status: response.status });
+      // Handle non-JSON error responses (e.g., rate limit plain text)
+      const contentType = response.headers.get('content-type');
+      let errorData;
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = { detail: 'Unknown error' };
+        }
+      } else {
+        // Plain text response (e.g., "Rate exceeded.")
+        const errorText = await response.text();
+        errorData = { detail: errorText || `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      return NextResponse.json(errorData, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
     console.error('Error proxying heartbeat:', error);
+    
+    // Handle JSON parse errors specifically
+    if (error instanceof SyntaxError && error.message.includes('JSON')) {
+      return NextResponse.json(
+        { detail: 'Invalid response from backend server' },
+        { status: 502 }
+      );
+    }
+    
     return NextResponse.json(
       { detail: 'Failed to process heartbeat' },
       { status: 500 }
