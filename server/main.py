@@ -6110,15 +6110,29 @@ async def init_apk_upload(
     if version_code <= 0:
         raise HTTPException(status_code=422, detail="version_code must be a positive integer")
 
+    final_version_code = version_code
+    final_version_name = version_name
+    
     existing_version = db.query(ApkVersion).filter(
         (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
     ).first()
+    
     if existing_version:
-        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
+        timestamp = int(datetime.now(timezone.utc).timestamp())
+        final_version_code = int(f"{version_code}{timestamp % 100000}")
+        final_version_name = f"{version_name}-{timestamp}"
+        
+        structured_logger.log_event(
+            "apk.upload.version_conflict_resolved",
+            original_version_code=version_code,
+            original_version_name=version_name,
+            new_version_code=final_version_code,
+            new_version_name=final_version_name
+        )
 
     apk_version = ApkVersion(
-        version_name=version_name,
-        version_code=version_code,
+        version_name=final_version_name,
+        version_code=final_version_code,
         package_name=package_name,
         build_type=build_type,
         file_size=file_size,
