@@ -6092,6 +6092,63 @@ async def download_apk_by_id(
         use_cache=True
     )
 
+@app.post("/v1/apk/upload-init")
+async def init_apk_upload(
+    request: Request,
+    version_name: str = Form(...),
+    version_code: int = Form(...),
+    package_name: str = Form("com.nexmdm"),
+    build_type: str = Form("release"),
+    total_chunks: int = Form(...),
+    file_size: int = Form(...),
+    db: Session = Depends(get_db),
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
+):
+    """Initialize a chunked APK upload. Returns apk_id for subsequent chunk uploads."""
+    verify_admin_key(x_admin_key)
+
+    if version_code <= 0:
+        raise HTTPException(status_code=422, detail="version_code must be a positive integer")
+
+    existing_version = db.query(ApkVersion).filter(
+        (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
+    ).first()
+    if existing_version:
+        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
+
+    apk_version = ApkVersion(
+        version_name=version_name,
+        version_code=version_code,
+        package_name=package_name,
+        build_type=build_type,
+        file_size=file_size,
+        is_active=False,
+        uploaded_by="admin",
+        notes=f"Chunked upload in progress ({total_chunks} chunks)"
+    )
+    db.add(apk_version)
+    db.commit()
+    db.refresh(apk_version)
+
+    chunk_dir = f"/tmp/apk_chunks/{apk_version.id}"
+    os.makedirs(chunk_dir, exist_ok=True)
+
+    structured_logger.log_event(
+        "apk.upload.init",
+        admin_user="admin",
+        apk_id=apk_version.id,
+        version_name=version_name,
+        version_code=version_code,
+        total_chunks=total_chunks,
+        file_size=file_size
+    )
+
+    return {
+        "ok": True,
+        "apk_id": apk_version.id,
+        "message": f"Upload initialized. Use apk_id={apk_version.id} for chunk uploads."
+    }
+
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
     request: Request,
@@ -6105,24 +6162,37 @@ async def upload_apk_chunk(
     """Upload a chunk of an APK file. Used for large APKs."""
     verify_admin_key(x_admin_key)
 
-    # Check if APK version exists
     apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk_version:
         raise HTTPException(status_code=404, detail="APK version not found")
 
-    # Validate chunk index and total chunks
     if not (0 <= chunk_index < total_chunks):
         raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
 
-    # Use the optimized upload service
-    return await download_apk_optimized(
+    chunk_dir = f"/tmp/apk_chunks/{apk_id}"
+    os.makedirs(chunk_dir, exist_ok=True)
+
+    chunk_path = f"{chunk_dir}/chunk_{chunk_index:05d}"
+    chunk_content = await file.read()
+    
+    with open(chunk_path, "wb") as f:
+        f.write(chunk_content)
+
+    structured_logger.log_event(
+        "apk.upload.chunk",
         apk_id=apk_id,
-        db=db,
         chunk_index=chunk_index,
         total_chunks=total_chunks,
-        file=file,
-        request=request
+        chunk_size=len(chunk_content)
     )
+
+    return {
+        "ok": True,
+        "apk_id": apk_id,
+        "chunk_index": chunk_index,
+        "total_chunks": total_chunks,
+        "message": f"Chunk {chunk_index + 1}/{total_chunks} uploaded successfully"
+    }
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
@@ -6132,21 +6202,71 @@ async def complete_apk_upload(
     db: Session = Depends(get_db),
     x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
-    """Mark an APK upload as complete and verify integrity."""
+    """Assemble chunks and finalize APK upload."""
     verify_admin_key(x_admin_key)
 
-    # Check if APK version exists
     apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
     if not apk_version:
         raise HTTPException(status_code=404, detail="APK version not found")
 
-    # Use the optimized upload service to complete the upload
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        total_chunks=total_chunks,
-        request=request
+    chunk_dir = f"/tmp/apk_chunks/{apk_id}"
+    
+    existing_chunks = []
+    for i in range(total_chunks):
+        chunk_path = f"{chunk_dir}/chunk_{i:05d}"
+        if not os.path.exists(chunk_path):
+            raise HTTPException(status_code=400, detail=f"Missing chunk {i}")
+        existing_chunks.append(chunk_path)
+
+    assembled_path = f"{chunk_dir}/assembled.apk"
+    sha256_hash = hashlib.sha256()
+    total_size = 0
+
+    with open(assembled_path, "wb") as assembled_file:
+        for chunk_path in existing_chunks:
+            with open(chunk_path, "rb") as chunk_file:
+                chunk_data = chunk_file.read()
+                assembled_file.write(chunk_data)
+                sha256_hash.update(chunk_data)
+                total_size += len(chunk_data)
+
+    storage_service = get_storage_service()
+    object_name = f"apks/{apk_version.version_name}_{apk_version.version_code}.apk"
+    
+    with open(assembled_path, "rb") as f:
+        file_content = f.read()
+        storage_service.upload_file(file_content, object_name)
+
+    apk_version.file_size = total_size
+    apk_version.sha256 = sha256_hash.hexdigest()
+    apk_version.file_path = object_name
+    apk_version.storage_url = object_name
+    apk_version.is_active = True
+    apk_version.notes = f"Uploaded via chunked upload ({total_chunks} chunks)"
+    db.commit()
+
+    import shutil
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+
+    structured_logger.log_event(
+        "apk.upload.complete",
+        admin_user="admin",
+        apk_id=apk_version.id,
+        version_name=apk_version.version_name,
+        version_code=apk_version.version_code,
+        file_size=total_size,
+        sha256_hash=sha256_hash.hexdigest()
     )
+
+    return {
+        "ok": True,
+        "apk_id": apk_version.id,
+        "version_name": apk_version.version_name,
+        "version_code": apk_version.version_code,
+        "file_size": total_size,
+        "sha256": sha256_hash.hexdigest(),
+        "message": "APK uploaded and assembled successfully"
+    }
 
 @app.post("/admin/apk/upload")
 async def upload_apk_admin(
@@ -8135,64 +8255,8 @@ async def get_restart_app_status(
         "devices": list(device_statuses.values())
     }
 
-@app.post("/v1/apk/upload-chunk")
-async def upload_apk_chunk(
-    request: Request,
-    apk_id: int = Form(...),
-    chunk_index: int = Form(...),
-    total_chunks: int = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
-):
-    """Upload a chunk of an APK file. Used for large APKs."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Validate chunk index and total chunks
-    if not (0 <= chunk_index < total_chunks):
-        raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
-
-    # Use the optimized upload service
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        chunk_index=chunk_index,
-        total_chunks=total_chunks,
-        file=file,
-        request=request
-    )
-
-@app.post("/v1/apk/complete")
-async def complete_apk_upload(
-    request: Request,
-    apk_id: int = Form(...),
-    total_chunks: int = Form(...),
-    db: Session = Depends(get_db),
-    x_admin_key: str = Header(..., alias="X-Admin-Key")
-):
-    """Mark an APK upload as complete and verify integrity."""
-    verify_admin_key(x_admin_key)
-
-    # Check if APK version exists
-    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-    if not apk_version:
-        raise HTTPException(status_code=404, detail="APK version not found")
-
-    # Use the optimized upload service to complete the upload
-    return await download_apk_optimized(
-        apk_id=apk_id,
-        db=db,
-        total_chunks=total_chunks,
-        request=request
-    )
-
 @app.post("/admin/apk/upload")
-async def upload_apk_admin(
+async def upload_apk_admin_duplicate(
     request: Request,
     apk_file: UploadFile = File(...),
     version_name: str = Form(...),
