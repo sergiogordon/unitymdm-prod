@@ -32,6 +32,8 @@ class Device(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     alias: Mapped[str] = mapped_column(String, nullable=False)
     app_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    installed_apk_version_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    installed_apk_version_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     token_hash: Mapped[str] = mapped_column(String, nullable=False)
     token_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True, unique=True)
     token_revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)

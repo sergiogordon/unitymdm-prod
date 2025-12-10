@@ -2414,6 +2414,13 @@ async def heartbeat(
     if payload.app_version:
         device.app_version = payload.app_version
 
+    # Track installed Unity APK version for filtering and targeting
+    if payload.app_versions:
+        unity_app_info = payload.app_versions.get("io.unitynodes.unityapp")
+        if unity_app_info and unity_app_info.installed:
+            device.installed_apk_version_code = unity_app_info.version_code
+            device.installed_apk_version_name = unity_app_info.version_name
+
     if payload.fcm_token:
         device.fcm_token = payload.fcm_token
 
@@ -2927,28 +2934,35 @@ async def get_metrics(
 async def list_devices(
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=200),
+    version_code: Optional[int] = Query(None, description="Filter by installed APK version code"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List devices with pagination.
+    List devices with pagination and optional version filtering.
 
     NOTE: This endpoint is exempt from rate limiting as it's a read-only
     dashboard endpoint that's cached (5 minute TTL for first page). It should
     never be rate limited to ensure dashboard functionality.
     """
-    # Cache first page only (5 minute TTL) - most common query
+    # Cache first page only (5 minute TTL) - most common query (no filters)
     cache_key = None
-    if page == 1 and limit == 25:
+    if page == 1 and limit == 25 and version_code is None:
         cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": 25})
         cached_result = response_cache.get(cache_key, ttl_seconds=300)
         if cached_result is not None:
             return cached_result
 
-    total_count = db.query(func.count(Device.id)).scalar()
+    query = db.query(Device)
+    
+    # Filter by version code if provided
+    if version_code is not None:
+        query = query.filter(Device.installed_apk_version_code == version_code)
+
+    total_count = query.count()
 
     offset = (page - 1) * limit
-    devices = db.query(Device).order_by(Device.last_seen.desc()).offset(offset).limit(limit).all()
+    devices = query.order_by(Device.last_seen.desc()).offset(offset).limit(limit).all()
 
     # Batch fetch device statuses if using fast reads
     device_statuses = {}
@@ -3014,6 +3028,8 @@ async def list_devices(
             "id": device.id,
             "alias": device.alias,
             "app_version": device.app_version,
+            "installed_apk_version_code": device.installed_apk_version_code,
+            "installed_apk_version_name": device.installed_apk_version_name,
             "last_seen": device.last_seen.isoformat() + "Z" if device.last_seen else None,
             "created_at": device.created_at.isoformat() + "Z" if device.created_at else None,
             "status": status,
