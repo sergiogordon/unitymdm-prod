@@ -148,6 +148,9 @@ class ApkInstallation(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     initiated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     
+    deployment_run_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("apk_deployment_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    deployment_batch_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("apk_deployment_batches.id", ondelete="SET NULL"), nullable=True, index=True)
+    
     download_start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     download_end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     bytes_downloaded: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -158,6 +161,8 @@ class ApkInstallation(Base):
         Index('idx_installation_status', 'device_id', 'status'),
         Index('idx_installation_time', 'initiated_at'),
         Index('idx_installation_version_status', 'apk_version_id', 'status'),
+        Index('idx_installation_run', 'deployment_run_id', 'status'),
+        Index('idx_installation_batch', 'deployment_batch_id', 'status'),
     )
 
 class BatteryWhitelist(Base):
@@ -596,6 +601,66 @@ class CommandResult(Base):
         Index('idx_command_result_command', 'command_id', 'status'),
         Index('idx_command_result_correlation', 'correlation_id'),
         UniqueConstraint('command_id', 'device_id', name='uq_command_device'),
+    )
+
+class ApkDeploymentRun(Base):
+    """
+    Tracks a batch deployment run targeting multiple devices.
+    Devices are deployed in batches with ACK-based progression.
+    """
+    __tablename__ = "apk_deployment_runs"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    apk_version_id: Mapped[int] = mapped_column(Integer, ForeignKey("apk_versions.id"), nullable=False, index=True)
+    initiated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    total_devices: Mapped[int] = mapped_column(Integer, nullable=False)
+    batch_size: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    success_threshold: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    batch_timeout_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    current_batch_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_batches: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    timeout_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_deployment_run_status', 'status', 'started_at'),
+        Index('idx_deployment_run_apk', 'apk_version_id', 'status'),
+    )
+
+class ApkDeploymentBatch(Base):
+    """
+    Tracks individual batches within a deployment run.
+    Each batch contains N devices and progresses when success threshold is met.
+    """
+    __tablename__ = "apk_deployment_batches"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    deployment_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("apk_deployment_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    batch_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    status: Mapped[str] = mapped_column(String, default='pending', nullable=False)
+    
+    success_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    timeout_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    devices_in_batch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    timeout_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    __table_args__ = (
+        Index('idx_deployment_batch_run', 'deployment_run_id', 'batch_index'),
+        Index('idx_deployment_batch_status', 'status', 'timeout_at'),
+        UniqueConstraint('deployment_run_id', 'batch_index', name='uq_run_batch'),
     )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")

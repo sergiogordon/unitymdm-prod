@@ -31,7 +31,7 @@ import time
 import hashlib
 import httpx
 
-from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
+from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, ApkDeploymentRun, ApkDeploymentBatch, get_db, init_db, SessionLocal
 from schemas import (
     HeartbeatPayload, HeartbeatResponse, DeviceSummary, RegisterResponse,
     UserRegisterRequest, UserLoginRequest, UpdateDeviceAliasRequest, DeployApkRequest,
@@ -5835,17 +5835,67 @@ async def deploy_apk_v1(
         else:
             devices_with_fcm.append(device)
 
+    # Check if ACK-based batch mode is requested
+    use_ack_batching = payload.batch_size is not None and payload.success_threshold is not None
+    
     # Create all ApkInstallation records in bulk
     installations = []
     now = datetime.now(timezone.utc)
+    deployment_run = None
+    batches = []
     
-    for device in devices_with_fcm:
+    if use_ack_batching:
+        batch_size = payload.batch_size
+        success_threshold = min(payload.success_threshold, batch_size)
+        total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
+        
+        deployment_run = ApkDeploymentRun(
+            apk_version_id=apk.id,
+            initiated_by=user.username,
+            total_devices=len(devices_with_fcm),
+            batch_size=batch_size,
+            success_threshold=success_threshold,
+            batch_timeout_minutes=15,
+            status="in_progress",
+            current_batch_index=0,
+            total_batches=total_batches,
+            started_at=now
+        )
+        db.add(deployment_run)
+        db.commit()
+        db.refresh(deployment_run)
+        
+        for batch_idx in range(total_batches):
+            batch = ApkDeploymentBatch(
+                deployment_run_id=deployment_run.id,
+                batch_index=batch_idx,
+                status="pending" if batch_idx > 0 else "in_progress",
+                devices_in_batch=min(batch_size, len(devices_with_fcm) - batch_idx * batch_size),
+                started_at=now if batch_idx == 0 else None,
+                timeout_at=(now + timedelta(minutes=15)) if batch_idx == 0 else None
+            )
+            db.add(batch)
+            batches.append(batch)
+        db.commit()
+        for batch in batches:
+            db.refresh(batch)
+    
+    for i, device in enumerate(devices_with_fcm):
+        batch_id = None
+        run_id = None
+        if use_ack_batching:
+            batch_idx = i // payload.batch_size
+            batch_id = batches[batch_idx].id
+            run_id = deployment_run.id
+        
         installation = ApkInstallation(
             device_id=device.id,
             apk_version_id=apk.id,
             status="pending",
             initiated_at=now,
-            initiated_by=user.username
+            initiated_by=user.username,
+            deployment_run_id=run_id,
+            deployment_batch_id=batch_id
         )
         db.add(installation)
         installations.append(installation)
@@ -5903,21 +5953,59 @@ async def deploy_apk_v1(
             "failed_devices": failed_devices
         }
     
-    # Determine batch processing parameters
-    batch_size = payload.batch_size
-    batch_delay_seconds = payload.batch_delay_seconds
-    
-    # If batch_size is set but batch_delay_seconds is not, default to 30 seconds
-    if batch_size is not None and batch_delay_seconds is None:
-        batch_delay_seconds = 30
-    
     # Create semaphore for concurrency control
     semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
     
     # Process devices
     async with httpx.AsyncClient() as client:
-        if batch_size is not None and batch_size > 0:
-            # Process in batches with delays
+        if use_ack_batching:
+            first_batch_devices = devices_with_fcm[:payload.batch_size]
+            
+            tasks = [
+                dispatch_apk_fcm_to_device(
+                    device=device,
+                    apk=apk,
+                    installation=installation_map[device.id],
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token
+                )
+                for device in first_batch_devices
+            ]
+            
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for i, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    device = first_batch_devices[i]
+                    failed_devices.append({
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "reason": f"FCM error: {str(result)}"
+                    })
+                    continue
+                
+                if result.get("status") != "sent":
+                    failed_devices.append({
+                        "device_id": result["device_id"],
+                        "alias": result["alias"],
+                        "reason": result.get("error", "Unknown error")
+                    })
+            
+            structured_logger.log_event(
+                "apk.deploy.ack_batch_started",
+                level="INFO",
+                apk_id=apk.id,
+                run_id=deployment_run.id,
+                total_devices=len(devices_with_fcm),
+                first_batch_size=len(first_batch_devices),
+                total_batches=len(batches),
+                success_threshold=payload.success_threshold
+            )
+        elif payload.batch_size is not None and payload.batch_size > 0:
+            batch_size = payload.batch_size
+            batch_delay_seconds = payload.batch_delay_seconds or 30
             total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
             
             for batch_num in range(total_batches):
@@ -5925,7 +6013,6 @@ async def deploy_apk_v1(
                 end_idx = min(start_idx + batch_size, len(devices_with_fcm))
                 batch_devices = devices_with_fcm[start_idx:end_idx]
                 
-                # Create tasks for this batch
                 tasks = [
                     dispatch_apk_fcm_to_device(
                         device=device,
@@ -5939,13 +6026,10 @@ async def deploy_apk_v1(
                     for device in batch_devices
                 ]
                 
-                # Process batch in parallel
                 batch_results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Process results (track FCM failures, but installations are already created)
                 for i, result in enumerate(batch_results):
                     if isinstance(result, Exception):
-                        # Handle exceptions - mark device as failed
                         device = batch_devices[i]
                         failed_devices.append({
                             "device_id": device.id,
@@ -5961,7 +6045,6 @@ async def deploy_apk_v1(
                             "reason": result.get("error", "Unknown error")
                         })
                 
-                # Wait before next batch (except for the last batch)
                 if batch_num < total_batches - 1 and batch_delay_seconds > 0:
                     await asyncio.sleep(batch_delay_seconds)
         else:
@@ -6001,8 +6084,6 @@ async def deploy_apk_v1(
                         "reason": result.get("error", "Unknown error")
                     })
 
-    # All installations are considered successful (backward compatible behavior)
-    # failed_devices only contains FCM send failures
     structured_logger.log_event(
         "apk.deploy.complete",
         level="INFO",
@@ -6010,11 +6091,11 @@ async def deploy_apk_v1(
         success_count=len(installations),
         failed_count=len(failed_devices),
         total_devices=len(device_ids),
-        batch_size=batch_size,
-        batch_delay_seconds=batch_delay_seconds
+        use_ack_batching=use_ack_batching,
+        batch_size=payload.batch_size
     )
 
-    return {
+    response = {
         "success_count": len(installations),
         "failed_count": len(failed_devices),
         "installations": [
@@ -6029,6 +6110,283 @@ async def deploy_apk_v1(
         ],
         "failed_devices": failed_devices
     }
+    
+    if use_ack_batching and deployment_run:
+        response["deployment_run"] = {
+            "id": deployment_run.id,
+            "total_devices": deployment_run.total_devices,
+            "batch_size": deployment_run.batch_size,
+            "success_threshold": deployment_run.success_threshold,
+            "total_batches": deployment_run.total_batches,
+            "status": deployment_run.status
+        }
+    
+    return response
+
+
+class ApkInstallationUpdateRequest(BaseModel):
+    """Request body for APK installation status updates from devices."""
+    installation_id: Optional[int] = None
+    apk_id: Optional[int] = None
+    status: str  # downloading, downloaded, installing, installed, failed
+    progress: Optional[int] = None  # 0-100 for download progress
+    error: Optional[str] = None
+    bytes_downloaded: Optional[int] = None
+    download_speed_kbps: Optional[int] = None
+
+
+async def dispatch_fcm_to_batch(run_id: int, batch_id: int, db: Session):
+    """Dispatch FCM notifications to all devices in a batch."""
+    try:
+        installations = db.query(ApkInstallation).filter(
+            ApkInstallation.deployment_batch_id == batch_id
+        ).all()
+        
+        if not installations:
+            structured_logger.log_event(
+                "apk.deployment.batch_dispatch.no_installations",
+                level="WARN",
+                run_id=run_id,
+                batch_id=batch_id
+            )
+            return
+        
+        run = db.query(ApkDeploymentRun).filter(ApkDeploymentRun.id == run_id).first()
+        if not run:
+            return
+        
+        apk = db.query(ApkVersion).filter(ApkVersion.id == run.apk_version_id).first()
+        if not apk:
+            return
+        
+        device_ids = [inst.device_id for inst in installations]
+        devices = db.query(Device).filter(Device.id.in_(device_ids)).all()
+        device_map = {d.id: d for d in devices}
+        
+        access_token = get_access_token()
+        project_id = get_firebase_project_id()
+        fcm_url = build_fcm_v1_url(project_id)
+        
+        semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+        
+        async with httpx.AsyncClient() as client:
+            tasks = []
+            for inst in installations:
+                device = device_map.get(inst.device_id)
+                if device and device.fcm_token:
+                    tasks.append(
+                        dispatch_apk_fcm_to_device(
+                            device=device,
+                            apk=apk,
+                            installation=inst,
+                            semaphore=semaphore,
+                            client=client,
+                            fcm_url=fcm_url,
+                            access_token=access_token
+                        )
+                    )
+            
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        
+        structured_logger.log_event(
+            "apk.deployment.batch_dispatch.completed",
+            run_id=run_id,
+            batch_id=batch_id,
+            devices_dispatched=len(tasks)
+        )
+    except Exception as e:
+        structured_logger.log_event(
+            "apk.deployment.batch_dispatch.error",
+            level="ERROR",
+            run_id=run_id,
+            batch_id=batch_id,
+            error=str(e)
+        )
+
+
+@app.post("/v1/apk/installation/update")
+async def update_apk_installation_status(
+    payload: ApkInstallationUpdateRequest,
+    db: Session = Depends(get_db),
+    x_device_token: str = Header(..., alias="X-Device-Token")
+):
+    """
+    Device ACK endpoint for APK installation status updates.
+    Called by devices when:
+    - Download starts/progresses/completes
+    - Installation starts/completes
+    - Any failure occurs
+    
+    This endpoint updates batch progress and triggers batch progression
+    when success threshold is met.
+    """
+    device = get_device_by_token(x_device_token, db)
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+    
+    now = datetime.now(timezone.utc)
+    
+    installation = None
+    if payload.installation_id:
+        installation = db.query(ApkInstallation).filter(
+            ApkInstallation.id == payload.installation_id,
+            ApkInstallation.device_id == device.id
+        ).first()
+    elif payload.apk_id:
+        installation = db.query(ApkInstallation).filter(
+            ApkInstallation.apk_version_id == payload.apk_id,
+            ApkInstallation.device_id == device.id
+        ).order_by(ApkInstallation.initiated_at.desc()).first()
+    
+    if not installation:
+        structured_logger.log_event(
+            "apk.installation.update.not_found",
+            level="WARN",
+            device_id=device.id,
+            installation_id=payload.installation_id,
+            apk_id=payload.apk_id
+        )
+        raise HTTPException(status_code=404, detail="Installation not found")
+    
+    old_status = installation.status
+    installation.status = payload.status
+    
+    if payload.progress is not None:
+        installation.download_progress = payload.progress
+    
+    if payload.error:
+        installation.error_message = payload.error
+    
+    if payload.bytes_downloaded is not None:
+        installation.bytes_downloaded = payload.bytes_downloaded
+    
+    if payload.download_speed_kbps is not None:
+        installation.avg_speed_kbps = payload.download_speed_kbps
+    
+    if payload.status == "downloading" and not installation.download_start_time:
+        installation.download_start_time = now
+    
+    if payload.status == "downloaded":
+        installation.download_end_time = now
+    
+    if payload.status in ["installed", "failed"]:
+        installation.completed_at = now
+    
+    db.commit()
+    
+    structured_logger.log_event(
+        "apk.installation.update",
+        device_id=device.id,
+        device_alias=device.alias,
+        installation_id=installation.id,
+        apk_id=installation.apk_version_id,
+        old_status=old_status,
+        new_status=payload.status,
+        progress=payload.progress
+    )
+    
+    if installation.deployment_batch_id and payload.status in ["installed", "failed"]:
+        batch = db.query(ApkDeploymentBatch).filter(
+            ApkDeploymentBatch.id == installation.deployment_batch_id
+        ).first()
+        
+        if batch and batch.status == "in_progress":
+            if payload.status == "installed":
+                batch.success_count += 1
+            else:
+                batch.failure_count += 1
+            
+            run = db.query(ApkDeploymentRun).filter(
+                ApkDeploymentRun.id == batch.deployment_run_id
+            ).first()
+            
+            if run:
+                if payload.status == "installed":
+                    run.success_count += 1
+                else:
+                    run.failure_count += 1
+                
+                if batch.success_count >= run.success_threshold:
+                    batch.status = "completed"
+                    batch.completed_at = now
+                    
+                    next_batch = db.query(ApkDeploymentBatch).filter(
+                        ApkDeploymentBatch.deployment_run_id == run.id,
+                        ApkDeploymentBatch.batch_index == batch.batch_index + 1
+                    ).first()
+                    
+                    if next_batch:
+                        next_batch.status = "in_progress"
+                        next_batch.started_at = now
+                        next_batch.timeout_at = now + timedelta(minutes=run.batch_timeout_minutes)
+                        run.current_batch_index = next_batch.batch_index
+                        
+                        db.commit()
+                        
+                        asyncio.create_task(dispatch_fcm_to_batch(run.id, next_batch.id, db))
+                        
+                        structured_logger.log_event(
+                            "apk.deployment.batch_advanced",
+                            run_id=run.id,
+                            completed_batch=batch.batch_index,
+                            new_batch=next_batch.batch_index,
+                            success_count=batch.success_count,
+                            failure_count=batch.failure_count
+                        )
+                    else:
+                        run.status = "completed"
+                        run.completed_at = now
+                        
+                        structured_logger.log_event(
+                            "apk.deployment.run_completed",
+                            run_id=run.id,
+                            total_success=run.success_count,
+                            total_failure=run.failure_count,
+                            total_batches=run.total_batches
+                        )
+                
+                elif (batch.success_count + batch.failure_count) >= batch.devices_in_batch:
+                    batch.status = "completed"
+                    batch.completed_at = now
+                    
+                    next_batch = db.query(ApkDeploymentBatch).filter(
+                        ApkDeploymentBatch.deployment_run_id == run.id,
+                        ApkDeploymentBatch.batch_index == batch.batch_index + 1
+                    ).first()
+                    
+                    if next_batch:
+                        next_batch.status = "in_progress"
+                        next_batch.started_at = now
+                        next_batch.timeout_at = now + timedelta(minutes=run.batch_timeout_minutes)
+                        run.current_batch_index = next_batch.batch_index
+                        
+                        db.commit()
+                        
+                        asyncio.create_task(dispatch_fcm_to_batch(run.id, next_batch.id, db))
+                    else:
+                        run.status = "completed"
+                        run.completed_at = now
+                        db.commit()
+    
+    await manager.broadcast({
+        "type": "installation_update",
+        "device_id": str(device.id),
+        "device_alias": device.alias,
+        "installation_id": installation.id,
+        "apk_id": installation.apk_version_id,
+        "status": payload.status,
+        "progress": payload.progress,
+        "batch_id": installation.deployment_batch_id,
+        "run_id": installation.deployment_run_id
+    })
+    
+    return {
+        "status": "ok",
+        "installation_id": installation.id,
+        "new_status": payload.status
+    }
+
 
 @app.get("/v1/apk/download-latest")
 async def download_latest_apk(
@@ -6714,61 +7072,6 @@ async def list_apk_installations(
     return results
 
 
-class InstallationUpdateRequest(BaseModel):
-    installation_id: int
-    status: str
-    download_progress: Optional[int] = None
-    error_message: Optional[str] = None
-
-@app.post("/v1/apk/installation/update")
-async def update_installation_status(
-    payload: InstallationUpdateRequest,
-    x_device_token: str = Header(...),
-    db: Session = Depends(get_db)
-):
-    """
-    ⚠️  CRITICAL ENDPOINT - DO NOT DELETE ⚠️
-    
-    Update installation status from device.
-    Used by Android devices to report APK installation progress.
-    """
-    installation = db.query(ApkInstallation).filter(
-        ApkInstallation.id == payload.installation_id
-    ).first()
-
-    if not installation:
-        raise HTTPException(status_code=404, detail="Installation not found")
-
-    device = db.query(Device).filter(Device.id == installation.device_id).first()
-
-    if not device or not verify_token(x_device_token, device.token_hash):
-        raise HTTPException(status_code=401, detail="Invalid device token")
-
-    installation.status = payload.status
-    if payload.download_progress is not None:
-        installation.download_progress = payload.download_progress
-    if payload.error_message:
-        installation.error_message = payload.error_message
-    if payload.status in ["completed", "failed"]:
-        installation.completed_at = datetime.now(timezone.utc)
-
-        event_type = "apk_install_success" if payload.status == "completed" else "apk_install_failed"
-        details = {"installation_id": payload.installation_id, "status": payload.status}
-        if payload.error_message:
-            details["error"] = payload.error_message
-        log_device_event(db, device.id, event_type, details)
-
-    db.commit()
-
-    await manager.broadcast({
-        "type": "installation_update",
-        "device_id": str(device.id),
-        "installation_id": payload.installation_id,
-        "status": payload.status,
-        "progress": payload.download_progress
-    })
-
-    return {"success": True}
 
 # =============================================================================
 # ⚠️  END CRITICAL APK ENDPOINTS ⚠️

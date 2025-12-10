@@ -111,6 +111,7 @@ class DeployApkRequest(BaseModel):
     rollout_percent: Optional[int] = Field(100, ge=1, le=100)
     batch_size: Optional[int] = Field(None, ge=1, le=50)
     batch_delay_seconds: Optional[int] = Field(None, ge=0, le=300)
+    success_threshold: Optional[int] = Field(None, ge=1, le=50)
 
 class UpdateDeviceSettingsRequest(BaseModel):
     monitored_package: Optional[str] = Field(None, max_length=200)

@@ -69,8 +69,9 @@ export default function ApkDeployPage() {
   const [isDeploying, setIsDeploying] = useState(false)
   const [deploymentResult, setDeploymentResult] = useState<DeploymentResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "25" | "50" | "custom">("all")
-  const [customPercentage, setCustomPercentage] = useState<number>(10)
+  const [rolloutStrategy, setRolloutStrategy] = useState<"all" | "batch">("all")
+  const [batchSize, setBatchSize] = useState<number>(5)
+  const [successThreshold, setSuccessThreshold] = useState<number>(3)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [aliasFilter, setAliasFilter] = useState("")
   const [recentDeployments, setRecentDeployments] = useState<RecentDeployment[]>([])
@@ -247,23 +248,7 @@ export default function ApkDeployPage() {
   }
 
   const getDeploymentDevices = (): string[] => {
-    const allSelected = Array.from(selectedDevices)
-    
-    if (rolloutStrategy === "all") {
-      return allSelected
-    }
-    
-    let percentage: number
-    if (rolloutStrategy === "25") {
-      percentage = 25
-    } else if (rolloutStrategy === "50") {
-      percentage = 50
-    } else {
-      percentage = customPercentage
-    }
-    
-    const count = Math.max(1, Math.ceil((allSelected.length * percentage) / 100))
-    return allSelected.slice(0, count)
+    return Array.from(selectedDevices)
   }
 
   const handleDeployClick = () => {
@@ -294,19 +279,14 @@ export default function ApkDeployPage() {
         headers['Authorization'] = `Bearer ${token}`
       }
 
-      // Calculate rollout percentage
-      let rolloutPercent = 100
-      if (rolloutStrategy === "25") rolloutPercent = 25
-      else if (rolloutStrategy === "50") rolloutPercent = 50
-      else if (rolloutStrategy === "custom") rolloutPercent = customPercentage
-
       const response = await fetch('/v1/apk/deploy', {
         method: 'POST',
         headers,
         body: JSON.stringify({
           apk_id: parseInt(apkId),
           device_ids: Array.from(selectedDevices),
-          rollout_percent: rolloutPercent
+          batch_size: rolloutStrategy === "batch" ? batchSize : undefined,
+          success_threshold: rolloutStrategy === "batch" ? successThreshold : undefined
         })
       })
 
@@ -536,12 +516,12 @@ export default function ApkDeployPage() {
               </div>
             </Card>
 
-          {/* Rollout Strategy Card */}
+          {/* Batch Deployment Settings */}
           {selectedDevices.size > 0 && (
             <Card className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold text-card-foreground">Rollout Strategy</h2>
+              <h2 className="mb-4 text-lg font-semibold text-card-foreground">Deployment Settings</h2>
               
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3">
                 <Button
                   variant={rolloutStrategy === "all" ? "default" : "outline"}
                   onClick={() => setRolloutStrategy("all")}
@@ -551,52 +531,60 @@ export default function ApkDeployPage() {
                   <div className="text-xs opacity-80">{selectedDevices.size} devices</div>
                 </Button>
                 <Button
-                  variant={rolloutStrategy === "25" ? "default" : "outline"}
-                  onClick={() => setRolloutStrategy("25")}
+                  variant={rolloutStrategy === "batch" ? "default" : "outline"}
+                  onClick={() => setRolloutStrategy("batch")}
                   className="h-auto flex-col gap-1 py-3"
                 >
-                  <div className="text-sm font-semibold">Staged 25%</div>
-                  <div className="text-xs opacity-80">{Math.ceil((selectedDevices.size * 25) / 100)} devices</div>
-                </Button>
-                <Button
-                  variant={rolloutStrategy === "50" ? "default" : "outline"}
-                  onClick={() => setRolloutStrategy("50")}
-                  className="h-auto flex-col gap-1 py-3"
-                >
-                  <div className="text-sm font-semibold">Staged 50%</div>
-                  <div className="text-xs opacity-80">{Math.ceil((selectedDevices.size * 50) / 100)} devices</div>
-                </Button>
-                <Button
-                  variant={rolloutStrategy === "custom" ? "default" : "outline"}
-                  onClick={() => setRolloutStrategy("custom")}
-                  className="h-auto flex-col gap-1 py-3"
-                >
-                  <div className="text-sm font-semibold">Custom %</div>
-                  <div className="text-xs opacity-80">Configure below</div>
+                  <div className="text-sm font-semibold">Batched</div>
+                  <div className="text-xs opacity-80">ACK-based progression</div>
                 </Button>
               </div>
 
-              {rolloutStrategy === "custom" && (
-                <div className="mt-4 rounded-lg border border-border bg-muted p-4">
-                  <Label htmlFor="custom-percentage" className="mb-2 block text-sm font-medium">
-                    Deployment Percentage
-                  </Label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      id="custom-percentage"
-                      type="range"
-                      min="1"
-                      max="100"
-                      value={customPercentage}
-                      onChange={(e) => setCustomPercentage(parseInt(e.target.value))}
-                      className="flex-1"
-                    />
-                    <div className="w-16 text-right font-mono text-sm font-semibold">
-                      {customPercentage}%
+              {rolloutStrategy === "batch" && (
+                <div className="mt-4 space-y-4 rounded-lg border border-border bg-muted p-4">
+                  <div>
+                    <Label htmlFor="batch-size" className="mb-2 block text-sm font-medium">
+                      Batch Size
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        id="batch-size"
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={batchSize}
+                        onChange={(e) => setBatchSize(Math.max(1, parseInt(e.target.value) || 5))}
+                        className="w-20 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                      />
+                      <span className="text-sm text-muted-foreground">devices per batch</span>
                     </div>
                   </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Will deploy to {Math.ceil((selectedDevices.size * customPercentage) / 100)} of {selectedDevices.size} selected devices
+                  
+                  <div>
+                    <Label htmlFor="success-threshold" className="mb-2 block text-sm font-medium">
+                      Success Threshold
+                    </Label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        id="success-threshold"
+                        type="number"
+                        min="1"
+                        max={batchSize}
+                        value={successThreshold}
+                        onChange={(e) => setSuccessThreshold(Math.max(1, Math.min(batchSize, parseInt(e.target.value) || 3)))}
+                        className="w-20 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                      />
+                      <span className="text-sm text-muted-foreground">successes to advance ({successThreshold}/{batchSize})</span>
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Once {successThreshold} devices report success, the next batch begins automatically
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-border">
+                    <div className="text-xs text-muted-foreground">
+                      {Math.ceil(selectedDevices.size / batchSize)} batches total for {selectedDevices.size} devices
+                    </div>
                   </div>
                 </div>
               )}
@@ -796,21 +784,25 @@ export default function ApkDeployPage() {
               <div className="flex justify-between rounded-lg bg-muted p-3">
                 <span className="text-muted-foreground">Strategy:</span>
                 <span className="font-medium">
-                  {rolloutStrategy === "all" ? "All at Once (100%)" : 
-                   rolloutStrategy === "25" ? "Staged Rollout (25%)" :
-                   rolloutStrategy === "50" ? "Staged Rollout (50%)" :
-                   `Custom Rollout (${customPercentage}%)`}
+                  {rolloutStrategy === "all" ? "All at Once" : 
+                   `Batched (${batchSize} devices, ${successThreshold}/${batchSize} threshold)`}
                 </span>
               </div>
               <div className="flex justify-between rounded-lg bg-muted p-3">
                 <span className="text-muted-foreground">Devices:</span>
-                <span className="font-medium">{getDeploymentDevices().length} of {selectedDevices.size} selected</span>
+                <span className="font-medium">{selectedDevices.size} devices</span>
               </div>
+              {rolloutStrategy === "batch" && (
+                <div className="flex justify-between rounded-lg bg-muted p-3">
+                  <span className="text-muted-foreground">Batches:</span>
+                  <span className="font-medium">{Math.ceil(selectedDevices.size / batchSize)} batches</span>
+                </div>
+              )}
             </div>
 
-            {rolloutStrategy !== "all" && (
-              <div className="mb-6 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-                <strong>Staged Rollout:</strong> Devices will be deployed in order of selection. Monitor results before deploying to remaining devices.
+            {rolloutStrategy === "batch" && (
+              <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
+                <strong>ACK-Based Batching:</strong> Next batch starts automatically when {successThreshold} devices report successful installation. No polling required.
               </div>
             )}
 
