@@ -56,14 +56,16 @@ fi
 # Start frontend on port 5000 using production build
 cd ../frontend
 echo "Starting frontend server..."
+echo "BACKEND_URL environment variable: ${BACKEND_URL:-'not set (will use default)'}"
 
 # Check if standalone build exists (Next.js standalone mode)
+# BACKEND_URL is automatically available from .replit [userenv.shared] section
 if [ -f ".next/standalone/server.js" ]; then
     echo "Using standalone build..."
-    PORT=5000 HOSTNAME=0.0.0.0 BACKEND_URL=http://localhost:8000 node .next/standalone/server.js &
+    PORT=5000 HOSTNAME=0.0.0.0 node .next/standalone/server.js &
 else
     echo "Standalone build not found, using npm start..."
-    BACKEND_URL=http://localhost:8000 npm start -- -p 5000 -H 0.0.0.0 &
+    npm start -- -p 5000 -H 0.0.0.0 &
 fi
 
 FRONTEND_PID=$!
