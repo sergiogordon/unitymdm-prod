@@ -487,6 +487,11 @@ class FcmMessagingService : FirebaseMessagingService() {
                         if (success) {
                             Log.i(TAG, "APK installed successfully: $packageName")
                             reportInstallStatus(installationId, "completed", 100, null)
+                            
+                            // Auto-launch the installed app after successful installation
+                            if (packageName.isNotEmpty()) {
+                                launchInstalledApp(packageName)
+                            }
                         } else {
                             Log.e(TAG, "APK installation failed: $installError")
                             reportInstallStatus(installationId, "failed", 100, installError)
@@ -1706,6 +1711,28 @@ class FcmMessagingService : FirebaseMessagingService() {
                 Log.e(TAG, "Error sending remote exec ACK", e)
             }
         }
+    }
+    
+    private fun launchInstalledApp(packageName: String) {
+        // Add a short delay to ensure the system has fully registered the new app
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    )
+                    startActivity(launchIntent)
+                    Log.i(TAG, "Successfully launched app after install: $packageName")
+                } else {
+                    Log.w(TAG, "Could not get launch intent for package: $packageName (app may not have a launcher activity)")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch app $packageName: ${e.message}", e)
+            }
+        }, 1500) // 1.5 second delay to let the system register the installed app
     }
     
     private fun sendTokenToServer(token: String) {
