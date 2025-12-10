@@ -306,6 +306,18 @@ apk_rate_limiter = RateLimiter(max_requests=200, window_seconds=30)
 # Registration rate limiter (BUG FIX #4): 3 registrations per minute per IP
 registration_rate_limiter = RateLimiter(max_requests=3, window_seconds=60)
 
+# Heartbeat rate limiter: Per-device, allow 2 heartbeats per 30 seconds (generous for 10-min intervals)
+# This prevents devices from flooding the server if they malfunction or retry too aggressively
+heartbeat_rate_limiter = RateLimiter(max_requests=2, window_seconds=30)
+
+# Global heartbeat rate limiter: Limit total heartbeats across all devices
+# Allow 100 heartbeats per second (generous for fleets up to 1000+ devices)
+global_heartbeat_rate_limiter = RateLimiter(max_requests=100, window_seconds=1)
+
+# Admin API rate limiter: Protect read endpoints from excessive polling
+# Allow 60 requests per minute per IP (1 per second average)
+admin_api_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
+
 # Global error handler to prevent crashes
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -2439,6 +2451,31 @@ async def heartbeat(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
+    # Global rate limiting: Protect server from burst traffic
+    if not global_heartbeat_rate_limiter.is_allowed("global"):
+        metrics.inc_counter("heartbeat_global_rate_limited_total")
+        raise HTTPException(
+            status_code=429,
+            detail="Server busy. Retry shortly.",
+            headers={"Retry-After": "1"}
+        )
+
+    # Per-device rate limiting: Prevent individual devices from flooding
+    # Allow 2 heartbeats per 30 seconds per device (generous for 10-min expected intervals)
+    if not heartbeat_rate_limiter.is_allowed(device.id):
+        structured_logger.log_event(
+            "heartbeat.rate_limited",
+            level="WARN",
+            device_id=device.id,
+            alias=device.alias
+        )
+        metrics.inc_counter("heartbeat_rate_limited_total")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many heartbeats. Wait before sending next heartbeat.",
+            headers={"Retry-After": "30"}
+        )
+
     # Check if device token has been revoked (device deleted)
     if device.token_revoked_at:
         structured_logger.log_event(
@@ -2976,16 +3013,32 @@ async def get_device_events(
 
 @app.get("/v1/metrics")
 async def get_metrics(
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Get device metrics (total, online, offline, low battery counts).
 
-    NOTE: This endpoint is exempt from rate limiting as it's a read-only
-    dashboard endpoint that's heavily cached (60 second TTL). It should never
-    be rate limited to ensure dashboard functionality.
+    Rate limited to 60 requests per minute per client.
+    Heavily cached (60 second TTL) to reduce database load.
     """
+    # Extract client IP for rate limiting
+    client_ip = "unknown"
+    if request.client:
+        client_ip = request.client.host
+    elif request.headers.get("x-forwarded-for"):
+        client_ip = request.headers.get("x-forwarded-for").split(",")[0].strip()
+    
+    # Rate limit: 60 requests per minute per IP
+    rate_key = f"metrics:{client_ip}"
+    if not admin_api_rate_limiter.is_allowed(rate_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please wait before refreshing.",
+            headers={"Retry-After": "10"}
+        )
+
     # Check cache first (60 second TTL)
     cache_key = make_cache_key("/v1/metrics")
     cached_result = response_cache.get(cache_key, ttl_seconds=60)
@@ -3054,6 +3107,7 @@ async def get_metrics(
 
 @app.get("/v1/devices")
 async def list_devices(
+    request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=200),
     user: User = Depends(get_current_user),
@@ -3062,10 +3116,25 @@ async def list_devices(
     """
     List devices with pagination.
 
-    NOTE: This endpoint is exempt from rate limiting as it's a read-only
-    dashboard endpoint that's cached (5 minute TTL for first page). It should
-    never be rate limited to ensure dashboard functionality.
+    Rate limited to 60 requests per minute per client to prevent excessive polling.
+    Cached responses (5 minute TTL for first page) reduce actual database load.
     """
+    # Extract client IP for rate limiting
+    client_ip = "unknown"
+    if request.client:
+        client_ip = request.client.host
+    elif request.headers.get("x-forwarded-for"):
+        client_ip = request.headers.get("x-forwarded-for").split(",")[0].strip()
+    
+    # Rate limit: 60 requests per minute per IP (generous for dashboard refresh)
+    rate_key = f"devices_list:{client_ip}"
+    if not admin_api_rate_limiter.is_allowed(rate_key):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please wait before refreshing.",
+            headers={"Retry-After": "10"}
+        )
+
     cache_key = None
     cache_ttl = 300
     if page == 1 and limit in (25, 100):
