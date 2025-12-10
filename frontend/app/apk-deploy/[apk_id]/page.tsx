@@ -17,6 +17,8 @@ interface Device {
   fcm_token: string | null
   last_seen: string
   status: "online" | "offline"
+  installed_apk_version_code?: number | null
+  installed_apk_version_name?: string | null
 }
 
 interface ApkBuild {
@@ -73,6 +75,18 @@ export default function ApkDeployPage() {
   const [aliasFilter, setAliasFilter] = useState("")
   const [recentDeployments, setRecentDeployments] = useState<RecentDeployment[]>([])
   const [loadingRecentDeployments, setLoadingRecentDeployments] = useState(false)
+  const [selectedVersionCode, setSelectedVersionCode] = useState<number | null>(null)
+
+  // Extract unique version codes from devices
+  const uniqueVersionCodes = useMemo(() => {
+    const versions = new Set<number>()
+    devices.forEach(device => {
+      if (device.installed_apk_version_code !== null && device.installed_apk_version_code !== undefined) {
+        versions.add(device.installed_apk_version_code)
+      }
+    })
+    return Array.from(versions).sort((a, b) => b - a) // Sort descending (latest first)
+  }, [devices])
 
   const filteredDevices = useMemo(() => {
     let result = [...devices]
@@ -81,6 +95,13 @@ export default function ApkDeployPage() {
       const filterLower = aliasFilter.toLowerCase()
       result = result.filter(device => 
         device.alias.toLowerCase().startsWith(filterLower)
+      )
+    }
+
+    // Filter by version code if selected
+    if (selectedVersionCode !== null) {
+      result = result.filter(device => 
+        device.installed_apk_version_code === selectedVersionCode
       )
     }
     
@@ -118,7 +139,7 @@ export default function ApkDeployPage() {
     })
     
     return result
-  }, [devices, aliasFilter])
+  }, [devices, aliasFilter, selectedVersionCode])
 
   useEffect(() => {
     fetchData()
@@ -438,6 +459,34 @@ export default function ApkDeployPage() {
                     <div className="mt-2 text-xs text-muted-foreground">
                       Showing {filteredDevices.length} of {devices.length} devices
                       {selectedDevices.size > 0 && ` (${selectedDevices.size} selected total)`}
+                    </div>
+                  )}
+                </div>
+
+                {/* Version Filter */}
+                <div className="border-t pt-4">
+                  <label className="block text-sm font-medium mb-2">Filter by APK Version</label>
+                  <select
+                    value={selectedVersionCode === null ? "" : selectedVersionCode}
+                    onChange={(e) => setSelectedVersionCode(e.target.value === "" ? null : parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  >
+                    <option value="">All versions ({devices.length} devices)</option>
+                    {uniqueVersionCodes.map((versionCode) => {
+                      const deviceCount = devices.filter(d => d.installed_apk_version_code === versionCode).length
+                      const deviceWithVersion = devices.find(d => d.installed_apk_version_code === versionCode)
+                      const versionName = deviceWithVersion?.installed_apk_version_name || "Unknown"
+                      return (
+                        <option key={versionCode} value={versionCode}>
+                          v{versionName} ({versionCode}) - {deviceCount} device{deviceCount !== 1 ? 's' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                  {selectedVersionCode !== null && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      {filteredDevices.length} device{filteredDevices.length !== 1 ? 's' : ''} on this version
+                      {selectedDevices.size > 0 && ` (${selectedDevices.size} selected)`}
                     </div>
                   )}
                 </div>
