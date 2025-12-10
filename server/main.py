@@ -228,7 +228,7 @@ async def limit_request_size(request: Request, call_next):
     chunked encoding, or other transfer methods.
     """
     # Exempt APK upload endpoints from size limit (needs to handle large APK files)
-    if request.url.path in ["/admin/apk/upload", "/v1/apk/upload-chunk", "/v1/apk/complete"]:
+    if request.url.path in ["/admin/apk/upload", "/v1/apk/upload-init", "/v1/apk/upload-chunk", "/v1/apk/complete"]:
         return await call_next(request)
 
     max_size = 1 * 1024 * 1024  # 1MB

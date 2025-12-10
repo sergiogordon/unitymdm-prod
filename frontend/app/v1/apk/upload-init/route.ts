@@ -13,9 +13,9 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 120000)
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
 
-    const response = await fetch(`${API_URL}/v1/apk/upload-chunk`, {
+    const response = await fetch(`${API_URL}/v1/apk/upload-init`, {
       method: 'POST',
       headers: {
         'X-Admin-Key': adminKey,
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     return NextResponse.json(data, { status: response.status })
   } catch (error) {
-    console.error('APK chunk upload error:', error)
-    return NextResponse.json({ error: 'Failed to upload chunk' }, { status: 500 })
+    console.error('APK upload init error:', error)
+    return NextResponse.json({ error: 'Failed to initialize upload' }, { status: 500 })
   }
 }

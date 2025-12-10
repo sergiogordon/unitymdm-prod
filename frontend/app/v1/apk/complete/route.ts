@@ -1,33 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 
 const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies()
-    const sessionCookie = cookieStore.get('session_token')
-    const authHeader = request.headers.get('authorization')
+    const adminKey = request.headers.get('x-admin-key')
+    
+    if (!adminKey) {
+      return NextResponse.json({ error: 'Admin key required' }, { status: 403 })
+    }
 
     const body = await request.json()
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 60000)
+    const formData = new FormData()
+    formData.append('apk_id', body.apk_id.toString())
+    formData.append('total_chunks', body.total_chunks.toString())
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    
-    if (authHeader) {
-      headers['Authorization'] = authHeader
-    } else if (sessionCookie) {
-      headers['Cookie'] = `session_token=${sessionCookie.value}`
-    }
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 120000)
 
     const response = await fetch(`${API_URL}/v1/apk/complete`, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+      headers: {
+        'X-Admin-Key': adminKey,
+      },
+      body: formData,
       signal: controller.signal,
     })
 
