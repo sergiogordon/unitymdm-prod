@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getBackendUrl } from '@/lib/backend-url'
 
-const API_URL = getBackendUrl('/v1/apk')
-
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ apk_id: string }> }
 ) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/apk')
+    
     const { apk_id } = await context.params
     
     const authHeader = request.headers.get('Authorization')

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getBackendUrl } from '@/lib/backend-url'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    // Resolve backend URL dynamically on each request
+    const backendUrl = getBackendUrl('/api/auth/register')
     
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
+    const body = await request.json()
     const response = await fetch(`${backendUrl}/api/auth/register`, {
       method: 'POST',
       headers: {

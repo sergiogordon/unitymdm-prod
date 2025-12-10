@@ -6,8 +6,6 @@ export const maxDuration = 300 // 5 minutes (max for Vercel Pro, adjust for your
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-const BACKEND_URL = getBackendUrl('/v1/apk/download')
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -18,6 +16,9 @@ export async function GET(
   try {
     apkId = (await params).id
     console.log(`[APK DOWNLOAD] Starting download for APK ID: ${apkId}`)
+    
+    // Resolve backend URL dynamically on each request (not cached at module load)
+    const BACKEND_URL = getBackendUrl('/v1/apk/download')
     
     // Get device token or authorization bearer token
     const deviceToken = request.headers.get('x-device-token') || request.headers.get('X-Device-Token')
@@ -193,6 +194,9 @@ export async function GET(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     const errorName = error instanceof Error ? error.name : 'Unknown'
     const errorStack = error instanceof Error ? error.stack : undefined
+    
+    // Resolve backend URL for error logging (in case error occurred before it was set)
+    const BACKEND_URL = getBackendUrl('/v1/apk/download')
     
     // Log full error details for debugging
     console.error(`[APK DOWNLOAD] Error details:`, {

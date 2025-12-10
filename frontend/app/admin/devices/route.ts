@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendUrl } from '@/lib/backend-url'
 
-const BACKEND_URL = getBackendUrl('/admin/devices')
-
 export async function GET(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const BACKEND_URL = getBackendUrl('/admin/devices')
+    
     const url = new URL(request.url)
     const backendUrl = `${BACKEND_URL}/admin/devices${url.search}`
 

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/backend-url';
 
-const BACKEND_URL = getBackendUrl('/v1/heartbeat');
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const BACKEND_URL = getBackendUrl('/v1/heartbeat');
+    
     const authHeader = request.headers.get('Authorization');
     
     if (!authHeader) {

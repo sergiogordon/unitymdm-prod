@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+import { getBackendUrl } from '@/lib/backend-url'
 
 export async function GET(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/admin/apk/builds')
+    
     const { searchParams } = new URL(request.url)
     const buildType = searchParams.get('build_type')
     const limit = searchParams.get('limit') || '50'
@@ -43,6 +45,9 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/admin/apk/builds')
+    
     const { searchParams } = new URL(request.url)
     const buildId = searchParams.get('build_id')
 

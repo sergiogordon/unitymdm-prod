@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getBackendUrl } from '@/lib/backend-url'
 
-const API_URL = getBackendUrl('/v1/settings/discord')
-
 export async function GET(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/settings/discord')
+    
     const token = request.headers.get('Authorization')
     
     const headers: HeadersInit = {
@@ -30,6 +31,9 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/settings/discord')
+    
     const token = request.headers.get('Authorization')
     const body = await request.json()
 

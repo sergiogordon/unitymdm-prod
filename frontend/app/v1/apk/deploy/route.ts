@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getBackendUrl } from '@/lib/backend-url'
 
-const API_URL = getBackendUrl('/v1/apk/deploy')
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/apk/deploy')
+    
     // Get JWT token from Authorization header
     const authHeader = request.headers.get('Authorization')
     

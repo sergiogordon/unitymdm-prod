@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+import { getBackendUrl } from '@/lib/backend-url'
 
 export async function GET(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/api/auth/verify-reset-token')
+    
     const searchParams = request.nextUrl.searchParams
     const token = searchParams.get('token')
     

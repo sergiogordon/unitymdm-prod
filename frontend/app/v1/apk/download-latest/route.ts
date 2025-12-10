@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendUrl } from '@/lib/backend-url'
 
-const BACKEND_URL = getBackendUrl('/v1/apk/download-latest')
-
 export async function GET(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const BACKEND_URL = getBackendUrl('/v1/apk/download-latest')
+    
     // Get admin key from headers (case-insensitive)
     const adminKey = request.headers.get('x-admin-key') || request.headers.get('X-Admin-Key')
     

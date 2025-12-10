@@ -3,10 +3,11 @@ import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
 import { getBackendUrl } from '@/lib/backend-url'
 
-const API_URL = getBackendUrl('/v1/remote/reboot')
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/remote/reboot')
+    
     // Check if this is a demo mode request
     if (isDemoRequest(request)) {
       return handleDemoRequest(request, '/v1/remote/reboot', 'POST')

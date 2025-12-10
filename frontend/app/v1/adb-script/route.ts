@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 import { getBackendUrl } from '@/lib/backend-url'
 
-const BACKEND_URL = getBackendUrl('/v1/adb-script')
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const BACKEND_URL = getBackendUrl('/v1/adb-script')
+    
     // Check if this is a demo mode request
     if (isDemoRequest(request)) {
       return handleDemoRequest(request, '/v1/adb-script', 'POST')

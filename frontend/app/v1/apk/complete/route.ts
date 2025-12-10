@@ -3,10 +3,11 @@ import { cookies } from 'next/headers'
 
 import { getBackendUrl } from '@/lib/backend-url'
 
-const API_URL = getBackendUrl('/v1/apk/complete')
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const API_URL = getBackendUrl('/v1/apk/complete')
+    
     const cookieStore = await cookies()
     const sessionCookie = cookieStore.get('session_token')
     const authHeader = request.headers.get('authorization')

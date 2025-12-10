@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getBackendUrl } from '@/lib/backend-url'
 
-const BACKEND_URL = getBackendUrl('/v1/apk/installation/update')
-
 export async function POST(request: NextRequest) {
   try {
+    // Resolve backend URL dynamically on each request
+    const BACKEND_URL = getBackendUrl('/v1/apk/installation/update')
+    
     const url = new URL(request.url)
     const body = await request.json()
     
