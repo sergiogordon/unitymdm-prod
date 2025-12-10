@@ -120,7 +120,7 @@ exposeLocalhost = true
 [deployment]
 deploymentTarget = "vm"
 run = ["bash", "-c", "cd frontend && npm start & cd server && uvicorn main:app --host 0.0.0.0 --port 8000"]
-build = ["bash", "-c", "cd frontend && npm run build"]
+build = ["bash", "-c", "cd frontend && npm install && npm run build"]
 
 [objectStorage]
 defaultBucketID = "replit-objstore-6ce51708-3cdf-4d99-953f-32f22912b665"
