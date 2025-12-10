@@ -6136,6 +6136,7 @@ async def init_apk_upload(
         package_name=package_name,
         build_type=build_type,
         file_size=file_size,
+        file_path=f"pending_upload_{final_version_code}",
         is_active=False,
         uploaded_by="admin",
         notes=f"Chunked upload in progress ({total_chunks} chunks)"
