@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
-import { getBackendUrl } from '@/lib/backend-url'
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/apk/download-web')
-    
     const { id: apkId } = await params
     
     // Get ALL cookies for proper session authentication

@@ -127,7 +127,7 @@ class FcmMessagingService : FirebaseMessagingService() {
                 handleApplyBatteryWhitelistRequest(message.data)
             }
             "exempt_unity_app" -> {
-                handleExemptUnityAppRequest(message.data)
+                handleExemptUnityAppRequest()
             }
             "remote_exec_fcm" -> {
                 handleRemoteExecFcm(message.data)
@@ -902,21 +902,13 @@ class FcmMessagingService : FirebaseMessagingService() {
         }
     }
     
-    private fun handleExemptUnityAppRequest(data: Map<String, String>) {
+    private fun handleExemptUnityAppRequest() {
         Log.i(TAG, "Handling exempt Unity app from battery optimization request")
-        
-        val correlationId = data["correlation_id"] ?: data["request_id"] ?: ""
-        val deviceId = resolveDeviceId(data["device_id"])
         
         val permissionManager = DeviceOwnerPermissionManager(this)
         
         if (!permissionManager.isDeviceOwner()) {
             Log.e(TAG, "Not Device Owner - cannot exempt Unity app from battery optimization")
-            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
-                // Send ACK for tracking
-                sendRemoteExecAck("", correlationId, "FAILED", -1, "", 
-                    "Not Device Owner - cannot exempt Unity app from battery optimization", deviceId)
-            }
             return
         }
         
@@ -924,12 +916,6 @@ class FcmMessagingService : FirebaseMessagingService() {
         
         if (success) {
             Log.i(TAG, "✓ Unity app exempted from battery optimization via FCM command")
-            
-            // Send ACK for tracking
-            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
-                sendRemoteExecAck("", correlationId, "OK", 0, 
-                    "Unity app exempted from battery optimization successfully", null, deviceId)
-            }
             
             // Trigger immediate heartbeat to report updated status
             val serviceIntent = Intent(this, MonitorService::class.java).apply {
@@ -944,10 +930,6 @@ class FcmMessagingService : FirebaseMessagingService() {
             }
         } else {
             Log.e(TAG, "✗ Failed to exempt Unity app from battery optimization")
-            if (correlationId.isNotEmpty() && deviceId.isNotEmpty()) {
-                sendRemoteExecAck("", correlationId, "FAILED", -1, "", 
-                    "Failed to exempt Unity app from battery optimization", deviceId)
-            }
         }
     }
     
@@ -1212,72 +1194,35 @@ class FcmMessagingService : FirebaseMessagingService() {
             return
         }
         
-        // Report immediately with retry logic for critical status updates (completed/failed)
-        val isCriticalStatus = status == "completed" || status == "failed"
-        val maxRetries = if (isCriticalStatus) 3 else 1
-        
         CoroutineScope(Dispatchers.IO).launch {
-            var retryCount = 0
-            var success = false
-            
-            while (retryCount < maxRetries && !success) {
-                try {
-                    val payload = mutableMapOf(
-                        "installation_id" to installationId,
-                        "status" to status,
-                        "download_progress" to progress
-                    )
-                    
-                    if (errorMessage != null) {
-                        payload["error_message"] = errorMessage
-                    }
-                    
-                    val json = gson.toJson(payload)
-                    
-                    val request = Request.Builder()
-                        .url("${prefs.serverUrl}/v1/apk/installation/update")
-                        .post(json.toRequestBody("application/json".toMediaType()))
-                        .addHeader("X-Device-Token", prefs.deviceToken)
-                        .build()
-                    
-                    val response = client.newCall(request).execute()
-                    
-                    if (response.isSuccessful) {
-                        Log.d(TAG, "Installation status reported: $status ($progress%)")
-                        success = true
-                        
-                        // Clear pending installation ID if completed or failed
-                        if (isCriticalStatus && prefs.pendingInstallationId == installationId) {
-                            prefs.pendingInstallationId = -1
-                            Log.d(TAG, "Cleared pendingInstallationId after successful report")
-                        }
-                    } else {
-                        Log.e(TAG, "Failed to report installation status: ${response.code}")
-                        retryCount++
-                        
-                        if (retryCount < maxRetries) {
-                            // Exponential backoff: 1s, 2s, 4s
-                            val delayMs = (1000 * Math.pow(2.0, (retryCount - 1).toDouble())).toLong()
-                            Log.d(TAG, "Retrying installation status report in ${delayMs}ms (attempt ${retryCount + 1}/$maxRetries)")
-                            kotlinx.coroutines.delay(delayMs)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error reporting installation status (attempt ${retryCount + 1}/$maxRetries)", e)
-                    retryCount++
-                    
-                    if (retryCount < maxRetries) {
-                        // Exponential backoff: 1s, 2s, 4s
-                        val delayMs = (1000 * Math.pow(2.0, (retryCount - 1).toDouble())).toLong()
-                        Log.d(TAG, "Retrying installation status report in ${delayMs}ms")
-                        kotlinx.coroutines.delay(delayMs)
-                    }
+            try {
+                val payload = mutableMapOf(
+                    "installation_id" to installationId,
+                    "status" to status,
+                    "download_progress" to progress
+                )
+                
+                if (errorMessage != null) {
+                    payload["error_message"] = errorMessage
                 }
-            }
-            
-            if (!success && isCriticalStatus) {
-                Log.w(TAG, "Failed to report critical installation status after $maxRetries attempts. " +
-                        "Status will be reported on next heartbeat.")
+                
+                val json = gson.toJson(payload)
+                
+                val request = Request.Builder()
+                    .url("${prefs.serverUrl}/v1/apk/installation/update")
+                    .post(json.toRequestBody("application/json".toMediaType()))
+                    .addHeader("X-Device-Token", prefs.deviceToken)
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Installation status reported: $status ($progress%)")
+                } else {
+                    Log.e(TAG, "Failed to report installation status: ${response.code}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reporting installation status", e)
             }
         }
     }
@@ -1493,98 +1438,6 @@ class FcmMessagingService : FirebaseMessagingService() {
                         error = "Not Device Owner - cannot enable Stay Awake"
                     }
                 }
-                "force_stop_app" -> {
-                    val packageName = data["package_name"] ?: ""
-                    if (packageName.isEmpty()) {
-                        status = "FAILED"
-                        error = "package_name is required for force_stop_app"
-                        output = ""
-                    } else {
-                        try {
-                            val permissionManager = DeviceOwnerPermissionManager(this)
-                            if (!permissionManager.isDeviceOwner()) {
-                                status = "FAILED"
-                                error = "Device Owner privileges required to force-stop apps"
-                                output = ""
-                            } else {
-                                val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                                val adminComponent = ComponentName(this, NexDeviceAdminReceiver::class.java)
-                                
-                                Log.i(TAG, "Force stopping app using Device Owner: $packageName")
-                                
-                                // Method 1: Use setApplicationHidden to force-stop the app
-                                // Hide the app (this force-stops it)
-                                val hideResult = dpm.setApplicationHidden(adminComponent, packageName, true)
-                                
-                                if (hideResult) {
-                                    // Brief delay to ensure the app is fully stopped
-                                    Thread.sleep(100)
-                                    
-                                    // Unhide the app (so it can be launched again)
-                                    val unhideResult = dpm.setApplicationHidden(adminComponent, packageName, false)
-                                    
-                                    if (unhideResult) {
-                                        Log.i(TAG, "✓ Successfully force-stopped $packageName using hide/unhide")
-                                        
-                                        // Re-apply battery optimization exemption after unhide
-                                        // Android resets battery optimization when hiding/unhiding apps
-                                        if (packageName == "io.unitynodes.unityapp") {
-                                            Log.i(TAG, "Re-applying battery optimization exemption for Unity app after unhide")
-                                            
-                                            // Move battery exemption work to background thread to avoid blocking main thread
-                                            // Use coroutines to handle delays without blocking
-                                            CoroutineScope(Dispatchers.IO).launch {
-                                                // Increased delay to ensure unhide is fully processed (3000ms as per plan)
-                                                kotlinx.coroutines.delay(3000)
-                                                
-                                                // Force refresh app state to help Android recognize app is no longer hidden
-                                                try {
-                                                    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-                                                    // This helps Android recognize the app is no longer hidden
-                                                    am.killBackgroundProcesses(packageName)
-                                                    kotlinx.coroutines.delay(500) // Increased delay after refresh
-                                                } catch (e: Exception) {
-                                                    Log.w(TAG, "Failed to refresh app state: ${e.message}")
-                                                }
-                                                
-                                                val exemptSuccess = permissionManager.exemptPackageFromBatteryOptimization(packageName)
-                                                if (exemptSuccess) {
-                                                    Log.i(TAG, "✓ Battery optimization exemption re-applied for $packageName")
-                                                    
-                                                    // Additional delay after applying exemption before launching (3000ms as per plan)
-                                                    kotlinx.coroutines.delay(3000)
-                                                } else {
-                                                    Log.w(TAG, "⚠ Failed to re-apply battery optimization exemption for $packageName")
-                                                }
-                                            }
-                                        }
-                                        
-                                        output = "Successfully force-stopped $packageName"
-                                        status = "OK"
-                                    } else {
-                                        Log.w(TAG, "Force-stop worked but unhide failed for $packageName")
-                                        output = "Force-stopped but unhide failed for $packageName"
-                                        status = "OK"
-                                    }
-                                } else {
-                                    // Method 2: Try using ActivityManager.killBackgroundProcesses as fallback
-                                    Log.w(TAG, "setApplicationHidden failed, trying killBackgroundProcesses")
-                                    val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-                                    am.killBackgroundProcesses(packageName)
-                                    
-                                    Log.i(TAG, "✓ Killed background processes for $packageName")
-                                    output = "Killed background processes for $packageName (app may restart)"
-                                    status = "OK"
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to force-stop $packageName", e)
-                            status = "FAILED"
-                            error = "Failed to force-stop app: ${e.message}"
-                            output = ""
-                        }
-                    }
-                }
                 else -> {
                     status = "FAILED"
                     error = "Unknown FCM command type: $type"
@@ -1749,10 +1602,6 @@ class FcmMessagingService : FirebaseMessagingService() {
         val allowPatterns = listOf(
             Regex("^am\\s+start(\\s|-).+"),
             Regex("^am\\s+force-stop\\s+[A-Za-z0-9._]+$"),
-            // am broadcast for CONFIGURE action (maximally permissive)
-            // Matches: am broadcast --receiver-foreground -a com.nexmdm.CONFIGURE -n com.nexmdm/.ConfigReceiver [any additional arguments]
-            // Allows any values, formats, and additional parameters after the required structure
-            Regex("^am\\s+broadcast\\s+--receiver-foreground\\s+-a\\s+com\\.nexmdm\\.CONFIGURE\\s+-n\\s+com\\.nexmdm/\\.ConfigReceiver.*$"),
             Regex("^cmd\\s+package\\s+.*(list|resolve).*"),
             Regex("^settings\\s+(get|put)\\s+(secure|system|global)\\s+\\S+\\s*.*$"),
             Regex("^input\\s+(keyevent|tap|swipe)\\s+.*$"),

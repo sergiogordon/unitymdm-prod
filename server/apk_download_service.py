@@ -6,7 +6,6 @@ Features:
 - Download telemetry tracking
 - Rate limit bypass for deployments
 - Concurrent download support
-- Streaming support for large files (>50MB)
 """
 
 from fastapi import Response, HTTPException
@@ -17,28 +16,8 @@ from object_storage import get_storage_service, ObjectNotFoundError
 from apk_cache import get_apk_cache
 from observability import structured_logger, metrics
 from datetime import datetime, timezone
-from typing import Optional, Iterator
+from typing import Optional
 import io
-
-# Threshold for streaming large files (50MB)
-# Files above this size will be streamed instead of loaded entirely into memory
-STREAMING_THRESHOLD_BYTES = 50 * 1024 * 1024  # 50MB
-CHUNK_SIZE = 1024 * 1024  # 1MB chunks for streaming
-
-
-def _chunk_generator(file_data: bytes, chunk_size: int = CHUNK_SIZE) -> Iterator[bytes]:
-    """
-    Generator that yields file data in chunks.
-    
-    Args:
-        file_data: The file data to chunk
-        chunk_size: Size of each chunk in bytes
-        
-    Yields:
-        Chunks of file data as bytes
-    """
-    for i in range(0, len(file_data), chunk_size):
-        yield file_data[i:i + chunk_size]
 
 
 async def download_apk_optimized(
@@ -50,7 +29,6 @@ async def download_apk_optimized(
 ) -> Response:
     """
     Optimized APK download with caching and telemetry.
-    Uses streaming for large files (>50MB) to prevent memory exhaustion.
     
     Args:
         apk_id: APK version ID
@@ -60,7 +38,7 @@ async def download_apk_optimized(
         use_cache: Enable in-memory caching (default: True)
         
     Returns:
-        Response or StreamingResponse with APK file data
+        Response with APK file data
         
     Raises:
         HTTPException: If APK not found or download fails
@@ -75,21 +53,6 @@ async def download_apk_optimized(
         )
         raise HTTPException(status_code=404, detail="APK not found")
     
-    # Check file size to determine if we should stream
-    # Use database file_size for initial check
-    use_streaming = apk.file_size > STREAMING_THRESHOLD_BYTES
-    
-    # For large files, skip cache (they exceed cache limit anyway)
-    if use_streaming:
-        use_cache = False
-        structured_logger.log_event(
-            "apk.download.streaming_mode",
-            apk_id=apk_id,
-            device_id=device_id,
-            file_size=apk.file_size,
-            threshold=STREAMING_THRESHOLD_BYTES
-        )
-    
     cache_hit = False
     download_start = datetime.now(timezone.utc)
     file_data: bytes = b""
@@ -97,7 +60,7 @@ async def download_apk_optimized(
     file_size: int = 0
     
     try:
-        # Try in-memory cache first (only for small files)
+        # Try in-memory cache first
         cached_result = None
         if use_cache:
             cache = get_apk_cache()
@@ -120,15 +83,10 @@ async def download_apk_optimized(
                 use_cache=use_cache  # Use object storage layer cache too
             )
             
-            # Store in cache for next time (only for small files)
-            if use_cache and not use_streaming:
+            # Store in cache for next time
+            if use_cache:
                 cache = get_apk_cache()
                 cache.put(f"apk:{apk_id}", file_data, content_type, file_size)
-        
-        # Re-check streaming based on actual file size (in case it differs from DB)
-        # This handles edge cases where cached file might be different
-        if file_size > STREAMING_THRESHOLD_BYTES:
-            use_streaming = True
         
         download_end = datetime.now(timezone.utc)
         download_duration_ms = (download_end - download_start).total_seconds() * 1000
@@ -160,47 +118,31 @@ async def download_apk_optimized(
             file_size=file_size,
             duration_ms=download_duration_ms,
             speed_kbps=speed_kbps,
-            cache_hit=cache_hit,
-            streaming=use_streaming
+            cache_hit=cache_hit
         )
         
         # Increment metrics
         metrics.inc_counter("apk_download_total", {
             "package": apk.package_name,
-            "cache_hit": str(cache_hit),
-            "streaming": str(use_streaming)
+            "cache_hit": str(cache_hit)
         })
         
         if speed_kbps > 0:
             metrics.observe_histogram("apk_download_speed_kbps", speed_kbps)
         
-        # Prepare common headers
-        headers = {
-            "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"',
-            "Content-Length": str(file_size),
-            "Content-Type": content_type,
-            "X-APK-SHA256": apk.sha256 or "",
-            "X-Cache-Hit": str(cache_hit),
-            "X-Download-Speed-Kbps": str(speed_kbps),
-            "Accept-Ranges": "bytes"  # Indicate range request support for future
-        }
-        
-        # Use streaming for large files, regular response for small files
-        if use_streaming:
-            # Create generator that yields chunks
-            chunk_gen = _chunk_generator(file_data, CHUNK_SIZE)
-            return StreamingResponse(
-                chunk_gen,
-                media_type=content_type,
-                headers=headers
-            )
-        else:
-            # Return regular response for small files (cached path)
-            return Response(
-                content=file_data,
-                media_type=content_type,
-                headers=headers
-            )
+        # Return response
+        return Response(
+            content=file_data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{apk.package_name}_{apk.version_code}.apk"',
+                "Content-Length": str(file_size),
+                "X-APK-SHA256": apk.sha256 or "",
+                "X-Cache-Hit": str(cache_hit),
+                "X-Download-Speed-Kbps": str(speed_kbps),
+                "Accept-Ranges": "bytes"  # Indicate range request support for future
+            }
+        )
         
     except ObjectNotFoundError:
         structured_logger.log_event(

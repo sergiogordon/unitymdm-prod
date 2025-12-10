@@ -56,16 +56,16 @@ const FCM_PRESETS = {
   reboot: { type: "reboot", reason: "remote_exec" },
   launch_unity_app: { type: "launch_app", package_name: "io.unitynodes.unityapp" },
   launch_app: { type: "launch_app", package_name: "com.example.app" },
-  force_stop_unity_app: { type: "force_stop_app", package_name: "io.unitynodes.unityapp" },
   clear_app_data: { type: "clear_app_data", package_name: "com.example.app" },
   enable_dnd: { type: "set_dnd", enable: "true" },
   disable_dnd: { type: "set_dnd", enable: "false" },
   exempt_unity_app: { type: "exempt_unity_app" },
-  enable_stay_awake: { type: "enable_stay_awake" },
-  soft_update_refresh: { type: "soft_update_refresh" } // Special preset - handled separately
+  enable_stay_awake: { type: "enable_stay_awake" }
 }
 
 const SHELL_PRESETS = {
+  restart_unity_app: "am force-stop io.unitynodes.unityapp && monkey -p io.unitynodes.unityapp -c android.intent.category.LAUNCHER 1",
+  force_stop_unity_app: "am force-stop io.unitynodes.unityapp",
   launch_unity_app: "monkey -p io.unitynodes.unityapp -c android.intent.category.LAUNCHER 1",
   suppress_wea: "settings put global zen_mode 2 && settings put global emergency_tone 0 && settings put global emergency_alerts_enabled 0",
   restore_normal: "settings put global zen_mode 0 && settings put global emergency_tone 1 && settings put global emergency_alerts_enabled 1",
@@ -117,12 +117,6 @@ export default function RemoteExecutionPage() {
   const [isPollingRestart, setIsPollingRestart] = useState(false)
   const [restartId, setRestartId] = useState<string | null>(null)
   const [restartPollStartTime, setRestartPollStartTime] = useState<number | null>(null)
-  
-  const [isReinstallingUnity, setIsReinstallingUnity] = useState(false)
-  const [reinstallExecId, setReinstallExecId] = useState<string | null>(null)
-  const [isPollingReinstall, setIsPollingReinstall] = useState(false)
-  const [reinstallResults, setReinstallResults] = useState<any>(null)
-  const [reinstallPollStartTime, setReinstallPollStartTime] = useState<number | null>(null)
   const [deviceFilter, setDeviceFilter] = useState("")
   
   const RESTART_POLL_TIMEOUT_MS = 60000
@@ -172,29 +166,6 @@ export default function RemoteExecutionPage() {
     
     return result
   }, [allDevices, deviceFilter])
-
-  // Calculate if Execute button should be disabled
-  const isExecuteDisabled = useMemo(() => {
-    let disabled = false
-    // Allow execution if soft_update_refresh preset is selected (even with empty payload)
-    // Note: handleSoftUpdateRefresh uses isReinstallingUnity, not isExecuting
-    if (mode === "fcm" && selectedPreset === "soft_update_refresh") {
-      disabled = isExecuting || isReinstallingUnity
-      console.log("[BUTTON-DISABLED] soft_update_refresh selected", { disabled, isExecuting, isReinstallingUnity })
-    } else if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
-      // For other FCM commands, require a payload
-      disabled = true
-      console.log("[BUTTON-DISABLED] FCM mode with empty payload", { disabled, fcmPayload })
-    } else if (mode === "shell" && (!shellCommand || !shellCommand.trim())) {
-      // For shell commands, require a command
-      disabled = true
-      console.log("[BUTTON-DISABLED] Shell mode with empty command", { disabled, shellCommand })
-    } else {
-      disabled = isExecuting
-      console.log("[BUTTON-DISABLED] Default case", { disabled, isExecuting })
-    }
-    return disabled
-  }, [mode, selectedPreset, fcmPayload, shellCommand, isExecuting, isReinstallingUnity])
 
   const sortedResults = useMemo(() => {
     return [...results].sort((a, b) => {
@@ -260,18 +231,6 @@ export default function RemoteExecutionPage() {
     }
   }, [isPollingRestart, restartId])
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
-    if (isPollingReinstall && reinstallExecId) {
-      interval = setInterval(() => {
-        fetchReinstallStatus(reinstallExecId)
-      }, 2000)
-    }
-    return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [isPollingReinstall, reinstallExecId])
-
   // Clear preview results when mode or target scope changes
   useEffect(() => {
     setPreviewCount(null)
@@ -283,11 +242,8 @@ export default function RemoteExecutionPage() {
     return localStorage.getItem('auth_token')
   }
 
-  const fetchAllDevices = async (retryCount = 0) => {
+  const fetchAllDevices = async () => {
     setIsLoadingDevices(true)
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
-    
     try {
       const token = getAuthToken()
       if (!token) return
@@ -296,11 +252,8 @@ export default function RemoteExecutionPage() {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        },
-        signal: controller.signal
+        }
       })
-      
-      clearTimeout(timeoutId)
       
       if (response.status === 401) {
         router.push('/login')
@@ -310,29 +263,9 @@ export default function RemoteExecutionPage() {
       if (response.ok) {
         const data = await response.json()
         setAllDevices(data.devices || [])
-      } else {
-        throw new Error(`Server error: ${response.status}`)
       }
     } catch (error) {
-      clearTimeout(timeoutId)
-      const isTimeout = error instanceof Error && error.name === 'AbortError'
-      const errorMessage = isTimeout 
-        ? "Device list request timed out" 
-        : "Failed to load device list"
-      
       console.error("Failed to fetch devices:", error)
-      
-      if (retryCount < 2) {
-        console.log(`Retrying device fetch (attempt ${retryCount + 2}/3)...`)
-        setTimeout(() => fetchAllDevices(retryCount + 1), 1000 * (retryCount + 1))
-        return
-      }
-      
-      toast({
-        title: "Error Loading Devices",
-        description: `${errorMessage}. Please try refreshing the page.`,
-        variant: "destructive"
-      })
     } finally {
       setIsLoadingDevices(false)
     }
@@ -458,176 +391,6 @@ export default function RemoteExecutionPage() {
       console.error("Failed to fetch restart app status:", error)
       setIsPollingRestart(false)
       setRestartPollStartTime(null)
-    }
-  }
-
-  const fetchReinstallStatus = async (execId: string) => {
-    try {
-      if (reinstallPollStartTime && Date.now() - reinstallPollStartTime > RESTART_POLL_TIMEOUT_MS) {
-        setIsPollingReinstall(false)
-        setReinstallPollStartTime(null)
-        toast({
-          title: "Reinstall Timed Out",
-          description: "Polling stopped after 60 seconds. Check device status manually.",
-          variant: "destructive"
-        })
-        return
-      }
-
-      const token = getAuthToken()
-      if (!token) return
-
-      const response = await fetch(`/api/proxy/v1/apk/reinstall-unity-and-launch/${execId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        setReinstallResults(data)
-        
-        const terminalStates = ['ok', 'failed']
-        if (data.status === 'ok' || data.status === 'failed') {
-          setIsPollingReinstall(false)
-          setReinstallPollStartTime(null)
-          
-          if (data.status === 'ok') {
-            toast({
-              title: "Soft Update Refresh Complete",
-              description: `Successfully reinstalled and launched on ${data.stats?.ok || 0} device(s)`,
-            })
-          } else {
-            const statsParts = []
-            if (data.stats?.ok > 0) statsParts.push(`${data.stats.ok} OK`)
-            if (data.stats?.failed > 0) statsParts.push(`${data.stats.failed} failed`)
-            if (data.stats?.pending > 0) statsParts.push(`${data.stats.pending} pending`)
-            
-            toast({
-              title: "Soft Update Refresh Failed",
-              description: statsParts.length > 0 ? statsParts.join(', ') : 'Unknown status',
-              variant: "destructive"
-            })
-          }
-        }
-      } else {
-        setIsPollingReinstall(false)
-        setReinstallPollStartTime(null)
-        toast({
-          title: "Error",
-          description: "Failed to fetch reinstall status",
-          variant: "destructive"
-        })
-      }
-    } catch (error) {
-      console.error("Failed to fetch reinstall status:", error)
-      setIsPollingReinstall(false)
-      setReinstallPollStartTime(null)
-    }
-  }
-
-  const handleSoftUpdateRefresh = async () => {
-    console.log("[SOFT-UPDATE] handleSoftUpdateRefresh called", { scopeType, selectedDeviceIds: selectedDeviceIds.length, allDevices: allDevices.length })
-    const token = getAuthToken()
-    if (!token) {
-      console.error("[SOFT-UPDATE] No token")
-      toast({
-        title: "Session expired",
-        description: "Please sign in again to continue.",
-        variant: "destructive"
-      })
-      router.push("/login")
-      return
-    }
-
-    // Get selected device IDs
-    const deviceIds = scopeType === "aliases" 
-      ? selectedDeviceIds 
-      : (scopeType === "filter" 
-        ? filteredDevicesForSelector.map(d => d.id)
-        : allDevices.map(d => d.id))
-
-    console.log("[SOFT-UPDATE] Device IDs calculated", { deviceIds: deviceIds.length, scopeType })
-
-    if (deviceIds.length === 0) {
-      console.warn("[SOFT-UPDATE] No devices selected")
-      toast({
-        title: "No devices selected",
-        description: "Please select at least one device",
-        variant: "destructive"
-      })
-      return
-    }
-
-    if (requireConfirmation && deviceIds.length > 25) {
-      const confirmed = confirm(`You are about to reinstall Unity APK and launch on ${deviceIds.length} devices. Continue?`)
-      if (!confirmed) return
-    }
-
-    setIsReinstallingUnity(true)
-    
-    try {
-      const requestBody = {
-        device_ids: deviceIds,
-        dry_run: false
-      }
-      console.log("[SOFT-UPDATE] Making request to /api/proxy/v1/apk/reinstall-unity-and-launch", { 
-        deviceCount: deviceIds.length,
-        requestBody 
-      })
-      
-      const response = await fetch("/api/proxy/v1/apk/reinstall-unity-and-launch", {
-        method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      })
-      
-      console.log("[SOFT-UPDATE] Response status:", response.status, response.statusText)
-
-      if (response.status === 401) {
-        router.push('/login')
-        return
-      }
-
-      if (response.ok) {
-        const data = await response.json()
-        setReinstallExecId(data.exec_id)
-        setIsPollingReinstall(true)
-        setReinstallPollStartTime(Date.now())
-        toast({
-          title: "Soft Update Refresh Started",
-          description: `Reinstalling Unity APK on ${data.stats?.sent || 0} device(s)`
-        })
-        fetchRecentExecutions()
-      } else {
-        const errorText = await response.text()
-        let errorDetail = "Failed to start reinstall"
-        try {
-          const error = JSON.parse(errorText)
-          errorDetail = error.detail || errorDetail
-        } catch (e) {
-          errorDetail = errorText || errorDetail
-        }
-        
-        toast({
-          title: `Reinstall Failed (${response.status})`,
-          description: errorDetail,
-          variant: "destructive"
-        })
-      }
-    } catch (error) {
-      console.error("Failed to start reinstall:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to start reinstall",
-        variant: "destructive"
-      })
-    } finally {
-      setIsReinstallingUnity(false)
     }
   }
 
@@ -761,7 +524,7 @@ export default function RemoteExecutionPage() {
     if (!token) return
 
     // Validate command data before preview
-    if (mode === "fcm" && selectedPreset !== "soft_update_refresh" && (!fcmPayload || !fcmPayload.trim())) {
+    if (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) {
       toast({
         title: "Validation Error",
         description: "Please enter a valid FCM payload",
@@ -881,19 +644,6 @@ export default function RemoteExecutionPage() {
     }
     const authToken = token
 
-    // Special handling for soft_update_refresh preset
-    console.log("[REMOTE-EXEC] Checking preset condition", { 
-      selectedPreset, 
-      mode, 
-      condition: selectedPreset === "soft_update_refresh" && mode === "fcm" 
-    })
-    if (selectedPreset === "soft_update_refresh" && mode === "fcm") {
-      console.log("[REMOTE-EXEC] Calling handleSoftUpdateRefresh")
-      handleSoftUpdateRefresh()
-      return
-    }
-    console.log("[REMOTE-EXEC] Not calling handleSoftUpdateRefresh, continuing with normal execution")
-    
     console.log("[REMOTE-EXEC] Starting execution...")
     setIsExecuting(true)
     
@@ -938,27 +688,10 @@ export default function RemoteExecutionPage() {
         console.log("[REMOTE-EXEC] Success response:", data)
         setExecId(data.exec_id)
         setIsPolling(true)
-        // Handle both response formats (stats object or direct properties)
-        const sentCount = data.stats?.sent_count ?? data.sent_count ?? 0
-        const totalTargets = data.stats?.total_targets ?? data.total_targets ?? 0
-        const errorCount = data.stats?.error_count ?? data.error_count ?? 0
-        
-        console.log("[REMOTE-EXEC] Execution stats:", { sentCount, totalTargets, errorCount, status: data.status })
-        
-        if (sentCount === 0 && totalTargets > 0) {
-          toast({
-            title: "Warning",
-            description: `No commands were sent. ${errorCount > 0 ? `${errorCount} error(s) occurred.` : 'Check device FCM tokens.'}`,
-            variant: "destructive"
-          })
-        } else {
-          toast({
-            title: "Execution Started",
-            description: `Command sent to ${sentCount} device(s)`
-          })
-        }
-        // Immediately fetch initial status to populate results
-        fetchExecutionStatus(data.exec_id)
+        toast({
+          title: "Execution Started",
+          description: `Command sent to ${data.sent_count} device(s)`
+        })
         fetchRecentExecutions()
       } else {
         const errorText = await response.text()
@@ -1063,13 +796,6 @@ export default function RemoteExecutionPage() {
   }
 
   const applyPreset = (presetName: string) => {
-    // Special handling for soft_update_refresh - it's not a regular FCM preset
-    if (presetName === "soft_update_refresh") {
-      setSelectedPreset(presetName)
-      setFcmPayload("") // Clear FCM payload since this uses a different endpoint
-      return
-    }
-    
     const preset = FCM_PRESETS[presetName as keyof typeof FCM_PRESETS]
     if (preset) {
       setFcmPayload(JSON.stringify(preset, null, 2))
@@ -1367,14 +1093,12 @@ export default function RemoteExecutionPage() {
                           <SelectItem value="ring">Ring</SelectItem>
                           <SelectItem value="reboot">Reboot</SelectItem>
                           <SelectItem value="launch_unity_app">🚀 Launch Unity App</SelectItem>
-                          <SelectItem value="force_stop_unity_app">⛔ Force Stop Unity App</SelectItem>
                           <SelectItem value="launch_app">Launch App (Custom)</SelectItem>
                           <SelectItem value="clear_app_data">Clear App Data</SelectItem>
                           <SelectItem value="enable_dnd">Enable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="disable_dnd">Disable Do Not Disturb (API)</SelectItem>
                           <SelectItem value="exempt_unity_app">🔋 Exempt Unity App from Battery Optimization</SelectItem>
                           <SelectItem value="enable_stay_awake">🔋 Enable Stay Awake When Charging</SelectItem>
-                          <SelectItem value="soft_update_refresh">🔄 Soft Update Refresh (Reinstall Unity & Launch)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1387,15 +1111,7 @@ export default function RemoteExecutionPage() {
                         value={fcmPayload}
                         onChange={(e) => {
                           setFcmPayload(e.target.value)
-                          // Clear preset selection on manual edit - user is overriding the preset
-                          // For soft_update_refresh, if user types something, they want to use that payload instead
-                          if (selectedPreset === "soft_update_refresh" && e.target.value.trim() !== "") {
-                            // User is overriding soft_update_refresh with a manual payload
-                            setSelectedPreset("")
-                          } else if (selectedPreset !== "soft_update_refresh") {
-                            // For other presets, always clear on manual edit
-                            setSelectedPreset("")
-                          }
+                          setSelectedPreset("")  // Clear preset selection on manual edit
                         }}
                         rows={8}
                         className="font-mono text-sm"
@@ -1411,6 +1127,8 @@ export default function RemoteExecutionPage() {
                           <SelectValue placeholder="Select a preset..." />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="restart_unity_app">🔄 Restart Unity App</SelectItem>
+                          <SelectItem value="force_stop_unity_app">⛔ Force Stop Unity App</SelectItem>
                           <SelectItem value="launch_unity_app">🚀 Launch Unity App</SelectItem>
                           <SelectItem value="suppress_wea">Suppress WEA & Enable DND</SelectItem>
                           <SelectItem value="restore_normal">Restore Normal Mode</SelectItem>
@@ -1466,27 +1184,9 @@ export default function RemoteExecutionPage() {
                 </div>
 
                 <Button 
-                  onClick={(e) => {
-                    console.log("[BUTTON] onClick fired", { 
-                      disabled: isExecuteDisabled, 
-                      isExecuting,
-                      mode,
-                      selectedPreset,
-                      fcmPayloadLength: fcmPayload.length,
-                      eventType: e.type
-                    })
-                    if (!isExecuteDisabled) {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleExecute()
-                    } else {
-                      console.warn("[BUTTON] Button is disabled, not executing", { isExecuteDisabled })
-                    }
-                  }}
-                  disabled={isExecuteDisabled}
+                  onClick={handleExecute} 
+                  disabled={isExecuting || (mode === "fcm" && (!fcmPayload || !fcmPayload.trim())) || (mode === "shell" && (!shellCommand || !shellCommand.trim()))}
                   className="w-full mt-4"
-                  type="button"
-                  style={{ pointerEvents: isExecuteDisabled ? 'none' : 'auto', cursor: isExecuteDisabled ? 'not-allowed' : 'pointer' }}
                 >
                   <Play className="w-4 h-4 mr-2" />
                   {isExecuting ? "Executing..." : "Execute"}

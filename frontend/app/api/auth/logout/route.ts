@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-url'
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const backendUrl = getBackendUrl('/api/auth/logout')
-    
     const sessionToken = request.cookies.get('session_token')?.value
+    
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
     const response = await fetch(`${backendUrl}/api/auth/logout`, {
       method: 'POST',
       headers: {

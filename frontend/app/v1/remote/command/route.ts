@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { getBackendUrl } from '@/lib/backend-url'
+
+const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/v1/remote/command')
-    
     const cookieStore = await cookies()
     const sessionToken = cookieStore.get('session_token')?.value
 

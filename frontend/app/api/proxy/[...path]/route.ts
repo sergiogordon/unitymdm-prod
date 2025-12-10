@@ -1,14 +1,19 @@
 /**
  * Next.js API Route Proxy
- * Forwards all requests to backend
+ * Forwards all requests to backend on port 8000
  * This solves Replit's firewall blocking direct port access from UUID domains
- * 
- * Uses BACKEND_URL environment variable to determine backend location.
- * In production, set BACKEND_URL to your production backend URL.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-url'
+
+// Get backend URL with fallback - check both BACKEND_URL and NEXT_PUBLIC_BACKEND_URL
+function getBackendUrl(): string {
+  const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+  console.log(`[Proxy] Using backend URL: ${backendUrl}`)
+  return backendUrl
+}
+
+const BACKEND_URL = getBackendUrl()
 
 export async function GET(
   request: NextRequest,
@@ -58,10 +63,7 @@ async function proxyRequest(
   const startTime = Date.now()
   const path = pathSegments.join('/')
   const url = new URL(request.url)
-  
-  // Get backend URL based on route path (device routes proxy to prod, admin/auth routes use local)
-  const backendBaseUrl = getBackendUrl(path)
-  const backendUrl = `${backendBaseUrl}/${path}${url.search}`
+  const backendUrl = `${BACKEND_URL}/${path}${url.search}`
   
   try {
 
@@ -115,11 +117,8 @@ async function proxyRequest(
     }
 
     // Forward request to backend with timeout
-    // APK downloads need longer timeout (5 minutes) due to large file sizes
-    const isApkDownload = path.startsWith('v1/apk/download') || path.startsWith('/v1/apk/download')
-    const timeoutMs = isApkDownload ? 300000 : 60000 // 5 minutes for APK downloads, 60 seconds for others
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    const timeoutId = setTimeout(() => controller.abort(), 60000) // 60 second timeout
 
     let response: Response
     try {
@@ -134,12 +133,11 @@ async function proxyRequest(
       clearTimeout(timeoutId)
       
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        const timeoutSeconds = timeoutMs / 1000
-        console.error(`[Proxy] Request timeout after ${timeoutSeconds}s: ${backendUrl}`)
+        console.error(`[Proxy] Request timeout after 60s: ${backendUrl}`)
         return NextResponse.json(
           { 
             error: 'Backend request timeout',
-            message: `The backend server did not respond within ${timeoutSeconds} seconds`,
+            message: 'The backend server did not respond within 60 seconds',
             backend_url: backendUrl,
             path: path
           },
@@ -210,9 +208,9 @@ async function proxyRequest(
     })
   } catch (error) {
     const duration = Date.now() - startTime
-      console.error(`[Proxy] Error after ${duration}ms:`, error)
-      console.error(`[Proxy] Backend URL: ${backendUrl}`)
-      console.error(`[Proxy] Path: ${pathSegments.join('/')}`)
+    console.error(`[Proxy] Error after ${duration}ms:`, error)
+    console.error(`[Proxy] Backend URL: ${backendUrl || BACKEND_URL}`)
+    console.error(`[Proxy] Path: ${pathSegments.join('/')}`)
     
     // Check if this is a connection error that wasn't caught earlier
     if (error instanceof Error) {
@@ -231,7 +229,7 @@ async function proxyRequest(
             error: 'Backend connection failed',
             message: 'The backend server is not running or not accessible. Please ensure the backend service is started on port 8000.',
             troubleshooting: 'If you are running in Replit, check that the Backend workflow is running. Otherwise, start the backend server manually.',
-            backend_url: backendUrl,
+            backend_url: backendUrl || BACKEND_URL,
             path: pathSegments.join('/'),
             error_code: 'ECONNREFUSED',
             duration_ms: duration
@@ -245,7 +243,7 @@ async function proxyRequest(
       { 
         error: 'Proxy request failed',
         message: error instanceof Error ? error.message : 'Unknown error occurred while processing the request',
-        backend_url: backendUrl,
+        backend_url: backendUrl || BACKEND_URL,
         path: pathSegments.join('/'),
         duration_ms: duration
       },

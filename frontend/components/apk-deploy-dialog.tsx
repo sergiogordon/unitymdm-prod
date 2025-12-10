@@ -113,32 +113,9 @@ export function ApkDeployDialog({ isOpen, onClose, apk, onDeployComplete }: ApkD
         }
       }
       
-      // Poll immediately, then with exponential backoff
+      // Poll immediately, then every second
       pollProgress()
-      
-      // Exponential backoff polling: start at 2s, increase by 20% each time, cap at 10s
-      let pollCount = 0
-      const initialInterval = 2000 // 2 seconds
-      const maxInterval = 10000 // 10 seconds max
-      
-      const scheduleNextPoll = () => {
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current)
-        }
-        
-        const currentInterval = Math.min(
-          initialInterval * Math.pow(1.2, pollCount),
-          maxInterval
-        )
-        
-        pollingIntervalRef.current = setTimeout(() => {
-          pollProgress()
-          pollCount++
-          scheduleNextPoll()
-        }, currentInterval) as unknown as NodeJS.Timeout
-      }
-      
-      scheduleNextPoll()
+      pollingIntervalRef.current = setInterval(pollProgress, 1000)
       
       return () => {
         if (pollingIntervalRef.current) {

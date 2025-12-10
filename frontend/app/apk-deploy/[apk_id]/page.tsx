@@ -4,24 +4,12 @@ import { useState, useEffect, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { PageHeader } from "@/components/page-header"
-import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2, Search, Clock, X } from "lucide-react"
+import { ArrowLeft, Send, CheckCircle2, XCircle, Loader2, Search, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import {
-  getLatestAgentVersion,
-  getLatestUnityVersion,
-  isVersionOutdated,
-  type ApkBuild as ApkBuildType,
-} from "@/lib/version-utils"
-import {
-  getCachedApkBuilds,
-  setCachedApkBuilds,
-  clearApkBuildCache,
-} from "@/lib/apk-build-cache"
 
 interface Device {
   id: string
@@ -29,10 +17,6 @@ interface Device {
   fcm_token: string | null
   last_seen: string
   status: "online" | "offline"
-  last_status?: {
-    agent?: { version?: string }
-    unity?: { version?: string; status?: string }
-  }
 }
 
 interface ApkBuild {
@@ -89,37 +73,6 @@ export default function ApkDeployPage() {
   const [aliasFilter, setAliasFilter] = useState("")
   const [recentDeployments, setRecentDeployments] = useState<RecentDeployment[]>([])
   const [loadingRecentDeployments, setLoadingRecentDeployments] = useState(false)
-  
-  // Version filtering state
-  const [allApkBuilds, setAllApkBuilds] = useState<ApkBuildType[]>([])
-  const [filterOutdatedAgent, setFilterOutdatedAgent] = useState(false)
-  const [filterOutdatedUnity, setFilterOutdatedUnity] = useState(false)
-  
-  // Batching state
-  const [isBatching, setIsBatching] = useState(false)
-  const [currentBatch, setCurrentBatch] = useState(0)
-  const [totalBatches, setTotalBatches] = useState(0)
-  const [batchProgress, setBatchProgress] = useState<Map<string, { status: string; progress?: number }>>(new Map())
-  const [batchResults, setBatchResults] = useState<DeploymentResult[]>([])
-  const [cancelled, setCancelled] = useState(false)
-
-  // Detect APK type from filename
-  const apkType = useMemo(() => {
-    if (!apk?.filename) return null
-    const filename = apk.filename.toLowerCase()
-    if (filename.startsWith('com.')) return 'agent'
-    if (filename.startsWith('unity')) return 'unity'
-    return null
-  }, [apk?.filename])
-
-  // Calculate latest versions from APK builds
-  const latestAgentVersion = useMemo(() => {
-    return getLatestAgentVersion(allApkBuilds)
-  }, [allApkBuilds])
-
-  const latestUnityVersion = useMemo(() => {
-    return getLatestUnityVersion(allApkBuilds)
-  }, [allApkBuilds])
 
   const filteredDevices = useMemo(() => {
     let result = [...devices]
@@ -129,21 +82,6 @@ export default function ApkDeployPage() {
       result = result.filter(device => 
         device.alias.toLowerCase().startsWith(filterLower)
       )
-    }
-    
-    // Version filtering
-    if (filterOutdatedAgent || filterOutdatedUnity) {
-      result = result.filter(device => {
-        const agentOutdated = filterOutdatedAgent 
-          ? isVersionOutdated(device.last_status?.agent?.version, latestAgentVersion)
-          : false
-        const unityOutdated = filterOutdatedUnity
-          ? isVersionOutdated(device.last_status?.unity?.version, latestUnityVersion)
-          : false
-        
-        // Show device if it's outdated in at least one category when filters are active
-        return agentOutdated || unityOutdated
-      })
     }
     
     result.sort((a, b) => {
@@ -180,21 +118,12 @@ export default function ApkDeployPage() {
     })
     
     return result
-  }, [devices, aliasFilter, filterOutdatedAgent, filterOutdatedUnity, latestAgentVersion, latestUnityVersion])
+  }, [devices, aliasFilter])
 
   useEffect(() => {
     fetchData()
     fetchRecentDeployments()
   }, [apkId])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (isDeploying) {
-        setCancelled(true)
-      }
-    }
-  }, [isDeploying])
 
   const fetchData = async () => {
     setIsLoading(true)
@@ -208,28 +137,9 @@ export default function ApkDeployPage() {
         throw new Error('Authentication required')
       }
 
-      // Check cache first for APK builds
-      const cachedBuilds = getCachedApkBuilds(undefined, 100)
-      let builds: ApkBuildType[] = []
-      
-      if (cachedBuilds) {
-        builds = cachedBuilds
-        setAllApkBuilds(builds)
-        // Fetch in background to refresh cache
-        fetch(`/admin/apk/builds?limit=100&order=desc`)
-          .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data?.builds) {
-              setCachedApkBuilds(undefined, 100, data.builds)
-              setAllApkBuilds(data.builds)
-            }
-          })
-          .catch(() => {}) // Silent fail for background refresh
-      }
-
       // Fetch APK details and devices in parallel
       const [apkRes, devicesRes] = await Promise.all([
-        cachedBuilds ? Promise.resolve({ ok: true, json: async () => ({ builds }) }) : fetch(`/admin/apk/builds?limit=100&order=desc`),
+        fetch(`/admin/apk/builds?limit=100&order=desc`),
         fetch('/api/proxy/v1/devices?page=1&limit=200', {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -245,17 +155,8 @@ export default function ApkDeployPage() {
       const apkData = await apkRes.json()
       const devicesData = await devicesRes.json()
 
-      // Store all APK builds for version comparison
-      builds = apkData.builds || []
-      setAllApkBuilds(builds)
-      
-      // Cache the builds
-      if (!cachedBuilds) {
-        setCachedApkBuilds(undefined, 100, builds)
-      }
-
       // Find the specific APK by build_id
-      const targetApk = builds.find((b: ApkBuild) => b.build_id === parseInt(apkId))
+      const targetApk = apkData.builds?.find((b: ApkBuild) => b.build_id === parseInt(apkId))
       
       if (targetApk) {
         setApk(targetApk)
@@ -352,439 +253,72 @@ export default function ApkDeployPage() {
     setShowConfirmModal(true)
   }
 
-  const pollInstallationStatus = async (
-    deviceIds: string[],
-    apkId: number,
-    maxWaitTime: number = 3 * 60 * 1000 // 3 minutes (reduced from 5 since devices report immediately)
-  ): Promise<Map<string, { status: string; progress?: number; error_message?: string }>> => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-    if (!token) {
-      throw new Error('Authentication required')
-    }
-
-    const startTime = Date.now()
-    const initialPollInterval = 2000 // Start at 2 seconds
-    const maxPollInterval = 10000 // Cap at 10 seconds
-    const terminalStatuses = ['completed', 'failed', 'timeout']
-    const statusMap = new Map<string, { status: string; progress?: number; error_message?: string }>()
-
-    // Initialize all devices as pending
-    deviceIds.forEach(id => {
-      statusMap.set(id, { status: 'pending' })
-    })
-
-    let pollCount = 0
-    // Calculate max attempts based on exponential backoff
-    // Sum of geometric series: a * (1 - r^n) / (1 - r) where r = 1.2
-    // Approximate: ~60 polls over 3 minutes with exponential backoff
-    const maxPollAttempts = 60
-
-    while (pollCount < maxPollAttempts) {
-      if (cancelled) {
-        // Mark all pending as cancelled
-        deviceIds.forEach(deviceId => {
-          if (!terminalStatuses.includes(statusMap.get(deviceId)?.status || '')) {
-            statusMap.set(deviceId, { status: 'timeout' })
-          }
-        })
-        setBatchProgress(new Map(statusMap))
-        return statusMap
-      }
-
-      try {
-        const response = await fetch(`/v1/apk/installations?apk_id=${apkId}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        })
-
-        if (!response.ok) {
-          // Retry on error, but don't fail immediately
-          // Use exponential backoff for errors
-          const currentInterval = Math.min(
-            initialPollInterval * Math.pow(1.2, pollCount),
-            maxPollInterval
-          )
-          await new Promise(resolve => setTimeout(resolve, currentInterval))
-          continue
-        }
-
-        const installations = await response.json()
-        const installationsArray = Array.isArray(installations) ? installations : []
-
-        // Update status for each device
-        let allTerminal = true
-        deviceIds.forEach(deviceId => {
-          const installation = installationsArray.find((inst: any) => inst.device_id === deviceId)
-          if (installation) {
-            const status = installation.status || 'pending'
-            statusMap.set(deviceId, {
-              status,
-              progress: installation.download_progress || 0,
-              error_message: installation.error_message || undefined
-            })
-            
-            if (!terminalStatuses.includes(status)) {
-              allTerminal = false
-            }
-          } else {
-            // Installation not found yet, still pending
-            allTerminal = false
-          }
-        })
-
-        // Update batch progress state
-        setBatchProgress(new Map(statusMap))
-
-        if (allTerminal) {
-          return statusMap
-        }
-      } catch (error) {
-        console.error('Error polling installation status:', error)
-        // Continue polling on error, but increment count
-        pollCount++
-        if (pollCount < maxPollAttempts) {
-          // Exponential backoff: start at 2s, increase by 20% each time, cap at 10s
-          const currentInterval = Math.min(
-            initialPollInterval * Math.pow(1.2, pollCount),
-            maxPollInterval
-          )
-          await new Promise(resolve => setTimeout(resolve, currentInterval))
-        }
-        continue
-      }
-
-      pollCount++
-      if (pollCount < maxPollAttempts) {
-        // Exponential backoff: start at 2s, increase by 20% each time, cap at 10s
-        // This reduces load: 2s -> 2.4s -> 2.88s -> 3.46s -> ... -> 10s (max)
-        const currentInterval = Math.min(
-          initialPollInterval * Math.pow(1.2, pollCount),
-          maxPollInterval
-        )
-        await new Promise(resolve => setTimeout(resolve, currentInterval))
-      }
-    }
-
-    // Timeout reached - mark remaining pending devices as timeout
-    deviceIds.forEach(deviceId => {
-      if (!statusMap.has(deviceId) || !terminalStatuses.includes(statusMap.get(deviceId)!.status)) {
-        statusMap.set(deviceId, { status: 'timeout' })
-      }
-    })
-
-    setBatchProgress(new Map(statusMap))
-    return statusMap
-  }
-
-  // Deploy a batch (API call only, no polling)
-  const deployBatchApi = async (
-    batchDevices: string[],
-    apkId: number,
-    rolloutPercent: number,
-    retries: number = 3
-  ): Promise<{ installationIds: string[], failedDevices: any[] }> => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-    
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    }
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
-
-    let lastError: Error | null = null
-
-    for (let attempt = 0; attempt < retries; attempt++) {
-      if (cancelled) {
-        throw new Error('Deployment cancelled')
-      }
-
-      try {
-        const response = await fetch('/v1/apk/deploy', {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            apk_id: apkId,
-            device_ids: batchDevices,
-            rollout_percent: rolloutPercent
-          })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || `Deployment failed with status ${response.status}`)
-        }
-
-        const result = await response.json()
-        
-        // Extract installation IDs for polling
-        const installationIds = (result.installations || []).map((inst: any) => inst.device?.id || inst.device_id).filter(Boolean)
-        
-        return {
-          installationIds,
-          failedDevices: result.failed_devices || []
-        }
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-        
-        // Exponential backoff for retries
-        if (attempt < retries - 1) {
-          const backoffDelay = Math.min(1000 * Math.pow(2, attempt), 10000)
-          await new Promise(resolve => setTimeout(resolve, backoffDelay))
-        }
-      }
-    }
-
-    // All retries failed
-    throw lastError || new Error('Deployment failed after retries')
-  }
-
   const handleDeploy = async () => {
     setShowConfirmModal(false)
     setIsDeploying(true)
     setDeploymentResult(null)
     setError(null)
-    setCancelled(false)
-    setBatchResults([])
-    setBatchProgress(new Map())
-    setCurrentBatch(0)
-    setTotalBatches(0)
 
     const devicesToDeploy = getDeploymentDevices()
 
-    // Calculate rollout percentage
-    let rolloutPercent = 100
-    if (rolloutStrategy === "25") rolloutPercent = 25
-    else if (rolloutStrategy === "50") rolloutPercent = 50
-    else if (rolloutStrategy === "custom") rolloutPercent = customPercentage
-
-    const BATCH_SIZE = 7
-    const shouldBatch = devicesToDeploy.length > BATCH_SIZE
-
     try {
-      if (shouldBatch) {
-        // Batching mode - deploy all batches in parallel
-        setIsBatching(true)
-        const batches: string[][] = []
-        
-        // Split devices into batches of 7
-        for (let i = 0; i < devicesToDeploy.length; i += BATCH_SIZE) {
-          batches.push(devicesToDeploy.slice(i, i + BATCH_SIZE))
-        }
-
-        setTotalBatches(batches.length)
-        
-        // Deploy all batches in parallel
-        const batchPromises = batches.map(async (batch, index) => {
-          if (cancelled) {
-            throw new Error('Deployment cancelled by user')
-          }
-          
-          if (batch.length === 0) {
-            return { batchIndex: index, installationIds: [], failedDevices: [], deviceIds: batch }
-          }
-
-          try {
-            const result = await deployBatchApi(batch, parseInt(apkId), rolloutPercent)
-            return { batchIndex: index, ...result, deviceIds: batch }
-          } catch (error) {
-            // Return failed state for this batch
-            return {
-              batchIndex: index,
-              installationIds: [],
-              failedDevices: batch.map(deviceId => ({
-                device_id: deviceId,
-                alias: devices.find(d => d.id === deviceId)?.alias || 'Unknown',
-                reason: error instanceof Error ? error.message : 'Batch deployment failed'
-              })),
-              deviceIds: batch,
-              error
-            }
-          }
-        })
-
-        // Wait for all batches to complete API calls
-        const batchResults = await Promise.allSettled(batchPromises)
-        
-        // Collect all installation IDs and failed devices across all batches
-        const allInstallationIds: string[] = []
-        const allFailedDevices: any[] = []
-        const batchDeviceMap = new Map<number, string[]>() // batch index -> device IDs
-
-        batchResults.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            allInstallationIds.push(...result.value.installationIds)
-            allFailedDevices.push(...result.value.failedDevices)
-            batchDeviceMap.set(result.value.batchIndex, result.value.deviceIds)
-          } else {
-            // Handle rejected promise
-            const batch = batches[index]
-            allFailedDevices.push(...batch.map(deviceId => ({
-              device_id: deviceId,
-              alias: devices.find(d => d.id === deviceId)?.alias || 'Unknown',
-              reason: result.reason?.message || 'Batch deployment failed'
-            })))
-          }
-        })
-
-        // Poll all devices together in a unified loop
-        const statusMap = await pollInstallationStatus(allInstallationIds, parseInt(apkId))
-        
-        // Fetch installations to get error messages
-        let installationsWithErrors: any[] = []
-        try {
-          const token = localStorage.getItem('auth_token')
-          const installResponse = await fetch(`/v1/apk/installations?apk_id=${apkId}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          })
-          if (installResponse.ok) {
-            installationsWithErrors = await installResponse.json()
-          }
-        } catch (e) {
-          console.warn('Failed to fetch installations for error messages:', e)
-        }
-        
-        // Build results from status map and failed devices
-        const deviceMap = new Map(devices.map(d => [d.id, d]))
-        const allDetails: Array<{
-          device_id: string
-          alias: string
-          success: boolean
-          reason?: string
-        }> = []
-
-        // Process successful installations
-        statusMap.forEach((statusInfo, deviceId) => {
-          const device = deviceMap.get(deviceId)
-          const isSuccess = statusInfo.status === 'completed'
-          let reason: string | undefined
-          if (!isSuccess) {
-            if (statusInfo.status === 'timeout') {
-              reason = 'Deployment timeout'
-            } else if (statusInfo.error_message) {
-              reason = statusInfo.error_message
-            } else {
-              reason = `Status: ${statusInfo.status}`
-            }
-          }
-          allDetails.push({
-            device_id: deviceId,
-            alias: device?.alias || 'Unknown',
-            success: isSuccess,
-            reason
-          })
-        })
-
-        // Process failed devices - include error messages from installations
-        allFailedDevices.forEach((failed: any) => {
-          if (!allDetails.find(d => d.device_id === failed.device_id)) {
-            // Try to find installation error message
-            const installation = installationsWithErrors.find((inst: any) => inst.device_id === failed.device_id)
-            const errorMessage = installation?.error_message || failed.reason || 'Unknown error'
-            allDetails.push({
-              device_id: failed.device_id || '',
-              alias: failed.alias || 'Unknown',
-              success: false,
-              reason: errorMessage
-            })
-          }
-        })
-
-        // Create final aggregated result
-        const aggregatedResult: DeploymentResult = {
-          success: allDetails.filter(d => d.success).length,
-          failed: allDetails.filter(d => !d.success).length,
-          total: devicesToDeploy.length,
-          details: allDetails
-        }
-
-        setDeploymentResult(aggregatedResult)
-        setIsBatching(false)
-      } else {
-        // Non-batching mode (7 or fewer devices)
-        setIsBatching(false)
-        const { installationIds, failedDevices } = await deployBatchApi(
-          devicesToDeploy,
-          parseInt(apkId),
-          rolloutPercent
-        )
-        
-        // Poll for completion
-        const statusMap = await pollInstallationStatus(installationIds, parseInt(apkId))
-        
-        // Build result
-        const deviceMap = new Map(devices.map(d => [d.id, d]))
-        const details: Array<{
-          device_id: string
-          alias: string
-          success: boolean
-          reason?: string
-        }> = []
-
-        statusMap.forEach((statusInfo, deviceId) => {
-          const device = deviceMap.get(deviceId)
-          const isSuccess = statusInfo.status === 'completed'
-          let reason: string | undefined
-          if (!isSuccess) {
-            if (statusInfo.status === 'timeout') {
-              reason = 'Deployment timeout'
-            } else if (statusInfo.error_message) {
-              reason = statusInfo.error_message
-            } else {
-              reason = `Status: ${statusInfo.status}`
-            }
-          }
-          details.push({
-            device_id: deviceId,
-            alias: device?.alias || 'Unknown',
-            success: isSuccess,
-            reason
-          })
-        })
-
-        failedDevices.forEach((failed: any) => {
-          if (!details.find(d => d.device_id === failed.device_id)) {
-            details.push({
-              device_id: failed.device_id || '',
-              alias: failed.alias || 'Unknown',
-              success: false,
-              reason: failed.reason || 'Unknown error'
-            })
-          }
-        })
-
-        setDeploymentResult({
-          success: details.filter(d => d.success).length,
-          failed: details.filter(d => !d.success).length,
-          total: devicesToDeploy.length,
-          details
-        })
+      // Get auth token from localStorage
+      const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
       }
+      
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      // Calculate rollout percentage
+      let rolloutPercent = 100
+      if (rolloutStrategy === "25") rolloutPercent = 25
+      else if (rolloutStrategy === "50") rolloutPercent = 50
+      else if (rolloutStrategy === "custom") rolloutPercent = customPercentage
+
+      const response = await fetch('/v1/apk/deploy', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          apk_id: parseInt(apkId),
+          device_ids: Array.from(selectedDevices),
+          rollout_percent: rolloutPercent
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Deployment failed')
+      }
+
+      const result = await response.json()
+      setDeploymentResult({
+        success: result.success_count || 0,
+        failed: result.failed_devices?.length || 0,
+        total: devicesToDeploy.length,
+        details: [
+          ...(result.installations || []).map((inst: any) => ({
+            device_id: inst.device?.id || '',
+            alias: inst.device?.alias || 'Unknown',
+            success: true
+          })),
+          ...(result.failed_devices || []).map((failed: any) => ({
+            device_id: failed.device_id || '',
+            alias: failed.alias || 'Unknown',
+            success: false,
+            reason: failed.reason || 'Unknown error'
+          }))
+        ]
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Deployment failed')
       console.error('Deployment error:', err)
-      setIsBatching(false)
     } finally {
       setIsDeploying(false)
-      setCurrentBatch(0)
-      setTotalBatches(0)
     }
-  }
-
-  const handleCancelDeployment = () => {
-    setCancelled(true)
-    setIsDeploying(false)
-    setIsBatching(false)
-    setCurrentBatch(0)
-    setTotalBatches(0)
-    setBatchProgress(new Map())
-    setError('Deployment cancelled by user')
   }
 
   // Online detection threshold in minutes
@@ -900,83 +434,13 @@ export default function ApkDeployPage() {
                     onChange={(e) => setAliasFilter(e.target.value)}
                     className="pl-10"
                   />
-                  {(aliasFilter || filterOutdatedAgent || filterOutdatedUnity) && (
+                  {aliasFilter && (
                     <div className="mt-2 text-xs text-muted-foreground">
                       Showing {filteredDevices.length} of {devices.length} devices
                       {selectedDevices.size > 0 && ` (${selectedDevices.size} selected total)`}
                     </div>
                   )}
                 </div>
-                
-                {/* Version Filters - Contextual based on APK type */}
-                {(apkType === 'agent' || apkType === 'unity' || latestAgentVersion || latestUnityVersion) && (
-                  <div className="rounded-lg border border-border bg-muted/50 p-4">
-                    <div className="mb-3 text-sm font-medium text-card-foreground">Version Filters</div>
-                    <div className="space-y-3">
-                      {/* Show Agent filter only when deploying Agent APKs or if Agent version is available */}
-                      {(apkType === 'agent' || latestAgentVersion) && (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Checkbox
-                              id="filter-outdated-agent"
-                              checked={filterOutdatedAgent}
-                              onCheckedChange={(checked) => setFilterOutdatedAgent(checked === true)}
-                              disabled={!latestAgentVersion}
-                            />
-                            <label
-                              htmlFor="filter-outdated-agent"
-                              className="text-sm cursor-pointer"
-                            >
-                              Show only devices with outdated Agent version
-                            </label>
-                          </div>
-                          {latestAgentVersion && (
-                            <span className="text-xs text-muted-foreground">
-                              Latest: {latestAgentVersion}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {/* Show Unity filter only when deploying Unity APKs or if Unity version is available */}
-                      {(apkType === 'unity' || latestUnityVersion) && (
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Checkbox
-                              id="filter-outdated-unity"
-                              checked={filterOutdatedUnity}
-                              onCheckedChange={(checked) => setFilterOutdatedUnity(checked === true)}
-                              disabled={!latestUnityVersion}
-                            />
-                            <label
-                              htmlFor="filter-outdated-unity"
-                              className="text-sm cursor-pointer"
-                            >
-                              Show only devices with outdated Unity version
-                            </label>
-                          </div>
-                          {latestUnityVersion && (
-                            <span className="text-xs text-muted-foreground">
-                              Latest: {latestUnityVersion}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {(filterOutdatedAgent || filterOutdatedUnity) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setFilterOutdatedAgent(false)
-                            setFilterOutdatedUnity(false)
-                          }}
-                          className="h-7 text-xs"
-                        >
-                          Clear version filters
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {error && (
@@ -1088,117 +552,28 @@ export default function ApkDeployPage() {
                 </div>
               )}
 
-              {/* Batch Progress Indicator */}
-              {isBatching && totalBatches > 0 && (
-                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
-                  <div className="mb-2 flex items-center justify-between">
-                    <div className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                      Deploying {totalBatches} batch{totalBatches !== 1 ? 'es' : ''} in parallel
-                    </div>
-                    <div className="text-xs text-blue-700 dark:text-blue-300">
-                      {getDeploymentDevices().length} total devices
-                    </div>
-                  </div>
-                  <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-blue-200 dark:bg-blue-800">
-                    <div
-                      className="h-full bg-blue-600 transition-all duration-300 dark:bg-blue-400"
-                      style={{ 
-                        width: batchProgress.size > 0 
-                          ? `${((Array.from(batchProgress.values()).filter(s => s.status === 'completed' || s.status === 'failed' || s.status === 'timeout').length) / getDeploymentDevices().length) * 100}%`
-                          : '0%'
-                      }}
-                    />
-                  </div>
-                  <div className="mt-2 text-xs text-blue-700 dark:text-blue-300">
-                    {batchProgress.size > 0 && (
-                      <>
-                        {Array.from(batchProgress.values()).filter(s => s.status === 'completed').length} completed,{' '}
-                        {Array.from(batchProgress.values()).filter(s => s.status === 'failed' || s.status === 'timeout').length} failed,{' '}
-                        {Array.from(batchProgress.values()).filter(s => s.status !== 'completed' && s.status !== 'failed' && s.status !== 'timeout').length} in progress
-                      </>
-                    )}
-                  </div>
-                  {batchProgress.size > 0 && (
-                    <div className="mt-2 space-y-1">
-                      <div className="text-xs font-medium text-blue-900 dark:text-blue-100">
-                        Overall Deployment Status:
-                      </div>
-                      <div className="max-h-32 space-y-1 overflow-y-auto text-xs">
-                        {Array.from(batchProgress.entries()).map(([deviceId, statusInfo]) => {
-                          const device = devices.find(d => d.id === deviceId)
-                          const terminalStatuses = ['completed', 'failed', 'timeout']
-                          const isTerminal = terminalStatuses.includes(statusInfo.status)
-                          return (
-                            <div
-                              key={deviceId}
-                              className={`flex items-center justify-between rounded px-2 py-1 ${
-                                isTerminal
-                                  ? statusInfo.status === 'completed'
-                                    ? 'bg-green-100 dark:bg-green-900/30'
-                                    : 'bg-red-100 dark:bg-red-900/30'
-                                  : 'bg-blue-100 dark:bg-blue-900/30'
-                              }`}
-                            >
-                              <span className="truncate">
-                                {device?.alias || deviceId.substring(0, 8)}...
-                              </span>
-                              <span className="ml-2 font-medium">
-                                {statusInfo.status === 'completed' ? '✓' :
-                                 statusInfo.status === 'failed' ? '✗' :
-                                 statusInfo.status === 'timeout' ? '⏱' :
-                                 statusInfo.status === 'downloading' ? `↓ ${statusInfo.progress || 0}%` :
-                                 statusInfo.status === 'installing' ? '⚙' :
-                                 '⏳'}
-                              </span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               <div className="mt-6 flex items-center justify-between">
                 <div className="text-sm text-muted-foreground">
                   Ready to deploy to {getDeploymentDevices().length} device{getDeploymentDevices().length !== 1 ? 's' : ''}
-                  {getDeploymentDevices().length > 7 && !isDeploying && (
-                    <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">
-                      (Will batch in groups of 7)
-                    </span>
-                  )}
                 </div>
-                <div className="flex gap-2">
-                  {isDeploying && (
-                    <Button
-                      onClick={handleCancelDeployment}
-                      variant="outline"
-                      size="lg"
-                      className="gap-2"
-                    >
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
+                <Button
+                  onClick={handleDeployClick}
+                  disabled={selectedDevices.size === 0 || isDeploying}
+                  className="gap-2"
+                  size="lg"
+                >
+                  {isDeploying ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Deploying...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Deploy Now
+                    </>
                   )}
-                  <Button
-                    onClick={handleDeployClick}
-                    disabled={selectedDevices.size === 0 || isDeploying}
-                    className="gap-2"
-                    size="lg"
-                  >
-                    {isDeploying ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {isBatching ? `Deploying ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''} in parallel...` : 'Deploying...'}
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        Deploy Now
-                      </>
-                    )}
-                  </Button>
-                </div>
+                </Button>
               </div>
             </Card>
           )}
@@ -1382,21 +757,7 @@ export default function ApkDeployPage() {
                 <span className="text-muted-foreground">Devices:</span>
                 <span className="font-medium">{getDeploymentDevices().length} of {selectedDevices.size} selected</span>
               </div>
-              {getDeploymentDevices().length > 7 && (
-                <div className="flex justify-between rounded-lg bg-muted p-3">
-                  <span className="text-muted-foreground">Batching:</span>
-                  <span className="font-medium">
-                    {Math.ceil(getDeploymentDevices().length / 7)} batches of 7 devices
-                  </span>
-                </div>
-              )}
             </div>
-
-            {getDeploymentDevices().length > 7 && (
-              <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200">
-                <strong>Batched Deployment:</strong> Devices will be deployed in batches of 7. Each batch must complete before the next batch begins. You can monitor progress in real-time and cancel if needed.
-              </div>
-            )}
 
             {rolloutStrategy !== "all" && (
               <div className="mb-6 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">

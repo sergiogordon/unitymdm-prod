@@ -48,24 +48,15 @@ base64 -w 0 release.keystore > release.keystore.b64
 
 ---
 
-### 5. NEXMDM_BACKEND_URL_DEV
-**What:** URL of your development NexMDM backend API  
-**Secret value:** Your dev backend URL (e.g., `https://your-dev-repl.replit.dev`)  
-**Note:** This is optional - if not set, dev uploads will be skipped
+### 5. BACKEND_URL
+**What:** URL of your NexMDM backend API  
+**Secret value:** Your backend URL (e.g., `https://your-project.replit.dev`)
 
 ---
 
-### 6. NEXMDM_BACKEND_URL_PROD
-**What:** URL of your production NexMDM backend API  
-**Secret value:** Your prod backend URL (e.g., `https://unitymdm.replit.app`)  
-**Note:** This is optional - if not set, prod uploads will be skipped. At least one backend URL must be configured.
-
----
-
-### 7. NEXMDM_ADMIN_KEY
-**What:** Admin API key for uploading APKs to backends  
-**Secret value:** Your backend admin key (check backend environment variables)  
-**Note:** This key is used for both dev and prod backends
+### 6. ADMIN_KEY
+**What:** Admin API key for uploading APKs to backend  
+**Secret value:** Your backend admin key (check backend environment variables)
 
 ---
 
@@ -77,11 +68,10 @@ base64 -w 0 release.keystore > release.keystore.b64
 - [ ] Add `KEYSTORE_PASSWORD` secret
 - [ ] Add `ANDROID_KEY_ALIAS` secret
 - [ ] Add `ANDROID_KEY_ALIAS_PASSWORD` secret
-- [ ] Add `NEXMDM_BACKEND_URL_DEV` secret (optional, for dev deployments)
-- [ ] Add `NEXMDM_BACKEND_URL_PROD` secret (optional, for prod deployments)
-- [ ] Add `NEXMDM_ADMIN_KEY` secret (required if any backend URL is set)
+- [ ] Add `BACKEND_URL` secret
+- [ ] Add `ADMIN_KEY` secret
 - [ ] Test by pushing to main branch
-- [ ] Verify workflow runs successfully and uploads to both backends
+- [ ] Verify workflow runs successfully
 
 ## Testing Your Setup
 

@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getBackendUrl } from '@/lib/backend-url'
+const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/v1/settings/monitoring-defaults')
-    
     const token = request.headers.get('Authorization')
     
     const headers: HeadersInit = {
@@ -31,9 +28,6 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/v1/settings/monitoring-defaults')
-    
     const token = request.headers.get('Authorization')
     const body = await request.json()
 

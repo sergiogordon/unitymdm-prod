@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-url'
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/apk/installation/update')
-    
     const url = new URL(request.url)
     const body = await request.json()
     

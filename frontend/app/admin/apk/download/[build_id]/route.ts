@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-url'
+
+const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ build_id: string }> }
 ) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/admin/apk/download')
-    
     const { build_id } = await params
 
     const adminKey = process.env.ADMIN_KEY

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isDemoRequest, handleDemoRequest } from '@/lib/apiDemoHelper'
 
-import { getBackendUrl } from '@/lib/backend-url'
+const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/v1/remote/launch-app')
-    
     // Check if this is a demo mode request
     if (isDemoRequest(request)) {
       return handleDemoRequest(request, '/v1/remote/launch-app', 'POST')

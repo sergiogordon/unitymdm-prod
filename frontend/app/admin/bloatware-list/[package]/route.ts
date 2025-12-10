@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getBackendUrl } from '@/lib/backend-url'
+
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000"
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { package: string } }
 ) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/admin/bloatware-list')
-    
     const authHeader = request.headers.get("Authorization")
     const packageName = params.package
 

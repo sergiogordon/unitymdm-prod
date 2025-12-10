@@ -30,7 +30,6 @@ import os
 import time
 import hashlib
 import httpx
-import random
 
 from models import Device, User, Session as SessionModel, DeviceEvent, ApkVersion, ApkInstallation, BatteryWhitelist, PasswordResetToken, DeviceLastStatus, DeviceSelection, ApkDownloadEvent, MonitoringDefaults, AutoRelaunchDefaults, DiscordSettings, BloatwarePackage, WiFiSettings, DeviceCommand, DeviceMetric, BulkCommand, CommandResult, RemoteExec, RemoteExecResult, get_db, init_db, SessionLocal
 from schemas import (
@@ -306,18 +305,6 @@ apk_rate_limiter = RateLimiter(max_requests=200, window_seconds=30)
 # Registration rate limiter (BUG FIX #4): 3 registrations per minute per IP
 registration_rate_limiter = RateLimiter(max_requests=3, window_seconds=60)
 
-# Heartbeat rate limiter: Per-device, allow 2 heartbeats per 30 seconds (generous for 10-min intervals)
-# This prevents devices from flooding the server if they malfunction or retry too aggressively
-heartbeat_rate_limiter = RateLimiter(max_requests=2, window_seconds=30)
-
-# Global heartbeat rate limiter: Limit total heartbeats across all devices
-# Allow 100 heartbeats per second (generous for fleets up to 1000+ devices)
-global_heartbeat_rate_limiter = RateLimiter(max_requests=100, window_seconds=1)
-
-# Admin API rate limiter: Protect read endpoints from excessive polling
-# Allow 60 requests per minute per IP (1 per second average)
-admin_api_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
-
 # Global error handler to prevent crashes
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -505,8 +492,7 @@ async def dispatch_force_stop_to_device(
 ) -> dict:
     """
     Dispatch a force-stop FCM command to a device with tracking support.
-    Uses 'action: remote_exec_fcm' with 'type: force_stop_app' to leverage Device Owner APIs
-    instead of shell commands (which require system-level permissions).
+    Uses the correct 'action: remote_exec_shell' format with 'command' field that the agent recognizes.
     """
     async with semaphore:
         try:
@@ -519,103 +505,25 @@ async def dispatch_force_stop_to_device(
                 }
                 return db_results[device.id]
             
+            force_stop_command = f"am force-stop {package_name}"
             timestamp = datetime.now(timezone.utc).isoformat()
+            # Include critical payload field (command) in HMAC to prevent tampering
             payload_fields = {
-                "type": "force_stop_app",
-                "package_name": package_name
+                "command": force_stop_command
             }
             hmac_signature = compute_hmac_signature_with_payload(
-                correlation_id, device.id, "remote_exec_fcm", timestamp, payload_fields
+                correlation_id, device.id, "remote_exec_shell", timestamp, payload_fields
             )
             
             message = {
                 "message": {
                     "token": device.fcm_token,
                     "data": {
-                        "action": "remote_exec_fcm",
+                        "action": "remote_exec_shell",
                         "exec_id": "",
                         "correlation_id": correlation_id,
                         "device_id": device.id,
-                        "type": "force_stop_app",
-                        "package_name": package_name,
-                        "ts": timestamp,
-                        "hmac": hmac_signature
-                    },
-                    "android": {
-                        "priority": "high"
-                    }
-                }
-            }
-            
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            response = await client.post(fcm_url, json=message, headers=headers, timeout=10.0)
-            
-            if response.status_code == 200:
-                db_results[device.id] = {
-                    "correlation_id": correlation_id,
-                    "alias": device.alias,
-                    "status": "sent"
-                }
-            else:
-                db_results[device.id] = {
-                    "correlation_id": correlation_id,
-                    "alias": device.alias,
-                    "status": "error",
-                    "error": f"FCM error: {response.status_code}"
-                }
-            
-            return db_results[device.id]
-            
-        except Exception as e:
-            db_results[device.id] = {
-                "correlation_id": correlation_id,
-                "alias": device.alias,
-                "status": "error",
-                "error": str(e)
-            }
-            return db_results[device.id]
-
-async def dispatch_exempt_unity_to_device(
-    device,
-    package_name: str,
-    correlation_id: str,
-    semaphore: asyncio.Semaphore,
-    client: httpx.AsyncClient,
-    fcm_url: str,
-    access_token: str,
-    db_results: dict
-) -> dict:
-    """
-    Dispatch an exempt Unity app from battery optimization FCM command to a device.
-    Uses 'action: exempt_unity_app' to apply battery whitelist settings.
-    """
-    async with semaphore:
-        try:
-            if not device.fcm_token:
-                db_results[device.id] = {
-                    "correlation_id": correlation_id,
-                    "alias": device.alias,
-                    "status": "error",
-                    "error": "No FCM token"
-                }
-                return db_results[device.id]
-            
-            timestamp = datetime.now(timezone.utc).isoformat()
-            hmac_signature = compute_hmac_signature(
-                correlation_id, device.id, "exempt_unity_app", timestamp
-            )
-            
-            message = {
-                "message": {
-                    "token": device.fcm_token,
-                    "data": {
-                        "action": "exempt_unity_app",
-                        "request_id": correlation_id,
-                        "device_id": device.id,
+                        "command": force_stop_command,
                         "ts": timestamp,
                         "hmac": hmac_signature
                     },
@@ -1163,31 +1071,6 @@ async def prometheus_metrics(x_admin: str = Header(None)):
     metrics.set_gauge("db_pool_checked_out", pool_stats["checked_out"])
     metrics.set_gauge("db_pool_overflow", pool_stats["overflow"])
     metrics.set_gauge("db_pool_in_use", pool_stats["checked_out"])  # Alias for alerts
-    
-    # Calculate pool utilization percentage
-    pool_size = pool_stats.get("size", 0)
-    pool_in_use = pool_stats.get("checked_out", 0)
-    pool_utilization = (pool_in_use / pool_size * 100) if pool_size > 0 else 0
-    metrics.set_gauge("db_pool_utilization_pct", pool_utilization)
-    
-    # Memory usage tracking (if available)
-    try:
-        import psutil
-        import os
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        metrics.set_gauge("memory_usage_bytes", memory_info.rss)
-        metrics.set_gauge("memory_usage_mb", memory_info.rss / 1024 / 1024)
-        metrics.set_gauge("memory_percent", process.memory_percent())
-    except ImportError:
-        # psutil not available, skip memory metrics
-        pass
-    except Exception as e:
-        structured_logger.log_event(
-            "metrics.memory_error",
-            level="WARN",
-            error=str(e)
-        )
 
     metrics_text = metrics.get_prometheus_text()
 
@@ -2451,31 +2334,6 @@ async def heartbeat(
     device: Device = Depends(verify_device_token),
     db: Session = Depends(get_db)
 ):
-    # Global rate limiting: Protect server from burst traffic
-    if not global_heartbeat_rate_limiter.is_allowed("global"):
-        metrics.inc_counter("heartbeat_global_rate_limited_total")
-        raise HTTPException(
-            status_code=429,
-            detail="Server busy. Retry shortly.",
-            headers={"Retry-After": "1"}
-        )
-
-    # Per-device rate limiting: Prevent individual devices from flooding
-    # Allow 2 heartbeats per 30 seconds per device (generous for 10-min expected intervals)
-    if not heartbeat_rate_limiter.is_allowed(device.id):
-        structured_logger.log_event(
-            "heartbeat.rate_limited",
-            level="WARN",
-            device_id=device.id,
-            alias=device.alias
-        )
-        metrics.inc_counter("heartbeat_rate_limited_total")
-        raise HTTPException(
-            status_code=429,
-            detail="Too many heartbeats. Wait before sending next heartbeat.",
-            headers={"Retry-After": "30"}
-        )
-
     # Check if device token has been revoked (device deleted)
     if device.token_revoked_at:
         structured_logger.log_event(
@@ -2798,36 +2656,12 @@ async def heartbeat(
                 "status": "not_installed"
             }
         elif unity_app_info.installed:
-            # Unity app is installed - determine running status
-            # Check process running status first (works for background processes)
-            process_running = getattr(payload, 'unity_process_running', None)
-            
-            # Get foreground recency - only use if it's actually for Unity
-            # monitored_foreground_recent_s represents the configured monitored package (may not be Unity)
-            is_unity_monitored = monitoring_settings.get("package") == "io.unitynodes.unityapp"
-            
-            unity_fg_seconds = None
-            if is_unity_monitored:
-                # Only use foreground data if Unity is actually the monitored package
-                fg_seconds_raw = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
-                # Exclude -1 sentinel value (unavailable data) before comparison
-                if fg_seconds_raw is not None and fg_seconds_raw >= 0:
-                    unity_fg_seconds = fg_seconds_raw
-            
-            # Unity is running if:
-            # 1. Process exists (running in foreground OR background), OR
-            # 2. App was in foreground within last 10 minutes (only if Unity is the monitored package)
-            if process_running is True:
-                # Process check succeeded and found process - Unity is running
-                unity_status = "running"
-            elif process_running is False:
-                # Process check succeeded and found no process - Unity is definitively not running
-                unity_status = "down"
-            elif unity_fg_seconds is not None:
-                # Process check unavailable (null) - use foreground data as fallback
+            # Unity app is installed - determine running status using foreground recency
+            unity_fg_seconds = payload.monitored_foreground_recent_s if hasattr(payload, 'monitored_foreground_recent_s') else None
+
+            if unity_fg_seconds is not None:
                 unity_status = "running" if unity_fg_seconds < 600 else "down"
             else:
-                # No process or foreground data available - assume down
                 unity_status = "down"
 
             last_status_dict["unity"] = {
@@ -3013,32 +2847,16 @@ async def get_device_events(
 
 @app.get("/v1/metrics")
 async def get_metrics(
-    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Get device metrics (total, online, offline, low battery counts).
 
-    Rate limited to 60 requests per minute per client.
-    Heavily cached (60 second TTL) to reduce database load.
+    NOTE: This endpoint is exempt from rate limiting as it's a read-only
+    dashboard endpoint that's heavily cached (60 second TTL). It should never
+    be rate limited to ensure dashboard functionality.
     """
-    # Extract client IP for rate limiting
-    client_ip = "unknown"
-    if request.client:
-        client_ip = request.client.host
-    elif request.headers.get("x-forwarded-for"):
-        client_ip = request.headers.get("x-forwarded-for").split(",")[0].strip()
-    
-    # Rate limit: 60 requests per minute per IP
-    rate_key = f"metrics:{client_ip}"
-    if not admin_api_rate_limiter.is_allowed(rate_key):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please wait before refreshing.",
-            headers={"Retry-After": "10"}
-        )
-
     # Check cache first (60 second TTL)
     cache_key = make_cache_key("/v1/metrics")
     cached_result = response_cache.get(cache_key, ttl_seconds=60)
@@ -3107,7 +2925,6 @@ async def get_metrics(
 
 @app.get("/v1/devices")
 async def list_devices(
-    request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=200),
     user: User = Depends(get_current_user),
@@ -3116,30 +2933,15 @@ async def list_devices(
     """
     List devices with pagination.
 
-    Rate limited to 60 requests per minute per client to prevent excessive polling.
-    Cached responses (5 minute TTL for first page) reduce actual database load.
+    NOTE: This endpoint is exempt from rate limiting as it's a read-only
+    dashboard endpoint that's cached (5 minute TTL for first page). It should
+    never be rate limited to ensure dashboard functionality.
     """
-    # Extract client IP for rate limiting
-    client_ip = "unknown"
-    if request.client:
-        client_ip = request.client.host
-    elif request.headers.get("x-forwarded-for"):
-        client_ip = request.headers.get("x-forwarded-for").split(",")[0].strip()
-    
-    # Rate limit: 60 requests per minute per IP (generous for dashboard refresh)
-    rate_key = f"devices_list:{client_ip}"
-    if not admin_api_rate_limiter.is_allowed(rate_key):
-        raise HTTPException(
-            status_code=429,
-            detail="Too many requests. Please wait before refreshing.",
-            headers={"Retry-After": "10"}
-        )
-
+    # Cache first page only (5 minute TTL) - most common query
     cache_key = None
-    cache_ttl = 300
-    if page == 1 and limit in (25, 100):
-        cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": limit})
-        cached_result = response_cache.get(cache_key, ttl_seconds=cache_ttl)
+    if page == 1 and limit == 25:
+        cache_key = make_cache_key("/v1/devices", {"page": 1, "limit": 25})
+        cached_result = response_cache.get(cache_key, ttl_seconds=300)
         if cached_result is not None:
             return cached_result
 
@@ -3242,8 +3044,9 @@ async def list_devices(
         }
     }
 
+    # Cache first page result
     if cache_key:
-        response_cache.set(cache_key, response, ttl_seconds=cache_ttl, path="/v1/devices")
+        response_cache.set(cache_key, response, ttl_seconds=300, path="/v1/devices")
 
     return response
 
@@ -5693,56 +5496,6 @@ def validate_single_command(cmd: str) -> tuple[bool, Optional[str]]:
             return True, None
         return False, f"Package {package_name} is not in the enabled bloatware list"
 
-    # Special handling for am broadcast (token-based validation for security)
-    if len(tokens) >= 2 and tokens[0] == "am" and tokens[1] == "broadcast":
-        # Must have --receiver-foreground flag
-        if "--receiver-foreground" not in tokens:
-            return False, "am broadcast requires --receiver-foreground flag"
-        
-        # Must have -a com.nexmdm.CONFIGURE
-        try:
-            action_idx = tokens.index("-a")
-            if action_idx + 1 >= len(tokens) or tokens[action_idx + 1] != "com.nexmdm.CONFIGURE":
-                return False, "Only com.nexmdm.CONFIGURE action is allowed"
-        except ValueError:
-            return False, "am broadcast requires -a flag with action"
-        
-        # Must have -n com.nexmdm/.ConfigReceiver
-        try:
-            receiver_idx = tokens.index("-n")
-            if receiver_idx + 1 >= len(tokens) or tokens[receiver_idx + 1] != "com.nexmdm/.ConfigReceiver":
-                return False, "Only com.nexmdm/.ConfigReceiver receiver is allowed"
-        except ValueError:
-            return False, "am broadcast requires -n flag with receiver"
-        
-        # Validate required extras: server_url, admin_key or token, alias
-        # Maximally permissive: only check that required extras are present, allow any values
-        extras = {}
-        i = 0
-        while i < len(tokens):
-            if tokens[i] in ["--es", "--ez", "--ei", "--el", "--ef", "--eu", "--ecn"]:
-                if i + 2 < len(tokens):
-                    key = tokens[i + 1]
-                    value = tokens[i + 2]
-                    # Allow any key-value pairs, no validation of values
-                    extras[key] = value
-                    i += 3
-                    continue
-            i += 1
-        
-        # Check required extras are present (but allow any values, including empty)
-        if "server_url" not in extras:
-            return False, "am broadcast requires --es server_url"
-        if "admin_key" not in extras and "token" not in extras:
-            return False, "am broadcast requires --es admin_key or --es token"
-        if "alias" not in extras:
-            return False, "am broadcast requires --es alias"
-        
-        # No format validation - allow any values for all extras
-        # Allow any additional extra parameters as well
-        
-        return True, None
-
     # Regex-based validation for other commands
     allow_patterns = [
         r'^am\s+start\s+(-[nWDR]\s+[A-Za-z0-9._/:]+\s*)+$',  # More restrictive: specific flags only, no shell injection
@@ -5952,8 +5705,7 @@ async def dispatch_apk_fcm_to_device(
             hmac_signature = compute_hmac_signature(request_id, device.id, "install_apk", timestamp)
             
             # Generate the download URL for the APK
-            # Use backend_url to bypass Next.js proxy and avoid streaming issues
-            download_url = f"{config.backend_url}/v1/apk/download/{apk.id}"
+            download_url = f"{config.server_url}/v1/apk/download/{apk.id}"
             
             fcm_message = {
                 "message": {
@@ -5986,42 +5738,6 @@ async def dispatch_apk_fcm_to_device(
             response = await client.post(fcm_url, json=fcm_message, headers=headers, timeout=10.0)
             
             if response.status_code == 200:
-                try:
-                    response_data = response.json()
-                    # Check FCM response for errors (FCM v1 API returns errors in response even with 200 status)
-                    if isinstance(response_data, dict):
-                        # Check for error in response
-                        error_info = response_data.get("error")
-                        if error_info:
-                            if isinstance(error_info, dict):
-                                error_code = error_info.get("code")
-                                error_msg = error_info.get("message", f"FCM error code: {error_code}")
-                            else:
-                                error_code = None
-                                error_msg = str(error_info)
-                            
-                            # Handle specific FCM error codes
-                            if error_code in ["UNREGISTERED", "INVALID_ARGUMENT", "NOT_FOUND"]:
-                                error_msg = f"Invalid FCM token: {error_msg}"
-                            elif error_code:
-                                error_msg = f"FCM error ({error_code}): {error_msg}"
-                            
-                            return {
-                                "device_id": device.id,
-                                "alias": device.alias,
-                                "installation_id": installation.id,
-                                "status": "error",
-                                "error": error_msg
-                            }
-                except Exception as parse_error:
-                    # If JSON parsing fails, assume success (legacy behavior)
-                    structured_logger.log_event(
-                        "apk.deploy.fcm_response_parse_error",
-                        level="WARN",
-                        device_id=device.id,
-                        error=str(parse_error)
-                    )
-                
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -6029,20 +5745,7 @@ async def dispatch_apk_fcm_to_device(
                     "status": "sent"
                 }
             else:
-                # Try to parse error response
-                try:
-                    error_data = response.json()
-                    if isinstance(error_data, dict):
-                        error_info = error_data.get("error", {})
-                        if isinstance(error_info, dict):
-                            error_msg = error_info.get("message", f"FCM failed: HTTP {response.status_code}")
-                        else:
-                            error_msg = str(error_info) if error_info else f"FCM failed: HTTP {response.status_code}"
-                    else:
-                        error_msg = f"FCM failed: HTTP {response.status_code}"
-                except:
-                    error_msg = f"FCM failed: HTTP {response.status_code}"
-                
+                error_msg = f"FCM failed: {response.status_code}"
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -6116,43 +5819,27 @@ async def deploy_apk_v1(
         else:
             devices_with_fcm.append(device)
 
-    # Create all ApkInstallation records in bulk with error handling
+    # Create all ApkInstallation records in bulk
     installations = []
     now = datetime.now(timezone.utc)
     
-    try:
-        for device in devices_with_fcm:
-            installation = ApkInstallation(
-                device_id=device.id,
-                apk_version_id=apk.id,
-                status="pending",
-                initiated_at=now,
-                initiated_by=user.username
-            )
-            db.add(installation)
-            installations.append(installation)
-        
-        # Bulk commit all installations
-        db.commit()
-        
-        # Refresh all installations to get their IDs
-        for installation in installations:
-            db.refresh(installation)
-    except Exception as db_error:
-        # Rollback on any database error
-        db.rollback()
-        structured_logger.log_event(
-            "apk.deploy.db_error",
-            level="ERROR",
-            apk_id=apk_id,
-            device_count=len(devices_with_fcm),
-            error=str(db_error),
-            error_type=type(db_error).__name__
+    for device in devices_with_fcm:
+        installation = ApkInstallation(
+            device_id=device.id,
+            apk_version_id=apk.id,
+            status="pending",
+            initiated_at=now,
+            initiated_by=user.username
         )
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to create installations: {str(db_error)}"
-        )
+        db.add(installation)
+        installations.append(installation)
+    
+    # Bulk commit all installations
+    db.commit()
+    
+    # Refresh all installations to get their IDs
+    for installation in installations:
+        db.refresh(installation)
     
     # Create mapping of device_id to installation
     installation_map = {inst.device_id: inst for inst in installations}
@@ -6208,224 +5895,107 @@ async def deploy_apk_v1(
     if batch_size is not None and batch_delay_seconds is None:
         batch_delay_seconds = 30
     
-    # OPTIMIZATION: Dispatch FCM in background task to return immediately
-    # This prevents the endpoint from blocking while waiting for FCM dispatch
-    # Capture variables needed in background task
-    devices_list = devices_with_fcm.copy()  # Copy list to avoid reference issues
-    installation_map_copy = installation_map.copy()  # Copy dict for background task
-    apk_id = apk.id
-    apk_obj = apk  # Keep reference to apk object
+    # Create semaphore for concurrency control
+    semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
     
-    async def dispatch_fcm_background():
-        """Background task to dispatch FCM messages asynchronously."""
-        try:
-            # Create semaphore for concurrency control
-            semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
+    # Process devices
+    async with httpx.AsyncClient() as client:
+        if batch_size is not None and batch_size > 0:
+            # Process in batches with delays
+            total_batches = (len(devices_with_fcm) + batch_size - 1) // batch_size
             
-            async with httpx.AsyncClient() as client:
-                if batch_size is not None and batch_size > 0:
-                    # Process in batches with delays
-                    total_batches = (len(devices_list) + batch_size - 1) // batch_size
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(devices_with_fcm))
+                batch_devices = devices_with_fcm[start_idx:end_idx]
+                
+                # Create tasks for this batch
+                tasks = [
+                    dispatch_apk_fcm_to_device(
+                        device=device,
+                        apk=apk,
+                        installation=installation_map[device.id],
+                        semaphore=semaphore,
+                        client=client,
+                        fcm_url=fcm_url,
+                        access_token=access_token
+                    )
+                    for device in batch_devices
+                ]
+                
+                # Process batch in parallel
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Process results (track FCM failures, but installations are already created)
+                for i, result in enumerate(batch_results):
+                    if isinstance(result, Exception):
+                        # Handle exceptions - mark device as failed
+                        device = batch_devices[i]
+                        failed_devices.append({
+                            "device_id": device.id,
+                            "alias": device.alias,
+                            "reason": f"FCM error: {str(result)}"
+                        })
+                        continue
                     
-                    for batch_num in range(total_batches):
-                        start_idx = batch_num * batch_size
-                        end_idx = min(start_idx + batch_size, len(devices_list))
-                        batch_devices = devices_list[start_idx:end_idx]
-                        
-                        # Create tasks for this batch
-                        tasks = [
-                            dispatch_apk_fcm_to_device(
-                                device=device,
-                                apk=apk_obj,
-                                installation=installation_map_copy[device.id],
-                                semaphore=semaphore,
-                                client=client,
-                                fcm_url=fcm_url,
-                                access_token=access_token
-                            )
-                            for device in batch_devices
-                        ]
-                        
-                        # Process batch in parallel
-                        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                        
-                        # Log FCM failures and update installation status in database
-                        for i, result in enumerate(batch_results):
-                            if isinstance(result, Exception):
-                                device = batch_devices[i]
-                                error_msg = f"FCM dispatch exception: {str(result)}"
-                                structured_logger.log_event(
-                                    "apk.deploy.fcm_error",
-                                    level="WARN",
-                                    device_id=device.id,
-                                    error=str(result)
-                                )
-                                # Update installation status in database
-                                try:
-                                    db_session = SessionLocal()
-                                    try:
-                                        installation = db_session.query(ApkInstallation).filter(
-                                            ApkInstallation.id == installation_map_copy[device.id].id
-                                        ).first()
-                                        if installation and installation.status == "pending":
-                                            installation.status = "failed"
-                                            installation.error_message = error_msg
-                                            installation.completed_at = datetime.now(timezone.utc)
-                                            db_session.commit()
-                                    finally:
-                                        db_session.close()
-                                except Exception as db_error:
-                                    structured_logger.log_event(
-                                        "apk.deploy.db_update_error",
-                                        level="ERROR",
-                                        device_id=device.id,
-                                        error=str(db_error)
-                                    )
-                            elif result.get("status") != "sent":
-                                device_id = result.get("device_id")
-                                error_msg = result.get("error", "Unknown FCM error")
-                                structured_logger.log_event(
-                                    "apk.deploy.fcm_failed",
-                                    level="WARN",
-                                    device_id=device_id,
-                                    error=error_msg
-                                )
-                                # Update installation status in database
-                                try:
-                                    db_session = SessionLocal()
-                                    try:
-                                        installation = db_session.query(ApkInstallation).filter(
-                                            ApkInstallation.id == installation_map_copy[device_id].id
-                                        ).first()
-                                        if installation and installation.status == "pending":
-                                            installation.status = "failed"
-                                            installation.error_message = f"FCM dispatch failed: {error_msg}"
-                                            installation.completed_at = datetime.now(timezone.utc)
-                                            db_session.commit()
-                                    finally:
-                                        db_session.close()
-                                except Exception as db_error:
-                                    structured_logger.log_event(
-                                        "apk.deploy.db_update_error",
-                                        level="ERROR",
-                                        device_id=device_id,
-                                        error=str(db_error)
-                                    )
-                        
-                        # Wait before next batch (except for the last batch)
-                        if batch_num < total_batches - 1 and batch_delay_seconds > 0:
-                            await asyncio.sleep(batch_delay_seconds)
-                else:
-                    # Process all devices in parallel (backward compatible)
-                    tasks = [
-                        dispatch_apk_fcm_to_device(
-                            device=device,
-                            apk=apk_obj,
-                            installation=installation_map_copy[device.id],
-                            semaphore=semaphore,
-                            client=client,
-                            fcm_url=fcm_url,
-                            access_token=access_token
-                        )
-                        for device in devices_list
-                    ]
-                    
-                    # Process all in parallel
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    # Log FCM failures and update installation status in database
-                    for i, result in enumerate(results):
-                        if isinstance(result, Exception):
-                            device = devices_list[i]
-                            error_msg = f"FCM dispatch exception: {str(result)}"
-                            structured_logger.log_event(
-                                "apk.deploy.fcm_error",
-                                level="WARN",
-                                device_id=device.id,
-                                error=str(result)
-                            )
-                            # Update installation status in database
-                            try:
-                                db_session = SessionLocal()
-                                try:
-                                    installation = db_session.query(ApkInstallation).filter(
-                                        ApkInstallation.id == installation_map_copy[device.id].id
-                                    ).first()
-                                    if installation and installation.status == "pending":
-                                        installation.status = "failed"
-                                        installation.error_message = error_msg
-                                        installation.completed_at = datetime.now(timezone.utc)
-                                        db_session.commit()
-                                finally:
-                                    db_session.close()
-                            except Exception as db_error:
-                                structured_logger.log_event(
-                                    "apk.deploy.db_update_error",
-                                    level="ERROR",
-                                    device_id=device.id,
-                                    error=str(db_error)
-                                )
-                        elif result.get("status") != "sent":
-                            device_id = result.get("device_id")
-                            error_msg = result.get("error", "Unknown FCM error")
-                            structured_logger.log_event(
-                                "apk.deploy.fcm_failed",
-                                level="WARN",
-                                device_id=device_id,
-                                error=error_msg
-                            )
-                            # Update installation status in database
-                            try:
-                                db_session = SessionLocal()
-                                try:
-                                    installation = db_session.query(ApkInstallation).filter(
-                                        ApkInstallation.id == installation_map_copy[device_id].id
-                                    ).first()
-                                    if installation and installation.status == "pending":
-                                        installation.status = "failed"
-                                        installation.error_message = f"FCM dispatch failed: {error_msg}"
-                                        installation.completed_at = datetime.now(timezone.utc)
-                                        db_session.commit()
-                                finally:
-                                    db_session.close()
-                            except Exception as db_error:
-                                structured_logger.log_event(
-                                    "apk.deploy.db_update_error",
-                                    level="ERROR",
-                                    device_id=device_id,
-                                    error=str(db_error)
-                                )
+                    if result.get("status") != "sent":
+                        failed_devices.append({
+                            "device_id": result["device_id"],
+                            "alias": result["alias"],
+                            "reason": result.get("error", "Unknown error")
+                        })
+                
+                # Wait before next batch (except for the last batch)
+                if batch_num < total_batches - 1 and batch_delay_seconds > 0:
+                    await asyncio.sleep(batch_delay_seconds)
+        else:
+            # Process all devices in parallel (backward compatible)
+            tasks = [
+                dispatch_apk_fcm_to_device(
+                    device=device,
+                    apk=apk,
+                    installation=installation_map[device.id],
+                    semaphore=semaphore,
+                    client=client,
+                    fcm_url=fcm_url,
+                    access_token=access_token
+                )
+                for device in devices_with_fcm
+            ]
             
-            structured_logger.log_event(
-                "apk.deploy.fcm_dispatch_complete",
-                level="INFO",
-                apk_id=apk_id,
-                device_count=len(devices_list),
-                batch_size=batch_size,
-                batch_delay_seconds=batch_delay_seconds
-            )
-        except Exception as e:
-            structured_logger.log_event(
-                "apk.deploy.fcm_dispatch_error",
-                level="ERROR",
-                apk_id=apk_id,
-                error=str(e)
-            )
-    
-    # Start background FCM dispatch (fire and forget)
-    asyncio.create_task(dispatch_fcm_background())
-    
-    # Return immediately with installation records
-    # Frontend will poll for status updates
+            # Process all in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results (track FCM failures, but installations are already created)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Handle exceptions - mark device as failed
+                    device = devices_with_fcm[i]
+                    failed_devices.append({
+                        "device_id": device.id,
+                        "alias": device.alias,
+                        "reason": f"FCM error: {str(result)}"
+                    })
+                    continue
+                
+                if result.get("status") != "sent":
+                    failed_devices.append({
+                        "device_id": result["device_id"],
+                        "alias": result["alias"],
+                        "reason": result.get("error", "Unknown error")
+                    })
+
+    # All installations are considered successful (backward compatible behavior)
+    # failed_devices only contains FCM send failures
     structured_logger.log_event(
-        "apk.deploy.initiated",
+        "apk.deploy.complete",
         level="INFO",
         apk_id=apk.id,
-        installation_count=len(installations),
+        success_count=len(installations),
+        failed_count=len(failed_devices),
         total_devices=len(device_ids),
         batch_size=batch_size,
-        batch_delay_seconds=batch_delay_seconds,
-        async_dispatch=True
+        batch_delay_seconds=batch_delay_seconds
     )
 
     return {
@@ -6441,8 +6011,7 @@ async def deploy_apk_v1(
             }
             for inst in installations
         ],
-        "failed_devices": failed_devices,
-        "message": "Deployment initiated. FCM dispatch in progress. Poll /v1/apk/installations for status updates."
+        "failed_devices": failed_devices
     }
 
 @app.get("/v1/apk/download-latest")
@@ -6526,178 +6095,58 @@ async def download_apk_by_id(
 @app.post("/v1/apk/upload-chunk")
 async def upload_apk_chunk(
     request: Request,
-    upload_id: str = Form(...),
+    apk_id: int = Form(...),
     chunk_index: int = Form(...),
     total_chunks: int = Form(...),
-    filename: str = Form(...),
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
-    """Upload a chunk of an APK file. Used for large APKs with chunked uploads."""
-    try:
-        if not (0 <= chunk_index < total_chunks):
-            raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
-        
-        chunk_data = await file.read()
-        chunk_key = f"chunks/{upload_id}/chunk_{chunk_index:04d}"
-        
-        storage_service = get_storage_service()
-        storage_service.client.upload_from_bytes(chunk_key, chunk_data)
-        
-        structured_logger.log_event(
-            "apk.chunk.uploaded",
-            upload_id=upload_id,
-            chunk_index=chunk_index,
-            total_chunks=total_chunks,
-            chunk_size=len(chunk_data),
-            user=current_user.username
-        )
-        
-        return {
-            "ok": True,
-            "upload_id": upload_id,
-            "chunk_index": chunk_index,
-            "total_chunks": total_chunks
-        }
-    except Exception as e:
-        structured_logger.log_event(
-            "apk.chunk.upload.error",
-            level="ERROR",
-            upload_id=upload_id,
-            chunk_index=chunk_index,
-            error=str(e)
-        )
-        raise HTTPException(status_code=500, detail=f"Failed to upload chunk: {str(e)}")
+    """Upload a chunk of an APK file. Used for large APKs."""
+    verify_admin_key(x_admin_key)
+
+    # Check if APK version exists
+    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk_version:
+        raise HTTPException(status_code=404, detail="APK version not found")
+
+    # Validate chunk index and total chunks
+    if not (0 <= chunk_index < total_chunks):
+        raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
+
+    # Use the optimized upload service
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        chunk_index=chunk_index,
+        total_chunks=total_chunks,
+        file=file,
+        request=request
+    )
 
 @app.post("/v1/apk/complete")
 async def complete_apk_upload(
-    upload_id: str = Form(...),
-    package_name: str = Form(...),
-    version_name: str = Form(...),
-    version_code: int = Form(...),
-    filename: str = Form(...),
+    request: Request,
+    apk_id: int = Form(...),
     total_chunks: int = Form(...),
-    build_type: str = Form("release"),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
-    """Combine uploaded chunks and create APK record."""
-    try:
-        storage_service = get_storage_service()
-        
-        # Download and assemble chunks first
-        all_chunks = []
-        for i in range(total_chunks):
-            chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
-            try:
-                chunk_data = storage_service.client.download_as_bytes(chunk_key)
-                all_chunks.append(chunk_data)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Missing chunk {i}: {str(e)}")
-        
-        complete_file = b"".join(all_chunks)
-        file_size = len(complete_file)
-        sha256_hash = hashlib.sha256(complete_file).hexdigest()
-        
-        # Handle duplicate version_code by auto-incrementing version_code
-        # The unique constraint is on (package_name, version_code), so we must change version_code
-        original_version_code = version_code
-        modified_version_code = version_code
-        max_attempts = 10
-        
-        for attempt in range(max_attempts):
-            # Check for duplicate: same package_name AND version_code (matches database unique constraint)
-            existing_version = db.query(ApkVersion).filter(
-                (ApkVersion.package_name == package_name) & (ApkVersion.version_code == modified_version_code)
-            ).first()
-            
-            if not existing_version:
-                # No duplicate found, proceed with upload
-                break
-            
-            # Duplicate found, increment version_code by a random amount (1-100)
-            # This ensures we can always find a unique version_code
-            increment = random.randint(1, 100)
-            modified_version_code = modified_version_code + increment
-            
-            if attempt == max_attempts - 1:
-                # Last attempt failed, raise error (shouldn't happen with random increment)
-                for i in range(total_chunks):
-                    chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
-                    try:
-                        storage_service.client.delete(chunk_key, ignore_not_found=True)
-                    except:
-                        pass
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Unable to find unique version code after {max_attempts} attempts. Please try a different version code."
-                )
-        
-        # Use modified version code for storage and database
-        version_code_modified = modified_version_code != original_version_code
-        object_name = f"apks/{version_name}_{modified_version_code}.apk"
-        storage_service.client.upload_from_bytes(object_name, complete_file)
-        
-        for i in range(total_chunks):
-            chunk_key = f"chunks/{upload_id}/chunk_{i:04d}"
-            try:
-                storage_service.client.delete(chunk_key, ignore_not_found=True)
-            except:
-                pass
-        
-        apk_version = ApkVersion(
-            version_name=version_name,
-            version_code=modified_version_code,
-            package_name=package_name,
-            build_type=build_type,
-            file_size=file_size,
-            sha256=sha256_hash,
-            file_path=object_name,
-            storage_url=object_name,
-            is_active=True,
-            uploaded_by=current_user.username
-        )
-        db.add(apk_version)
-        db.commit()
-        db.refresh(apk_version)
-        
-        # Log if version code was modified
-        log_message = "APK uploaded successfully"
-        if version_code_modified:
-            log_message = f"APK uploaded successfully (version code auto-incremented from {original_version_code} to {modified_version_code} due to duplicate)"
-        
-        structured_logger.log_event(
-            "apk.uploaded",
-            apk_id=apk_version.id,
-            version_name=version_name,
-            version_code=modified_version_code,
-            original_version_code=original_version_code if version_code_modified else None,
-            file_size=file_size,
-            user=current_user.username,
-            version_code_modified=version_code_modified
-        )
-        
-        return {
-            "ok": True,
-            "message": log_message,
-            "apk_id": apk_version.id,
-            "version_name": apk_version.version_name,
-            "version_code": apk_version.version_code,
-            "original_version_code": original_version_code if version_code_modified else None,
-            "storage_url": apk_version.storage_url,
-            "version_code_modified": version_code_modified
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        structured_logger.log_event(
-            "apk.complete.error",
-            level="ERROR",
-            upload_id=upload_id,
-            error=str(e)
-        )
-        raise HTTPException(status_code=500, detail=f"Failed to complete upload: {str(e)}")
+    """Mark an APK upload as complete and verify integrity."""
+    verify_admin_key(x_admin_key)
+
+    # Check if APK version exists
+    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk_version:
+        raise HTTPException(status_code=404, detail="APK version not found")
+
+    # Use the optimized upload service to complete the upload
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        total_chunks=total_chunks,
+        request=request
+    )
 
 @app.post("/admin/apk/upload")
 async def upload_apk_admin(
@@ -6711,11 +6160,7 @@ async def upload_apk_admin(
     x_admin_key: str = Header(..., alias="X-Admin-Key"),
     db: Session = Depends(get_db)
 ):
-    """Upload an APK file directly via admin interface (for smaller files).
-    
-    Idempotent: If APK with same version already exists, returns success with existing info.
-    This allows CI/CD re-runs without failure.
-    """
+    """Upload an APK file directly via admin interface (for smaller files)."""
     verify_admin_key(x_admin_key)
 
     # Validate version code
@@ -6726,27 +6171,8 @@ async def upload_apk_admin(
     existing_version = db.query(ApkVersion).filter(
         (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
     ).first()
-    
     if existing_version:
-        # If version already exists, return success with existing info (idempotent)
-        # This allows CI/CD re-runs without failure
-        structured_logger.log_event(
-            "apk.upload.skipped_existing",
-            admin_user="admin",
-            existing_apk_id=existing_version.id,
-            version_name=existing_version.version_name,
-            version_code=existing_version.version_code,
-            reason="version_already_exists"
-        )
-        return {
-            "ok": True,
-            "message": "APK version already exists (skipped upload)",
-            "apk_id": existing_version.id,
-            "version_name": existing_version.version_name,
-            "version_code": existing_version.version_code,
-            "storage_url": existing_version.storage_url,
-            "already_existed": True
-        }
+        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
 
     # Save the APK file to object storage
     try:
@@ -7102,21 +6528,6 @@ async def list_apk_installations(
     
     installations = query.all()
     
-    # Track query performance for monitoring (wrap in try/except to avoid breaking endpoint)
-    try:
-        metrics.inc_counter("apk_installations_queries_total", {
-            "has_apk_id": str(apk_id is not None),
-            "has_status": str(status is not None)
-        })
-    except Exception as e:
-        # Don't fail the request if metrics fail
-        structured_logger.log_event(
-            "metrics.error",
-            level="WARN",
-            error=str(e),
-            metric="apk_installations_queries_total"
-        )
-    
     results = []
     for inst in installations:
         device = db.query(Device).filter(Device.id == inst.device_id).first()
@@ -7151,60 +6562,6 @@ async def list_apk_installations(
     
     return results
 
-@app.get("/v1/apk/deployments/{apk_id}/progress")
-async def get_deployment_progress(
-    apk_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get deployment progress statistics for a specific APK.
-    Returns counts by status and overall progress percentage.
-    """
-    installations = db.query(ApkInstallation).filter(
-        ApkInstallation.apk_version_id == apk_id
-    ).all()
-    
-    total = len(installations)
-    if total == 0:
-        return {
-            "apk_id": apk_id,
-            "total": 0,
-            "status_counts": {},
-            "progress_percent": 0,
-            "completed": 0,
-            "failed": 0,
-            "pending": 0,
-            "in_progress": 0
-        }
-    
-    status_counts = {}
-    terminal_statuses = ['completed', 'failed', 'timeout']
-    in_progress_statuses = ['pending', 'downloading', 'installing']
-    
-    for inst in installations:
-        status_counts[inst.status] = status_counts.get(inst.status, 0) + 1
-    
-    completed = status_counts.get('completed', 0)
-    failed = status_counts.get('failed', 0) + status_counts.get('timeout', 0)
-    pending = status_counts.get('pending', 0)
-    in_progress = sum(status_counts.get(s, 0) for s in in_progress_statuses)
-    
-    # Progress = (completed + failed) / total * 100
-    progress_percent = int(((completed + failed) / total) * 100) if total > 0 else 0
-    
-    return {
-        "apk_id": apk_id,
-        "total": total,
-        "status_counts": status_counts,
-        "progress_percent": progress_percent,
-        "completed": completed,
-        "failed": failed,
-        "pending": pending,
-        "in_progress": in_progress,
-        "terminal_count": completed + failed,
-        "non_terminal_count": total - completed - failed
-    }
 
 class InstallationUpdateRequest(BaseModel):
     installation_id: int
@@ -7215,7 +6572,7 @@ class InstallationUpdateRequest(BaseModel):
 @app.post("/v1/apk/installation/update")
 async def update_installation_status(
     payload: InstallationUpdateRequest,
-    x_device_token: Optional[str] = Header(None),
+    x_device_token: str = Header(...),
     db: Session = Depends(get_db)
 ):
     """
@@ -7224,25 +6581,17 @@ async def update_installation_status(
     Update installation status from device.
     Used by Android devices to report APK installation progress.
     """
-    # Authenticate device token first (consistent with other endpoints)
-    if not x_device_token:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    
-    device = get_device_by_token(x_device_token, db)
-    if not device:
-        raise HTTPException(status_code=401, detail="Invalid device token")
-    
-    # Get installation and verify it belongs to this device
     installation = db.query(ApkInstallation).filter(
         ApkInstallation.id == payload.installation_id
     ).first()
 
     if not installation:
         raise HTTPException(status_code=404, detail="Installation not found")
-    
-    # Verify installation belongs to the authenticated device
-    if installation.device_id != device.id:
-        raise HTTPException(status_code=403, detail="Installation does not belong to this device")
+
+    device = db.query(Device).filter(Device.id == installation.device_id).first()
+
+    if not device or not verify_token(x_device_token, device.token_hash):
+        raise HTTPException(status_code=401, detail="Invalid device token")
 
     installation.status = payload.status
     if payload.download_progress is not None:
@@ -7260,31 +6609,6 @@ async def update_installation_status(
 
     db.commit()
 
-    # Check if this installation is part of a reinstall-unity-and-launch operation
-    # If so, trigger launch_app after a delay
-    if payload.status == "completed":
-        reinstall_exec = db.query(RemoteExec).filter(
-            RemoteExec.mode == "reinstall_unity_and_launch",
-            RemoteExec.targets.contains(f'"{device.id}"')
-        ).order_by(RemoteExec.created_at.desc()).first()
-        
-        if reinstall_exec:
-            raw_request = json.loads(reinstall_exec.raw_request) if reinstall_exec.raw_request else {}
-            launch_correlations = raw_request.get("launch_correlations", {})
-            package_name = raw_request.get("package_name", "io.unitynodes.unityapp")
-            
-            if device.id in launch_correlations:
-                # Schedule launch_app dispatch after 2-3 second delay
-                launch_correlation_id = launch_correlations[device.id]
-                asyncio.create_task(
-                    trigger_launch_after_install(
-                        device_id=device.id,
-                        package_name=package_name,
-                        correlation_id=launch_correlation_id,
-                        exec_id=reinstall_exec.id
-                    )
-                )
-
     await manager.broadcast({
         "type": "installation_update",
         "device_id": str(device.id),
@@ -7294,92 +6618,6 @@ async def update_installation_status(
     })
 
     return {"success": True}
-
-async def trigger_launch_after_install(
-    device_id: str,
-    package_name: str,
-    correlation_id: str,
-    exec_id: str
-):
-    """
-    Helper function to trigger launch_app after installation completes.
-    Waits 2-3 seconds, then dispatches launch_app FCM command.
-    """
-    import httpx
-    
-    # Wait 2-3 seconds for installation to fully complete
-    await asyncio.sleep(2.5)
-    
-    # Create a new database session for this async task
-    db_session = SessionLocal()
-    try:
-        # Refresh device to get latest FCM token
-        device = db_session.query(Device).filter(Device.id == device_id).first()
-        if not device or not device.fcm_token:
-            # Update result record to show error
-            result = db_session.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == exec_id,
-                RemoteExecResult.device_id == device_id,
-                RemoteExecResult.correlation_id == correlation_id
-            ).first()
-            if result:
-                result.status = "error"
-                result.error = "No FCM token available"
-                db_session.commit()
-            return
-        
-        # Get FCM credentials
-        access_token = get_access_token()
-        project_id = get_firebase_project_id()
-        fcm_url = build_fcm_v1_url(project_id)
-        
-        # Dispatch launch_app FCM command
-        semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
-        db_results = {}
-        
-        async with httpx.AsyncClient() as client:
-            await dispatch_launch_app_to_device(
-                device=device,
-                package_name=package_name,
-                correlation_id=correlation_id,
-                semaphore=semaphore,
-                client=client,
-                fcm_url=fcm_url,
-                access_token=access_token,
-                db_results=db_results
-            )
-        
-        # Update result record with dispatch status
-        result = db_session.query(RemoteExecResult).filter(
-            RemoteExecResult.exec_id == exec_id,
-            RemoteExecResult.device_id == device_id,
-            RemoteExecResult.correlation_id == correlation_id
-        ).first()
-        
-        if result:
-            result_data = db_results.get(device_id, {})
-            if result_data.get("status") == "sent":
-                result.status = "pending"  # Will be updated by ACK
-            else:
-                result.status = "error"
-                result.error = result_data.get("error", "FCM dispatch failed")
-            db_session.commit()
-    except Exception as e:
-        # Update result record to show error
-        try:
-            result = db_session.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == exec_id,
-                RemoteExecResult.device_id == device_id,
-                RemoteExecResult.correlation_id == correlation_id
-            ).first()
-            if result:
-                result.status = "error"
-                result.error = f"Launch trigger failed: {str(e)}"
-                db_session.commit()
-        except:
-            pass
-    finally:
-        db_session.close()
 
 # =============================================================================
 # ⚠️  END CRITICAL APK ENDPOINTS ⚠️
@@ -7969,13 +7207,6 @@ async def dispatch_fcm_to_device(
     async with semaphore:
         try:
             if not device.fcm_token:
-                # Update db_results so error is tracked properly
-                db_results[device.id] = {
-                    "correlation_id": correlation_id,
-                    "alias": device.alias,
-                    "status": "error",
-                    "error": "No FCM token"
-                }
                 return {
                     "device_id": device.id,
                     "alias": device.alias,
@@ -7988,41 +7219,8 @@ async def dispatch_fcm_to_device(
             action = f"remote_exec_{mode}"
             
             if mode == "shell":
-                command_template = payload.get("script", "")
-                # Substitute template variables with device-specific values
-                # Supported variables: {alias}, {device_id}
-                # Note: {device_token} is not available as tokens are hashed for security
-                command = command_template.replace("{alias}", device.alias or "")
-                command = command.replace("{device_id}", device.id or "")
-                
-                # CRITICAL: Re-validate the command after substitution to ensure it's still valid
-                # This prevents templates that pass validation from producing invalid commands after substitution
-                # Run validation in thread pool to avoid blocking async event loop (validation may do DB queries)
-                try:
-                    is_valid, error_msg = await asyncio.to_thread(validate_shell_command, command)
-                    if not is_valid:
-                        error_detail = f"Command invalid after template substitution: {error_msg}"
-                        # Update db_results so error is tracked properly
-                        db_results[device.id] = {
-                            "correlation_id": correlation_id,
-                            "alias": device.alias,
-                            "status": "error",
-                            "error": error_detail
-                        }
-                        return {
-                            "device_id": device.id,
-                            "alias": device.alias,
-                            "correlation_id": correlation_id,
-                            "status": "error",
-                            "error": error_detail
-                        }
-                except Exception as e:
-                    # If validation itself fails, log and allow command (fail-safe)
-                    print(f"[REMOTE-EXEC] Validation error for device {device.id}: {e}")
-                    # Continue with command execution rather than blocking
-                
+                command = payload.get("script", "")
                 # Include critical payload field (command) in HMAC to prevent tampering
-                # Use substituted command for HMAC to ensure integrity
                 payload_fields = {"command": command}
                 hmac_signature = compute_hmac_signature_with_payload(
                     correlation_id, device.id, action, timestamp, payload_fields
@@ -8511,7 +7709,7 @@ async def remote_exec_ack(
     
     return {"ok": True, "status": "received"}
 
-# --- Restart App Endpoint (Three-Step: Force Stop + Battery Exemption + Launch) ---
+# --- Restart App Endpoint (Two-Step: Force Stop + Launch) ---
 
 class RestartAppRequest(BaseModel):
     package_name: str = "io.unitynodes.unityapp"
@@ -8530,13 +7728,11 @@ async def restart_app(
     db: Session = Depends(get_db)
 ):
     """
-    Restart an app on target devices using a three-step process:
-    1. Force-stop the app
-    2. Re-apply battery optimization exemption (prevents Android from resetting background permission)
-    3. Launch the app
+    Restart an app on target devices using a two-step process:
+    1. Force-stop the app via shell command
+    2. Launch the app via FCM LAUNCH_APP command
     
-    Each step has a 2-second delay to ensure proper execution.
-    Returns combined status tracking for all three steps.
+    Returns combined status tracking for both steps.
     """
     import httpx
     
@@ -8590,7 +7786,7 @@ async def restart_app(
     
     client_ip = req.client.host if req.client else "unknown"
     
-    # Create exec records for all three steps
+    # Create exec records for both steps
     force_stop_exec = RemoteExec(
         mode="restart_app_stop",
         raw_request=json.dumps({
@@ -8608,29 +7804,12 @@ async def restart_app(
     db.commit()
     db.refresh(force_stop_exec)
     
-    exempt_exec = RemoteExec(
-        mode="restart_app_exempt",
-        raw_request=json.dumps({
-            "package_name": request.package_name,
-            "step": "battery_exemption",
-            "linked_exec_id": force_stop_exec.id
-        }),
-        targets=json.dumps([d.id for d in devices]),
-        created_by=user.username,
-        created_by_ip=client_ip,
-        total_targets=len(devices),
-        status="dispatching"
-    )
-    db.add(exempt_exec)
-    db.commit()
-    db.refresh(exempt_exec)
-    
     launch_exec = RemoteExec(
         mode="restart_app_launch",
         raw_request=json.dumps({
             "package_name": request.package_name,
             "step": "launch",
-            "linked_exec_id": exempt_exec.id
+            "linked_exec_id": force_stop_exec.id
         }),
         targets=json.dumps([d.id for d in devices]),
         created_by=user.username,
@@ -8642,23 +7821,6 @@ async def restart_app(
     db.commit()
     db.refresh(launch_exec)
     
-    ui_clicks_exec = RemoteExec(
-        mode="restart_app_ui_clicks",
-        raw_request=json.dumps({
-            "package_name": request.package_name,
-            "step": "ui_clicks",
-            "linked_exec_id": launch_exec.id
-        }),
-        targets=json.dumps([d.id for d in devices]),
-        created_by=user.username,
-        created_by_ip=client_ip,
-        total_targets=len(devices),
-        status="pending"
-    )
-    db.add(ui_clicks_exec)
-    db.commit()
-    db.refresh(ui_clicks_exec)
-    
     # Get FCM credentials
     try:
         access_token = get_access_token()
@@ -8666,16 +7828,13 @@ async def restart_app(
         fcm_url = build_fcm_v1_url(project_id)
     except Exception as e:
         force_stop_exec.status = "failed"
-        exempt_exec.status = "failed"
         launch_exec.status = "failed"
         db.commit()
         raise HTTPException(status_code=500, detail=f"FCM authentication failed: {str(e)}")
     
-    # Create result records for all four steps
+    # Create result records for both steps
     force_stop_correlations = {}
-    exempt_correlations = {}
     launch_correlations = {}
-    ui_clicks_correlations = {}
     
     for device in devices:
         # Force stop result
@@ -8689,17 +7848,6 @@ async def restart_app(
             status="pending"
         ))
         
-        # Battery exemption result
-        exempt_correlation = str(uuid.uuid4())
-        exempt_correlations[device.id] = exempt_correlation
-        db.add(RemoteExecResult(
-            exec_id=exempt_exec.id,
-            device_id=device.id,
-            alias=device.alias,
-            correlation_id=exempt_correlation,
-            status="pending"
-        ))
-        
         # Launch result
         launch_correlation = str(uuid.uuid4())
         launch_correlations[device.id] = launch_correlation
@@ -8710,21 +7858,10 @@ async def restart_app(
             correlation_id=launch_correlation,
             status="pending"
         ))
-        
-        # UI clicks result
-        ui_clicks_correlation = str(uuid.uuid4())
-        ui_clicks_correlations[device.id] = ui_clicks_correlation
-        db.add(RemoteExecResult(
-            exec_id=ui_clicks_exec.id,
-            device_id=device.id,
-            alias=device.alias,
-            correlation_id=ui_clicks_correlation,
-            status="pending"
-        ))
     
     db.commit()
     
-    # Step 1: Dispatch force-stop commands
+    # Dispatch force-stop commands using the correct 'action: remote_exec' format
     semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
     force_stop_results = {}
     
@@ -8765,53 +7902,10 @@ async def restart_app(
     
     db.commit()
     
-    # 2-second delay to allow force-stop to complete
-    await asyncio.sleep(2.0)
+    # Brief delay to allow force-stop to take effect
+    await asyncio.sleep(0.5)
     
-    # Step 2: Dispatch battery exemption commands
-    exempt_results = {}
-    
-    async with httpx.AsyncClient() as client:
-        tasks = [
-            dispatch_exempt_unity_to_device(
-                device=device,
-                package_name=request.package_name,
-                correlation_id=exempt_correlations[device.id],
-                semaphore=semaphore,
-                client=client,
-                fcm_url=fcm_url,
-                access_token=access_token,
-                db_results=exempt_results
-            )
-            for device in devices
-        ]
-        await asyncio.gather(*tasks, return_exceptions=True)
-    
-    # Update exemption exec counts
-    exempt_sent = sum(1 for r in exempt_results.values() if r.get("status") == "sent")
-    exempt_errors = len(devices) - exempt_sent
-    exempt_exec.sent_count = exempt_sent
-    exempt_exec.error_count = exempt_errors
-    exempt_exec.status = "pending" if exempt_sent > 0 else "failed"
-    
-    # Update failed result records
-    for device in devices:
-        result_data = exempt_results.get(device.id, {})
-        if result_data.get("status") != "sent":
-            result = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == exempt_exec.id,
-                RemoteExecResult.device_id == device.id
-            ).first()
-            if result:
-                result.status = "error"
-                result.error = result_data.get("error", "FCM dispatch failed")
-    
-    db.commit()
-    
-    # 2-second delay to allow battery exemption to complete
-    await asyncio.sleep(2.0)
-    
-    # Step 3: Dispatch launch commands
+    # Dispatch launch commands using the correct 'action: launch_app' format
     launch_results = {}
     
     async with httpx.AsyncClient() as client:
@@ -8851,160 +7945,27 @@ async def restart_app(
     
     db.commit()
     
-    # 15-second delay to allow app to load and show permission prompt
-    await asyncio.sleep(15.0)
-    
-    # Step 4: Dispatch UI clicks commands (with retry logic)
-    ui_clicks_exec.status = "dispatching"
-    db.commit()
-    
-    # First tap: input tap 500 885 (with retry logic - 3 attempts)
-    # Use base correlation ID for all retry attempts (updates same result record)
-    first_tap_results = {}
-    first_tap_success = set()
-    
-    for attempt in range(3):
-        attempt_results = {}
-        async with httpx.AsyncClient() as client:
-            tasks = [
-                dispatch_fcm_to_device(
-                    device=device,
-                    exec_id=ui_clicks_exec.id,
-                    mode="shell",
-                    payload={"script": "input tap 500 885"},
-                    semaphore=semaphore,
-                    client=client,
-                    fcm_url=fcm_url,
-                    access_token=access_token,
-                    db_results=attempt_results,
-                    correlation_id=ui_clicks_correlations[device.id]  # Use base correlation ID
-                )
-                for device in devices if device.id not in first_tap_success
-            ]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Track successful dispatches
-        for device_id, result in attempt_results.items():
-            if result.get("status") == "sent":
-                first_tap_success.add(device_id)
-                if device_id not in first_tap_results:
-                    first_tap_results[device_id] = result
-        
-        # If all devices succeeded or this is the last attempt, break
-        if len(first_tap_success) == len(devices) or attempt == 2:
-            break
-        
-        # Wait 1 second between retries
-        if attempt < 2:
-            await asyncio.sleep(1.0)
-    
-    # Check if first tap failed for any devices - abort for those devices
-    failed_devices = set(device.id for device in devices) - first_tap_success
-    if failed_devices:
-        for device_id in failed_devices:
-            result = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == ui_clicks_exec.id,
-                RemoteExecResult.device_id == device_id
-            ).first()
-            if result:
-                result.status = "error"
-                result.error = "First tap failed after 3 retry attempts - aborted"
-    
-    # Wait 2 seconds before second tap
-    await asyncio.sleep(2.0)
-    
-    # Second tap: input tap 590 980 (with retry logic - 3 attempts, only for devices that succeeded first tap)
-    # Use same correlation ID (updates same result record with second tap result)
-    second_tap_results = {}
-    second_tap_success = set()
-    
-    for attempt in range(3):
-        attempt_results = {}
-        async with httpx.AsyncClient() as client:
-            tasks = [
-                dispatch_fcm_to_device(
-                    device=device,
-                    exec_id=ui_clicks_exec.id,
-                    mode="shell",
-                    payload={"script": "input tap 590 980"},
-                    semaphore=semaphore,
-                    client=client,
-                    fcm_url=fcm_url,
-                    access_token=access_token,
-                    db_results=attempt_results,
-                    correlation_id=ui_clicks_correlations[device.id]  # Use same correlation ID
-                )
-                for device in devices if device.id in first_tap_success and device.id not in second_tap_success
-            ]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Track successful dispatches
-        for device_id, result in attempt_results.items():
-            if result.get("status") == "sent":
-                second_tap_success.add(device_id)
-                if device_id not in second_tap_results:
-                    second_tap_results[device_id] = result
-        
-        # If all eligible devices succeeded or this is the last attempt, break
-        if len(second_tap_success) == len(first_tap_success) or attempt == 2:
-            break
-        
-        # Wait 1 second between retries
-        if attempt < 2:
-            await asyncio.sleep(1.0)
-    
-    # Update UI clicks exec counts and status
-    ui_clicks_sent = len(first_tap_success)
-    ui_clicks_errors = len(devices) - ui_clicks_sent
-    ui_clicks_exec.sent_count = ui_clicks_sent
-    ui_clicks_exec.error_count = ui_clicks_errors
-    ui_clicks_exec.status = "pending" if ui_clicks_sent > 0 else "failed"
-    
-    # Update result records for devices where second tap failed
-    for device_id in first_tap_success:
-        if device_id not in second_tap_success:
-            result = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == ui_clicks_exec.id,
-                RemoteExecResult.device_id == device_id
-            ).first()
-            if result:
-                # Partial success - first tap worked but second failed
-                result.status = "error"
-                result.error = "First tap succeeded but second tap failed after 3 retry attempts"
-    
-    db.commit()
-    
     structured_logger.log_event(
         "remote_exec.restart_app.dispatched",
         force_stop_exec_id=force_stop_exec.id,
-        exempt_exec_id=exempt_exec.id,
         launch_exec_id=launch_exec.id,
-        ui_clicks_exec_id=ui_clicks_exec.id,
         package_name=request.package_name,
         user=user.username,
         total_targets=len(devices),
         force_stop_sent=fs_sent,
-        exempt_sent=exempt_sent,
         launch_sent=launch_sent,
-        ui_clicks_sent=ui_clicks_sent,
         client_ip=client_ip
     )
     
     return {
         "restart_id": force_stop_exec.id,
         "force_stop_exec_id": force_stop_exec.id,
-        "exempt_exec_id": exempt_exec.id,
         "launch_exec_id": launch_exec.id,
-        "ui_clicks_exec_id": ui_clicks_exec.id,
         "package_name": request.package_name,
         "stats": {
             "total_targets": len(devices),
             "force_stop": {"sent": fs_sent, "errors": fs_errors},
-            "battery_exemption": {"sent": exempt_sent, "errors": exempt_errors},
-            "launch": {"sent": launch_sent, "errors": launch_errors},
-            "ui_clicks": {"sent": ui_clicks_sent, "errors": ui_clicks_errors}
+            "launch": {"sent": launch_sent, "errors": launch_errors}
         }
     }
 
@@ -9016,7 +7977,7 @@ async def get_restart_app_status(
 ):
     """
     Get combined status for a restart-app operation.
-    Returns status of all four steps: force-stop, battery exemption, launch, and UI clicks.
+    Returns status of both force-stop and launch steps.
     """
     # Get force-stop exec (primary)
     force_stop_exec = db.query(RemoteExec).filter(
@@ -9027,52 +7988,26 @@ async def get_restart_app_status(
     if not force_stop_exec:
         raise HTTPException(status_code=404, detail="Restart operation not found")
     
-    # Get linked exemption, launch, and UI clicks execs
+    # Get linked launch exec
     raw_request = json.loads(force_stop_exec.raw_request) if force_stop_exec.raw_request else {}
     package_name = raw_request.get("package_name", "unknown")
-    
-    exempt_exec = db.query(RemoteExec).filter(
-        RemoteExec.mode == "restart_app_exempt",
-        RemoteExec.created_by == force_stop_exec.created_by,
-        RemoteExec.created_at >= force_stop_exec.created_at,
-        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=15)
-    ).first()
     
     launch_exec = db.query(RemoteExec).filter(
         RemoteExec.mode == "restart_app_launch",
         RemoteExec.created_by == force_stop_exec.created_by,
         RemoteExec.created_at >= force_stop_exec.created_at,
-        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=15)
+        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=10)
     ).first()
     
-    ui_clicks_exec = db.query(RemoteExec).filter(
-        RemoteExec.mode == "restart_app_ui_clicks",
-        RemoteExec.created_by == force_stop_exec.created_by,
-        RemoteExec.created_at >= force_stop_exec.created_at,
-        RemoteExec.created_at <= force_stop_exec.created_at + timedelta(seconds=30)
-    ).first()
-    
-    # Get results for all four steps
+    # Get results for both
     force_stop_results = db.query(RemoteExecResult).filter(
         RemoteExecResult.exec_id == force_stop_exec.id
     ).all()
-    
-    exempt_results = []
-    if exempt_exec:
-        exempt_results = db.query(RemoteExecResult).filter(
-            RemoteExecResult.exec_id == exempt_exec.id
-        ).all()
     
     launch_results = []
     if launch_exec:
         launch_results = db.query(RemoteExecResult).filter(
             RemoteExecResult.exec_id == launch_exec.id
-        ).all()
-    
-    ui_clicks_results = []
-    if ui_clicks_exec:
-        ui_clicks_results = db.query(RemoteExecResult).filter(
-            RemoteExecResult.exec_id == ui_clicks_exec.id
         ).all()
     
     # Timeout logic: Mark pending results older than 5 minutes as timed_out
@@ -9087,24 +8022,8 @@ async def get_restart_app_status(
             result.updated_at = datetime.now(timezone.utc)
             timeout_updated = True
     
-    # Check exemption results
-    for result in exempt_results:
-        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
-            result.status = "timed_out"
-            result.error = "Operation timed out after 5 minutes"
-            result.updated_at = datetime.now(timezone.utc)
-            timeout_updated = True
-    
     # Check launch results
     for result in launch_results:
-        if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
-            result.status = "timed_out"
-            result.error = "Operation timed out after 5 minutes"
-            result.updated_at = datetime.now(timezone.utc)
-            timeout_updated = True
-    
-    # Check UI clicks results
-    for result in ui_clicks_results:
         if result.status == "pending" and result.sent_at and result.sent_at < timeout_threshold:
             result.status = "timed_out"
             result.error = "Operation timed out after 5 minutes"
@@ -9118,17 +8037,9 @@ async def get_restart_app_status(
         force_stop_results = db.query(RemoteExecResult).filter(
             RemoteExecResult.exec_id == force_stop_exec.id
         ).all()
-        if exempt_exec:
-            exempt_results = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == exempt_exec.id
-            ).all()
         if launch_exec:
             launch_results = db.query(RemoteExecResult).filter(
                 RemoteExecResult.exec_id == launch_exec.id
-            ).all()
-        if ui_clicks_exec:
-            ui_clicks_results = db.query(RemoteExecResult).filter(
-                RemoteExecResult.exec_id == ui_clicks_exec.id
             ).all()
     
     # Build per-device combined status
@@ -9143,19 +8054,8 @@ async def get_restart_app_status(
                 "output": r.output_preview,
                 "error": r.error
             },
-            "battery_exemption": {"status": "pending"},
-            "launch": {"status": "pending"},
-            "ui_clicks": {"status": "pending"}
+            "launch": {"status": "pending"}
         }
-    
-    for r in exempt_results:
-        if r.device_id in device_statuses:
-            device_statuses[r.device_id]["battery_exemption"] = {
-                "status": r.status,
-                "exit_code": r.exit_code,
-                "output": r.output_preview,
-                "error": r.error
-            }
     
     for r in launch_results:
         if r.device_id in device_statuses:
@@ -9166,37 +8066,22 @@ async def get_restart_app_status(
                 "error": r.error
             }
     
-    for r in ui_clicks_results:
-        if r.device_id in device_statuses:
-            device_statuses[r.device_id]["ui_clicks"] = {
-                "status": r.status,
-                "exit_code": r.exit_code,
-                "output": r.output_preview,
-                "error": r.error
-            }
-    
     # Compute overall status per device
     for d in device_statuses.values():
         fs_status = d["force_stop"]["status"]
-        exempt_status = d["battery_exemption"]["status"]
         launch_status = d["launch"]["status"]
-        ui_clicks_status = d["ui_clicks"]["status"]
         fs_ok = fs_status == "OK"
-        exempt_ok = exempt_status == "OK"
         launch_ok = launch_status == "OK"
-        ui_clicks_ok = ui_clicks_status == "OK"
         
         # Check for timed_out (terminal state)
         fs_timed_out = fs_status == "timed_out"
-        exempt_timed_out = exempt_status == "timed_out"
         launch_timed_out = launch_status == "timed_out"
-        ui_clicks_timed_out = ui_clicks_status == "timed_out"
         
-        if fs_ok and exempt_ok and launch_ok and ui_clicks_ok:
+        if fs_ok and launch_ok:
             d["overall_status"] = "ok"
-        elif fs_timed_out or exempt_timed_out or launch_timed_out or ui_clicks_timed_out:
+        elif fs_timed_out or launch_timed_out:
             d["overall_status"] = "timed_out"
-        elif fs_status == "pending" or exempt_status == "pending" or launch_status == "pending" or ui_clicks_status == "pending":
+        elif fs_status == "pending" or launch_status == "pending":
             d["overall_status"] = "pending"
         else:
             d["overall_status"] = "failed"
@@ -9233,14 +8118,13 @@ async def get_restart_app_status(
         overall_status = "pending"
         failure_reason = None
     
-    result = {
+    return {
         "restart_id": restart_id,
         "package_name": package_name,
         "status": overall_status,
         "failure_reason": failure_reason,
         "created_at": force_stop_exec.created_at.isoformat() + "Z",
         "created_by": force_stop_exec.created_by,
-        "force_stop_exec_id": force_stop_exec.id,
         "stats": {
             "total": total,
             "ok": ok_count,
@@ -9250,484 +8134,149 @@ async def get_restart_app_status(
         },
         "devices": list(device_statuses.values())
     }
-    
-    if exempt_exec:
-        result["exempt_exec_id"] = exempt_exec.id
-    if launch_exec:
-        result["launch_exec_id"] = launch_exec.id
-    if ui_clicks_exec:
-        result["ui_clicks_exec_id"] = ui_clicks_exec.id
-    
-    return result
 
-# --- Unity Soft Update Refresh Endpoint ---
-
-def find_latest_unity_apk(db: Session) -> Optional[ApkVersion]:
-    """
-    Find the latest Unity APK where version_name starts with 'Unity'.
-    Returns the most recently uploaded Unity APK, or None if not found.
-    """
-    unity_apk = db.query(ApkVersion).filter(
-        ApkVersion.version_name.like('Unity%'),
-        ApkVersion.is_active == True
-    ).order_by(ApkVersion.uploaded_at.desc()).first()
-    return unity_apk
-
-class ReinstallUnityAndLaunchRequest(BaseModel):
-    device_ids: List[str]
-    dry_run: bool = False
-
-
-async def _run_reinstall_unity_fcm_dispatch(
-    exec_id: int,
-    apk_id: int,
-    apk_version_name: str,
-    apk_version_code: int,
-    apk_package_name: str,
-    device_data: List[dict],
-    installation_data: List[dict],
-    install_correlations: dict,
-    launch_correlations: dict,
-    username: str,
-    client_ip: str
+@app.post("/v1/apk/upload-chunk")
+async def upload_apk_chunk(
+    request: Request,
+    apk_id: int = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
 ):
-    """
-    Background task to dispatch FCM messages for reinstall-unity-and-launch.
-    Runs asynchronously after the endpoint returns.
-    """
-    import httpx
-    
-    db = SessionLocal()
+    """Upload a chunk of an APK file. Used for large APKs."""
+    verify_admin_key(x_admin_key)
+
+    # Check if APK version exists
+    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk_version:
+        raise HTTPException(status_code=404, detail="APK version not found")
+
+    # Validate chunk index and total chunks
+    if not (0 <= chunk_index < total_chunks):
+        raise HTTPException(status_code=422, detail="Invalid chunk index or total chunks")
+
+    # Use the optimized upload service
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        chunk_index=chunk_index,
+        total_chunks=total_chunks,
+        file=file,
+        request=request
+    )
+
+@app.post("/v1/apk/complete")
+async def complete_apk_upload(
+    request: Request,
+    apk_id: int = Form(...),
+    total_chunks: int = Form(...),
+    db: Session = Depends(get_db),
+    x_admin_key: str = Header(..., alias="X-Admin-Key")
+):
+    """Mark an APK upload as complete and verify integrity."""
+    verify_admin_key(x_admin_key)
+
+    # Check if APK version exists
+    apk_version = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
+    if not apk_version:
+        raise HTTPException(status_code=404, detail="APK version not found")
+
+    # Use the optimized upload service to complete the upload
+    return await download_apk_optimized(
+        apk_id=apk_id,
+        db=db,
+        total_chunks=total_chunks,
+        request=request
+    )
+
+@app.post("/admin/apk/upload")
+async def upload_apk_admin(
+    request: Request,
+    apk_file: UploadFile = File(...),
+    version_name: str = Form(...),
+    version_code: int = Form(...),
+    description: str = Form(""),
+    build_type: str = Form("release"),
+    enabled: bool = Form(True),
+    x_admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: Session = Depends(get_db)
+):
+    """Upload an APK file directly via admin interface (for smaller files)."""
+    verify_admin_key(x_admin_key)
+
+    # Validate version code
+    if version_code <= 0:
+        raise HTTPException(status_code=422, detail="version_code must be a positive integer")
+
+    # Check for existing version with same code or name
+    existing_version = db.query(ApkVersion).filter(
+        (ApkVersion.version_code == version_code) | (ApkVersion.version_name == version_name)
+    ).first()
+    if existing_version:
+        raise HTTPException(status_code=409, detail="An APK with this version code or name already exists")
+
+    # Save the APK file to object storage
     try:
-        reinstall_exec = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
-        if not reinstall_exec:
-            structured_logger.log_event(
-                "apk.reinstall_unity_and_launch.background_error",
-                exec_id=exec_id,
-                error="RemoteExec not found"
-            )
-            return
-        
-        apk = db.query(ApkVersion).filter(ApkVersion.id == apk_id).first()
-        if not apk:
-            reinstall_exec.status = "failed"
-            reinstall_exec.error_count = len(device_data)
-            db.commit()
-            return
-        
-        try:
-            access_token = get_access_token()
-            project_id = get_firebase_project_id()
-            fcm_url = build_fcm_v1_url(project_id)
-        except Exception as e:
-            reinstall_exec.status = "failed"
-            reinstall_exec.error_count = len(device_data)
-            
-            for device_info in device_data:
-                install_results = db.query(RemoteExecResult).filter(
-                    RemoteExecResult.exec_id == exec_id,
-                    RemoteExecResult.device_id == device_info["id"]
-                ).all()
-                for result in install_results:
-                    result.status = "error"
-                    result.error = f"FCM authentication failed: {str(e)}"
-            
-            db.commit()
-            structured_logger.log_event(
-                "apk.reinstall_unity_and_launch.fcm_auth_failed",
-                exec_id=exec_id,
-                error=str(e)
-            )
-            return
-        
-        devices = db.query(Device).filter(Device.id.in_([d["id"] for d in device_data])).all()
-        device_map = {d.id: d for d in devices}
-        
-        installations = db.query(ApkInstallation).filter(
-            ApkInstallation.id.in_([i["id"] for i in installation_data])
-        ).all()
-        installation_map = {inst.device_id: inst for inst in installations}
-        
-        batch_size = 5
-        semaphore = asyncio.Semaphore(FCM_DISPATCH_CONCURRENCY)
-        
-        total_batches = (len(device_data) + batch_size - 1) // batch_size
-        sent_count = 0
-        error_count = 0
-        
-        async with httpx.AsyncClient() as client:
-            for batch_num in range(total_batches):
-                start_idx = batch_num * batch_size
-                end_idx = min(start_idx + batch_size, len(device_data))
-                batch_device_ids = [d["id"] for d in device_data[start_idx:end_idx]]
-                batch_devices = [device_map[did] for did in batch_device_ids if did in device_map]
-                
-                tasks = [
-                    dispatch_apk_fcm_to_device(
-                        device=device,
-                        apk=apk,
-                        installation=installation_map.get(device.id),
-                        semaphore=semaphore,
-                        client=client,
-                        fcm_url=fcm_url,
-                        access_token=access_token
-                    )
-                    for device in batch_devices
-                    if device.id in installation_map
-                ]
-                
-                if tasks:
-                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    for i, result in enumerate(batch_results):
-                        device = batch_devices[i]
-                        if isinstance(result, Exception):
-                            error_count += 1
-                            if device.id in install_correlations:
-                                result_record = db.query(RemoteExecResult).filter(
-                                    RemoteExecResult.exec_id == exec_id,
-                                    RemoteExecResult.device_id == device.id,
-                                    RemoteExecResult.correlation_id == install_correlations[device.id]["correlation_id"]
-                                ).first()
-                                if result_record:
-                                    result_record.status = "error"
-                                    result_record.error = f"FCM dispatch failed: {str(result)}"
-                        elif result.get("status") == "sent":
-                            sent_count += 1
-                        else:
-                            error_count += 1
-                            device_id = result.get("device_id")
-                            if device_id and device_id in install_correlations:
-                                result_record = db.query(RemoteExecResult).filter(
-                                    RemoteExecResult.exec_id == exec_id,
-                                    RemoteExecResult.device_id == device_id,
-                                    RemoteExecResult.correlation_id == install_correlations[device_id]["correlation_id"]
-                                ).first()
-                                if result_record:
-                                    result_record.status = "error"
-                                    result_record.error = result.get("error", "Unknown error")
-                    
-                    db.commit()
-                
-                if batch_num < total_batches - 1:
-                    await asyncio.sleep(2.0)
-        
-        reinstall_exec.sent_count = sent_count
-        reinstall_exec.error_count = error_count
-        reinstall_exec.status = "pending" if sent_count > 0 else "failed"
-        db.commit()
-        
-        structured_logger.log_event(
-            "apk.reinstall_unity_and_launch.dispatched",
-            exec_id=exec_id,
-            apk_id=apk_id,
-            version_name=apk_version_name,
-            user=username,
-            total_targets=len(device_data),
-            sent_count=sent_count,
-            error_count=error_count,
-            client_ip=client_ip
+        storage_service = get_storage_service()
+        file_content = await apk_file.read()
+        file_size = len(file_content)
+        sha256_hash = hashlib.sha256(file_content).hexdigest()
+
+        # Construct object name
+        object_name = f"apks/{version_name}_{version_code}.apk"
+        # upload_file is synchronous, do not await
+        storage_service.upload_file(file_content, object_name)
+
+        apk_version = ApkVersion(
+            version_name=version_name,
+            version_code=version_code,
+            notes=description,
+            build_type=build_type,
+            file_size=file_size,
+            sha256=sha256_hash,
+            file_path=object_name,
+            storage_url=object_name,
+            is_active=enabled,
+            uploaded_by="admin",
+            package_name="com.nexmdm"
         )
-        
+        db.add(apk_version)
+        db.commit()
+        db.refresh(apk_version)
+
+        structured_logger.log_event(
+            "apk.uploaded",
+            admin_user="admin",
+            apk_id=apk_version.id,
+            version_name=version_name,
+            version_code=version_code,
+            file_size=file_size,
+            sha256_hash=sha256_hash
+        )
+
+        return {
+            "ok": True,
+            "message": "APK uploaded successfully",
+            "apk_id": apk_version.id,
+            "version_name": apk_version.version_name,
+            "version_code": apk_version.version_code,
+            "storage_url": apk_version.storage_url
+        }
+
+    except ObjectNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"Object storage error: {str(e)}")
     except Exception as e:
         structured_logger.log_event(
-            "apk.reinstall_unity_and_launch.background_error",
-            exec_id=exec_id,
+            "apk.upload.fail",
+            level="ERROR",
+            admin_user="admin",
+            version_name=version_name,
+            version_code=version_code,
             error=str(e)
         )
-        try:
-            reinstall_exec = db.query(RemoteExec).filter(RemoteExec.id == exec_id).first()
-            if reinstall_exec:
-                reinstall_exec.status = "failed"
-                db.commit()
-        except:
-            pass
-    finally:
-        db.close()
-
-
-@app.post("/v1/apk/reinstall-unity-and-launch")
-async def reinstall_unity_and_launch(
-    request: ReinstallUnityAndLaunchRequest,
-    req: Request,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Reinstall the latest Unity APK and launch the app.
-    Returns immediately with exec_id, dispatches FCM in background.
-    Poll the status endpoint for progress updates.
-    """
-    rate_key = f"remote_exec_batch:{user.id}"
-    if not remote_exec_batch_limiter.is_allowed(rate_key):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
-    
-    unity_apk = find_latest_unity_apk(db)
-    if not unity_apk:
-        raise HTTPException(status_code=404, detail="No Unity APK found. Upload an APK with version_name starting with 'Unity'.")
-    
-    devices = db.query(Device).filter(Device.id.in_(request.device_ids)).all()
-    if not devices:
-        raise HTTPException(status_code=404, detail="No devices found")
-    
-    devices_with_fcm = [d for d in devices if d.fcm_token]
-    if not devices_with_fcm:
-        raise HTTPException(status_code=400, detail="No devices with FCM tokens found")
-    
-    if request.dry_run:
-        return {
-            "dry_run": True,
-            "target_count": len(devices_with_fcm),
-            "unity_apk": {
-                "id": unity_apk.id,
-                "version_name": unity_apk.version_name,
-                "version_code": unity_apk.version_code
-            },
-            "sample_devices": [{"id": d.id, "alias": d.alias} for d in devices_with_fcm[:10]]
-        }
-    
-    client_ip = req.client.host if req.client else "unknown"
-    
-    reinstall_exec = RemoteExec(
-        mode="reinstall_unity_and_launch",
-        raw_request=json.dumps({
-            "apk_id": unity_apk.id,
-            "version_name": unity_apk.version_name,
-            "version_code": unity_apk.version_code,
-            "package_name": unity_apk.package_name if hasattr(unity_apk, 'package_name') else "io.unitynodes.unityapp"
-        }),
-        targets=json.dumps([d.id for d in devices_with_fcm]),
-        created_by=user.username,
-        created_by_ip=client_ip,
-        total_targets=len(devices_with_fcm),
-        status="dispatching"
-    )
-    db.add(reinstall_exec)
-    db.commit()
-    db.refresh(reinstall_exec)
-    
-    installations = []
-    now = datetime.now(timezone.utc)
-    
-    for device in devices_with_fcm:
-        installation = ApkInstallation(
-            device_id=device.id,
-            apk_version_id=unity_apk.id,
-            status="pending",
-            initiated_at=now,
-            initiated_by=user.username
-        )
-        db.add(installation)
-        installations.append(installation)
-    
-    db.commit()
-    
-    for installation in installations:
-        db.refresh(installation)
-    
-    install_correlations = {}
-    launch_correlations = {}
-    
-    for device in devices_with_fcm:
-        installation = next((inst for inst in installations if inst.device_id == device.id), None)
-        if installation:
-            install_correlation = str(uuid.uuid4())
-            install_correlations[device.id] = {
-                "correlation_id": install_correlation,
-                "installation_id": installation.id
-            }
-            db.add(RemoteExecResult(
-                exec_id=reinstall_exec.id,
-                device_id=device.id,
-                alias=device.alias,
-                correlation_id=install_correlation,
-                status="pending"
-            ))
-            
-            launch_correlation = str(uuid.uuid4())
-            launch_correlations[device.id] = launch_correlation
-            db.add(RemoteExecResult(
-                exec_id=reinstall_exec.id,
-                device_id=device.id,
-                alias=device.alias,
-                correlation_id=launch_correlation,
-                status="pending"
-            ))
-    
-    db.commit()
-    
-    raw_request_data = json.loads(reinstall_exec.raw_request)
-    raw_request_data["install_correlations"] = install_correlations
-    raw_request_data["launch_correlations"] = launch_correlations
-    reinstall_exec.raw_request = json.dumps(raw_request_data)
-    db.commit()
-    
-    device_data = [{"id": d.id, "alias": d.alias, "fcm_token": d.fcm_token} for d in devices_with_fcm]
-    installation_data = [{"id": inst.id, "device_id": inst.device_id} for inst in installations]
-    
-    asyncio.create_task(_run_reinstall_unity_fcm_dispatch(
-        exec_id=reinstall_exec.id,
-        apk_id=unity_apk.id,
-        apk_version_name=unity_apk.version_name,
-        apk_version_code=unity_apk.version_code,
-        apk_package_name=unity_apk.package_name if hasattr(unity_apk, 'package_name') else "io.unitynodes.unityapp",
-        device_data=device_data,
-        installation_data=installation_data,
-        install_correlations=install_correlations,
-        launch_correlations=launch_correlations,
-        username=user.username,
-        client_ip=client_ip
-    ))
-    
-    structured_logger.log_event(
-        "apk.reinstall_unity_and_launch.started",
-        exec_id=reinstall_exec.id,
-        apk_id=unity_apk.id,
-        version_name=unity_apk.version_name,
-        user=user.username,
-        total_targets=len(devices_with_fcm),
-        client_ip=client_ip
-    )
-    
-    return {
-        "exec_id": reinstall_exec.id,
-        "apk_id": unity_apk.id,
-        "version_name": unity_apk.version_name,
-        "version_code": unity_apk.version_code,
-        "status": "dispatching",
-        "stats": {
-            "total_targets": len(devices_with_fcm),
-            "sent": 0,
-            "errors": 0
-        }
-    }
-
-@app.get("/v1/apk/reinstall-unity-and-launch/{exec_id}/status")
-async def get_reinstall_unity_and_launch_status(
-    exec_id: str,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get combined status for a reinstall-unity-and-launch operation.
-    Returns status of both installation and launch steps per device.
-    """
-    reinstall_exec = db.query(RemoteExec).filter(
-        RemoteExec.id == exec_id,
-        RemoteExec.mode == "reinstall_unity_and_launch"
-    ).first()
-    
-    if not reinstall_exec:
-        raise HTTPException(status_code=404, detail="Reinstall operation not found")
-    
-    raw_request = json.loads(reinstall_exec.raw_request) if reinstall_exec.raw_request else {}
-    apk_id = raw_request.get("apk_id")
-    package_name = raw_request.get("package_name", "io.unitynodes.unityapp")
-    
-    # Get all RemoteExecResult records for this exec
-    results = db.query(RemoteExecResult).filter(
-        RemoteExecResult.exec_id == reinstall_exec.id
-    ).all()
-    
-    # Get ApkInstallation records
-    installations = []
-    if apk_id:
-        installations = db.query(ApkInstallation).filter(
-            ApkInstallation.apk_version_id == apk_id,
-            ApkInstallation.device_id.in_([r.device_id for r in results])
-        ).all()
-    
-    # Build per-device status
-    device_statuses = {}
-    install_correlations = raw_request.get("install_correlations", {})
-    launch_correlations = raw_request.get("launch_correlations", {})
-    
-    # Initialize device statuses
-    device_ids = set(r.device_id for r in results)
-    for device_id in device_ids:
-        device_statuses[device_id] = {
-            "device_id": device_id,
-            "installation": {"status": "pending"},
-            "launch": {"status": "pending"},
-            "overall_status": "pending"
-        }
-    
-    # Update installation status from ApkInstallation records
-    for installation in installations:
-        if installation.device_id in device_statuses:
-            install_status = "pending"
-            if installation.status == "completed":
-                install_status = "ok"
-            elif installation.status == "failed":
-                install_status = "failed"
-            
-            device_statuses[installation.device_id]["installation"] = {
-                "status": install_status,
-                "installation_id": installation.id,
-                "error": installation.error_message
-            }
-    
-    # Update launch status from RemoteExecResult records
-    for result in results:
-        device_id = result.device_id
-        if device_id in device_statuses:
-            # Check if this is a launch result (correlation_id matches launch_correlations)
-            if device_id in launch_correlations and result.correlation_id == launch_correlations[device_id]:
-                launch_status = "pending"
-                if result.status == "OK":
-                    launch_status = "ok"
-                elif result.status in ["error", "FAILED"]:
-                    launch_status = "failed"
-                elif result.status == "timed_out":
-                    launch_status = "timed_out"
-                
-                device_statuses[device_id]["launch"] = {
-                    "status": launch_status,
-                    "exit_code": result.exit_code,
-                    "output": result.output_preview,
-                    "error": result.error
-                }
-    
-    # Compute overall status per device
-    for device_id, status in device_statuses.items():
-        install_status = status["installation"]["status"]
-        launch_status = status["launch"]["status"]
-        
-        install_ok = install_status == "ok"
-        launch_ok = launch_status == "ok"
-        
-        if install_ok and launch_ok:
-            status["overall_status"] = "ok"
-        elif install_status == "failed" or launch_status == "failed":
-            status["overall_status"] = "failed"
-        elif install_status == "pending" or launch_status == "pending":
-            status["overall_status"] = "pending"
-        else:
-            status["overall_status"] = "failed"
-    
-    # Compute overall stats
-    total = len(device_statuses)
-    ok_count = sum(1 for s in device_statuses.values() if s["overall_status"] == "ok")
-    failed_count = sum(1 for s in device_statuses.values() if s["overall_status"] == "failed")
-    pending_count = total - ok_count - failed_count
-    
-    overall_status = "ok" if ok_count == total else ("failed" if failed_count > 0 else "pending")
-    
-    return {
-        "exec_id": exec_id,
-        "apk_id": apk_id,
-        "package_name": package_name,
-        "status": overall_status,
-        "created_at": reinstall_exec.created_at.isoformat() + "Z",
-        "created_by": reinstall_exec.created_by,
-        "stats": {
-            "total": total,
-            "ok": ok_count,
-            "failed": failed_count,
-            "pending": pending_count
-        },
-        "devices": list(device_statuses.values())
-    }
+        raise HTTPException(status_code=500, detail=f"Failed to upload APK: {str(e)}")
 
 @app.get("/admin/apks")
 async def get_admin_apks(

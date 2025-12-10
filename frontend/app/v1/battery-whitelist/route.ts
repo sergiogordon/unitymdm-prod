@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import { getBackendUrl } from '@/lib/backend-url'
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
 
 export async function GET(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/battery-whitelist')
-    
     const authHeader = request.headers.get('Authorization')
     
     const headers: HeadersInit = {
@@ -42,9 +39,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/battery-whitelist')
-    
     const authHeader = request.headers.get('Authorization')
     const body = await request.json()
     
@@ -83,9 +77,6 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest, { params }: { params: { id?: string } }) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/battery-whitelist')
-    
     const authHeader = request.headers.get('Authorization')
     const url = new URL(request.url)
     const pathParts = url.pathname.split('/')

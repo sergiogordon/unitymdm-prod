@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBackendUrl } from '@/lib/backend-url';
+
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const BACKEND_URL = getBackendUrl('/v1/heartbeat');
-    
     const authHeader = request.headers.get('Authorization');
     
     if (!authHeader) {
@@ -33,38 +31,14 @@ export async function POST(request: NextRequest) {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      // Handle non-JSON error responses (e.g., rate limit plain text)
-      const contentType = response.headers.get('content-type');
-      let errorData;
-      
-      if (contentType && contentType.includes('application/json')) {
-        try {
-          errorData = await response.json();
-        } catch {
-          errorData = { detail: 'Unknown error' };
-        }
-      } else {
-        // Plain text response (e.g., "Rate exceeded.")
-        const errorText = await response.text();
-        errorData = { detail: errorText || `HTTP ${response.status}: ${response.statusText}` };
-      }
-      
-      return NextResponse.json(errorData, { status: response.status });
+      const error = await response.json();
+      return NextResponse.json(error, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
     console.error('Error proxying heartbeat:', error);
-    
-    // Handle JSON parse errors specifically
-    if (error instanceof SyntaxError && error.message.includes('JSON')) {
-      return NextResponse.json(
-        { detail: 'Invalid response from backend server' },
-        { status: 502 }
-      );
-    }
-    
     return NextResponse.json(
       { detail: 'Failed to process heartbeat' },
       { status: 500 }

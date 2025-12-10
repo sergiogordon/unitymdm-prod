@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBackendUrl } from '@/lib/backend-url'
 
 export async function GET(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const backendUrl = getBackendUrl('/api/auth/user')
-    
     // Get JWT token from Authorization header
     const authHeader = request.headers.get('Authorization')
     
@@ -26,6 +22,8 @@ export async function GET(request: NextRequest) {
     if (authHeader) {
       headers['Authorization'] = authHeader
     }
+    
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
     const response = await fetch(`${backendUrl}/api/auth/user`, {
       method: 'GET',
       headers

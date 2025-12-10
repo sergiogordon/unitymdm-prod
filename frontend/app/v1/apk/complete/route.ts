@@ -1,32 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
-import { getBackendUrl } from '@/lib/backend-url'
+const API_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
 
 export async function POST(request: NextRequest) {
   try {
-    // Resolve backend URL dynamically on each request
-    const API_URL = getBackendUrl('/v1/apk/complete')
-    
     const cookieStore = await cookies()
     const sessionCookie = cookieStore.get('session_token')
     const authHeader = request.headers.get('authorization')
 
     const body = await request.json()
 
-    const formData = new FormData()
-    formData.append('upload_id', body.upload_id)
-    formData.append('package_name', body.package_name)
-    formData.append('version_name', body.version_name)
-    formData.append('version_code', body.version_code.toString())
-    formData.append('filename', body.filename)
-    formData.append('total_chunks', body.total_chunks.toString())
-    formData.append('build_type', body.build_type || 'release')
-
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 120000)
+    const timeoutId = setTimeout(() => controller.abort(), 60000)
 
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
     
     if (authHeader) {
       headers['Authorization'] = authHeader
@@ -37,7 +27,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(`${API_URL}/v1/apk/complete`, {
       method: 'POST',
       headers,
-      body: formData,
+      body: JSON.stringify(body),
       signal: controller.signal,
     })
 

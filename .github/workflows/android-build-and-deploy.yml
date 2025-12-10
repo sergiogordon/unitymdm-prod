@@ -195,122 +195,72 @@ jobs:
 
       - name: Check backend connectivity
         env:
-          BACKEND_URL_DEV: ${{ secrets.NEXMDM_BACKEND_URL_DEV }}
-          BACKEND_URL_PROD: ${{ secrets.NEXMDM_BACKEND_URL_PROD }}
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
         run: |
-          echo "🔍 Checking backend connectivity for both dev and prod..."
+          echo "🔍 Checking backend connectivity..."
+          echo "Backend URL: $BACKEND_URL"
           
-          # Function to check a single backend
-          check_backend() {
-            local BACKEND_URL=$1
-            local ENV_NAME=$2
+          # Check if frontend is accessible (with retry for cold starts)
+          echo "Testing frontend accessibility..."
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          
+          for i in $(seq 1 $MAX_RETRIES); do
+            FRONTEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$BACKEND_URL" || echo "000")
             
-            echo ""
-            echo "================================================"
-            echo "Checking $ENV_NAME backend: $BACKEND_URL"
-            echo "================================================"
-            
-            # Check if frontend is accessible (with retry for cold starts)
-            echo "Testing frontend accessibility..."
-            MAX_RETRIES=3
-            RETRY_DELAY=10
-            FRONTEND_CODE="000"
-            
-            for i in $(seq 1 $MAX_RETRIES); do
-              FRONTEND_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$BACKEND_URL" || echo "000")
-              
-              if [ "$FRONTEND_CODE" = "000" ]; then
-                echo "❌ Attempt $i/$MAX_RETRIES: Cannot reach frontend at $BACKEND_URL"
-                if [ $i -lt $MAX_RETRIES ]; then
-                  echo "   Retrying in ${RETRY_DELAY}s..."
-                  sleep $RETRY_DELAY
-                fi
-              elif [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
-                echo "⚠️  Attempt $i/$MAX_RETRIES: Frontend returned HTTP $FRONTEND_CODE (app may be starting)"
-                if [ $i -lt $MAX_RETRIES ]; then
-                  echo "   Retrying in ${RETRY_DELAY}s..."
-                  sleep $RETRY_DELAY
-                fi
-              elif [ "$FRONTEND_CODE" = "200" ] || [ "$FRONTEND_CODE" = "301" ] || [ "$FRONTEND_CODE" = "302" ]; then
-                echo "✅ Frontend is accessible (HTTP $FRONTEND_CODE)"
-                break
-              else
-                echo "✅ Frontend responded (HTTP $FRONTEND_CODE)"
-                break
+            if [ "$FRONTEND_CODE" = "000" ]; then
+              echo "❌ Attempt $i/$MAX_RETRIES: Cannot reach frontend at $BACKEND_URL"
+              if [ $i -lt $MAX_RETRIES ]; then
+                echo "   Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
               fi
-            done
-            
-            # Check if backend health endpoint is accessible via proxy
-            echo "Testing backend health via proxy..."
-            HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL/api/proxy/healthz" || echo "000")
-            if [ "$HEALTH_CODE" = "000" ] || [ "$HEALTH_CODE" = "502" ] || [ "$HEALTH_CODE" = "504" ]; then
-              echo "⚠️  WARNING: $ENV_NAME backend health check failed (HTTP $HEALTH_CODE)"
-              echo "   The backend may still be starting up - will attempt upload anyway"
-            elif [ "$HEALTH_CODE" = "200" ]; then
-              echo "✅ $ENV_NAME backend is healthy and accessible via proxy"
+            elif [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
+              echo "⚠️  Attempt $i/$MAX_RETRIES: Frontend returned HTTP $FRONTEND_CODE (app may be starting)"
+              if [ $i -lt $MAX_RETRIES ]; then
+                echo "   Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+              fi
+            elif [ "$FRONTEND_CODE" = "200" ] || [ "$FRONTEND_CODE" = "301" ] || [ "$FRONTEND_CODE" = "302" ]; then
+              echo "✅ Frontend is accessible (HTTP $FRONTEND_CODE)"
+              break
             else
-              echo "⚠️  $ENV_NAME backend returned HTTP $HEALTH_CODE (may still be functional)"
+              echo "✅ Frontend responded (HTTP $FRONTEND_CODE)"
+              break
             fi
-            
-            # Return status (0 = success, 1 = failure)
-            if [ "$FRONTEND_CODE" = "000" ] || [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
-              return 1
-            else
-              return 0
-            fi
-          }
+          done
           
-          # Check both backends
-          # Status values: 0 = reachable, 1 = unreachable, 2 = not configured
-          DEV_OK=2
-          PROD_OK=2
-          
-          if [ -z "$BACKEND_URL_DEV" ]; then
-            echo "⚠️  WARNING: NEXMDM_BACKEND_URL_DEV secret is not set!"
-            DEV_OK=2  # Explicitly mark as not configured
-          else
-            check_backend "$BACKEND_URL_DEV" "DEV" || DEV_OK=1
-          fi
-          
-          if [ -z "$BACKEND_URL_PROD" ]; then
-            echo "⚠️  WARNING: NEXMDM_BACKEND_URL_PROD secret is not set!"
-            PROD_OK=2  # Explicitly mark as not configured
-          else
-            check_backend "$BACKEND_URL_PROD" "PROD" || PROD_OK=1
-          fi
-          
-          # Fail if both are unreachable (but not if both are just not configured)
-          if [ "$DEV_OK" = "1" ] && [ "$PROD_OK" = "1" ]; then
+          # Final check after retries
+          if [ "$FRONTEND_CODE" = "000" ] || [ "$FRONTEND_CODE" = "502" ] || [ "$FRONTEND_CODE" = "503" ] || [ "$FRONTEND_CODE" = "504" ]; then
             echo ""
-            echo "❌ ERROR: Both dev and prod backends are unreachable"
-            echo "   Please ensure at least one backend is running"
+            echo "❌ ERROR: Replit app is not reachable after $MAX_RETRIES attempts"
+            echo "   HTTP Status: $FRONTEND_CODE"
+            echo "   Please ensure the Frontend and Backend workflows are running in Replit"
             exit 1
           fi
           
-          echo ""
-          echo "✅ Connectivity check complete"
-          if [ "$DEV_OK" = "0" ]; then
-            echo "   ✅ DEV backend is reachable"
-          elif [ "$DEV_OK" = "2" ]; then
-            echo "   ⚠️  DEV backend is not configured (will skip upload)"
+          # Check if backend health endpoint is accessible via proxy
+          echo "Testing backend health via proxy..."
+          HEALTH_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$BACKEND_URL/api/proxy/healthz" || echo "000")
+          if [ "$HEALTH_CODE" = "000" ] || [ "$HEALTH_CODE" = "502" ] || [ "$HEALTH_CODE" = "504" ]; then
+            echo "⚠️  WARNING: Backend health check failed (HTTP $HEALTH_CODE)"
+            echo "   The backend may still be starting up - will attempt upload anyway"
+          elif [ "$HEALTH_CODE" = "200" ]; then
+            echo "✅ Backend is healthy and accessible via proxy"
           else
-            echo "   ⚠️  DEV backend is not reachable (will skip upload)"
-          fi
-          if [ "$PROD_OK" = "0" ]; then
-            echo "   ✅ PROD backend is reachable"
-          elif [ "$PROD_OK" = "2" ]; then
-            echo "   ⚠️  PROD backend is not configured (will skip upload)"
-          else
-            echo "   ⚠️  PROD backend is not reachable (will skip upload)"
+            echo "⚠️  Backend returned HTTP $HEALTH_CODE (may still be functional)"
           fi
       
-      - name: Upload APK to NexMDM backends (Dev & Prod)
+      - name: Upload APK to NexMDM backend
         env:
-          BACKEND_URL_DEV: ${{ secrets.NEXMDM_BACKEND_URL_DEV }}
-          BACKEND_URL_PROD: ${{ secrets.NEXMDM_BACKEND_URL_PROD }}
+          BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
-          # Verify admin key is set
+          # Verify secrets are set
+          if [ -z "$BACKEND_URL" ]; then
+            echo "❌ ERROR: NEXMDM_BACKEND_URL secret is not set!"
+            exit 1
+          fi
+          
           if [ -z "$ADMIN_KEY" ]; then
             echo "❌ ERROR: NEXMDM_ADMIN_KEY secret is not set!"
             exit 1
@@ -320,179 +270,69 @@ jobs:
           APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
           
           echo "================================================"
-          echo "🚀 Uploading RELEASE APK to NexMDM backends"
+          echo "🚀 Uploading RELEASE APK to NexMDM backend"
           echo "================================================"
           echo "Build ID: $BUILD_ID"
+          echo "Backend URL: $BACKEND_URL"
           echo "Version: ${{ steps.version.outputs.version_name }} (code: ${{ steps.version.outputs.version_code }})"
           echo "File size: $(stat -c%s "$APK_PATH") bytes"
           echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
           echo "================================================"
           
-          # Function to upload to a single backend
-          upload_to_backend() {
-            local BACKEND_URL=$1
-            local ENV_NAME=$2
-            local TMP_DIR="/tmp/upload_${ENV_NAME,,}"
-            
-            mkdir -p "$TMP_DIR"
-            
-            echo ""
-            echo "================================================"
-            echo "📤 Uploading to $ENV_NAME backend"
-            echo "================================================"
-            echo "Backend URL: $BACKEND_URL"
-            echo "Upload URL: $BACKEND_URL/api/apk/upload"
-            
-            # Upload through Next.js API route which proxies to backend /admin/apk/upload
-            # This creates the APK record and stores the file in one request
-            # NOTE: We capture HTTP code to a separate file to avoid issues with HTTP 100 Continue
-            curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
-              -H "X-Admin: $ADMIN_KEY" \
-              -H "Expect:" \
-              -F "file=@$APK_PATH" \
-              -F "build_id=$BUILD_ID" \
-              -F "version_code=${{ steps.version.outputs.version_code }}" \
-              -F "version_name=${{ steps.version.outputs.version_name }}" \
-              -F "build_type=release" \
-              -F "package_name=com.nexmdm" \
-              -w "%{http_code}" \
-              -o "$TMP_DIR/response.txt" \
-              2>"$TMP_DIR/verbose.txt" \
-              > "$TMP_DIR/http_code.txt"
-            
-            # Read HTTP code from file (avoids issues with stdout/stderr mixing)
-            HTTP_CODE=$(cat "$TMP_DIR/http_code.txt" 2>/dev/null | tr -d '[:space:]')
-            UPLOAD_RESPONSE=$(cat "$TMP_DIR/response.txt" 2>/dev/null || echo "No response")
-            
-            # Show verbose output for debugging (last 30 lines)
-            if [ -f "$TMP_DIR/verbose.txt" ]; then
-              echo ""
-              echo "📋 Verbose curl output (last 30 lines):"
-              tail -n 30 "$TMP_DIR/verbose.txt"
-            fi
-            
-            echo ""
-            echo "📥 Upload response:"
-            echo "HTTP Status: $HTTP_CODE"
-            echo "Response: $UPLOAD_RESPONSE"
-            
-            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-              echo ""
-              echo "✅ SUCCESS: Release APK registered and uploaded to $ENV_NAME backend!"
-              echo "View build at: $BACKEND_URL/apk-management"
-              echo "$ENV_NAME:SUCCESS:$BACKEND_URL" >> /tmp/upload_results.txt
-              return 0
-            else
-              echo ""
-              echo "❌ FAILED: $ENV_NAME backend upload returned HTTP $HTTP_CODE"
-              echo "Response: $UPLOAD_RESPONSE"
-              echo "$ENV_NAME:FAILED:$BACKEND_URL:$HTTP_CODE" >> /tmp/upload_results.txt
-              return 1
-            fi
-          }
+          echo "📤 Uploading via Next.js proxy..."
+          echo "📍 Upload URL: $BACKEND_URL/api/apk/upload"
           
-          # Initialize results file
-          echo "" > /tmp/upload_results.txt
+          # Upload through Next.js API route which proxies to backend /admin/apk/upload
+          # This creates the APK record and stores the file in one request
+          # NOTE: We capture HTTP code to a separate file to avoid issues with HTTP 100 Continue
+          # The -s flag silences progress, but we log verbose to a separate file for debugging
+          curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
+            -H "X-Admin: $ADMIN_KEY" \
+            -H "Expect:" \
+            -F "file=@$APK_PATH" \
+            -F "build_id=$BUILD_ID" \
+            -F "version_code=${{ steps.version.outputs.version_code }}" \
+            -F "version_name=${{ steps.version.outputs.version_name }}" \
+            -F "build_type=release" \
+            -F "package_name=com.nexmdm" \
+            -w "%{http_code}" \
+            -o /tmp/upload_response.txt \
+            2>/tmp/upload_verbose.txt \
+            > /tmp/http_code.txt
           
-          # Upload to both backends in parallel using background jobs
-          DEV_PID=""
-          PROD_PID=""
+          # Read HTTP code from file (avoids issues with stdout/stderr mixing)
+          HTTP_CODE=$(cat /tmp/http_code.txt 2>/dev/null | tr -d '[:space:]')
+          UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "No response")
           
-          if [ -n "$BACKEND_URL_DEV" ]; then
+          # Show verbose output for debugging
+          if [ -f /tmp/upload_verbose.txt ]; then
             echo ""
-            echo "🚀 Starting DEV backend upload in background..."
-            (upload_to_backend "$BACKEND_URL_DEV" "DEV") &
-            DEV_PID=$!
-          else
-            echo "⚠️  Skipping DEV backend upload (NEXMDM_BACKEND_URL_DEV not set)"
-            echo "DEV:SKIPPED" >> /tmp/upload_results.txt
+            echo "📋 Verbose curl output (last 50 lines):"
+            tail -n 50 /tmp/upload_verbose.txt
           fi
           
-          if [ -n "$BACKEND_URL_PROD" ]; then
-            echo ""
-            echo "🚀 Starting PROD backend upload in background..."
-            (upload_to_backend "$BACKEND_URL_PROD" "PROD") &
-            PROD_PID=$!
-          else
-            echo "⚠️  Skipping PROD backend upload (NEXMDM_BACKEND_URL_PROD not set)"
-            echo "PROD:SKIPPED" >> /tmp/upload_results.txt
-          fi
-          
-          # Wait for both uploads to complete
-          DEV_EXIT=2  # Default to skipped (2 = skipped, 0 = success, 1 = failed)
-          PROD_EXIT=2
-          
-          if [ -n "$DEV_PID" ]; then
-            wait $DEV_PID
-            DEV_EXIT=$?
-          elif [ -z "$BACKEND_URL_DEV" ]; then
-            DEV_EXIT=2  # Explicitly mark as skipped
-          fi
-          
-          if [ -n "$PROD_PID" ]; then
-            wait $PROD_PID
-            PROD_EXIT=$?
-          elif [ -z "$BACKEND_URL_PROD" ]; then
-            PROD_EXIT=2  # Explicitly mark as skipped
-          fi
-          
-          # Summary
           echo ""
-          echo "================================================"
-          echo "📊 Upload Summary"
-          echo "================================================"
-          cat /tmp/upload_results.txt | while IFS=: read -r env status url code; do
-            if [ "$status" = "SUCCESS" ]; then
-              echo "✅ $env: Upload successful → $url/apk-management"
-            elif [ "$status" = "FAILED" ]; then
-              echo "❌ $env: Upload failed (HTTP $code) → $url"
-            elif [ "$status" = "SKIPPED" ]; then
-              echo "⚠️  $env: Upload skipped (secret not configured)"
-            fi
-          done
-          echo "================================================"
+          echo "📥 Upload response:"
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $UPLOAD_RESPONSE"
           
-          # Fail the step if both uploads failed (or if only one is configured and it failed)
-          if [ -n "$BACKEND_URL_DEV" ] && [ -n "$BACKEND_URL_PROD" ]; then
-            # Both configured - fail if both failed
-            if [ "$DEV_EXIT" != "0" ] && [ "$PROD_EXIT" != "0" ]; then
-              echo ""
-              echo "❌ ERROR: Both dev and prod uploads failed!"
-              exit 1
-            elif [ "$DEV_EXIT" != "0" ]; then
-              echo ""
-              echo "⚠️  WARNING: DEV upload failed, but PROD succeeded"
-            elif [ "$PROD_EXIT" != "0" ]; then
-              echo ""
-              echo "⚠️  WARNING: PROD upload failed, but DEV succeeded"
-            else
-              echo ""
-              echo "✅ SUCCESS: Both dev and prod uploads completed successfully!"
-            fi
-          elif [ -n "$BACKEND_URL_DEV" ]; then
-            # Only dev configured
-            if [ "$DEV_EXIT" != "0" ]; then
-              echo ""
-              echo "❌ ERROR: DEV upload failed!"
-              exit 1
-            fi
-          elif [ -n "$BACKEND_URL_PROD" ]; then
-            # Only prod configured
-            if [ "$PROD_EXIT" != "0" ]; then
-              echo ""
-              echo "❌ ERROR: PROD upload failed!"
-              exit 1
-            fi
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo ""
+            echo "✅ SUCCESS: Release APK registered and uploaded to backend!"
+            echo "View build at: $BACKEND_URL/apk-management"
           else
             echo ""
-            echo "❌ ERROR: No backend URLs configured!"
-            echo "   Please set NEXMDM_BACKEND_URL_DEV and/or NEXMDM_BACKEND_URL_PROD"
+            echo "❌ FAILED: APK upload returned HTTP $HTTP_CODE"
+            echo "Response: $UPLOAD_RESPONSE"
+            echo ""
+            echo "Troubleshooting:"
+            echo "1. Check that both Backend and Frontend workflows are running in Replit"
+            echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
+            echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
+            echo "4. Check backend logs in Replit console"
+            echo "5. Try accessing $BACKEND_URL/api/proxy/healthz manually"
             exit 1
           fi
-          
-          # Store results for build summary
-          echo "DEV_EXIT=$DEV_EXIT" >> $GITHUB_ENV
-          echo "PROD_EXIT=$PROD_EXIT" >> $GITHUB_ENV
       
       - name: Upload Release APK as artifact
         uses: actions/upload-artifact@v4
@@ -517,40 +357,7 @@ jobs:
           retention-days: 30
 
       - name: Generate build summary
-        env:
-          BACKEND_URL_DEV: ${{ secrets.NEXMDM_BACKEND_URL_DEV }}
-          BACKEND_URL_PROD: ${{ secrets.NEXMDM_BACKEND_URL_PROD }}
-          DEV_EXIT: ${{ env.DEV_EXIT }}
-          PROD_EXIT: ${{ env.PROD_EXIT }}
         run: |
-          # Determine deployment status
-          DEV_STATUS=""
-          PROD_STATUS=""
-          
-          if [ -n "$BACKEND_URL_DEV" ]; then
-            if [ "${DEV_EXIT:-1}" = "0" ]; then
-              DEV_STATUS="✅ Registered"
-            elif [ "${DEV_EXIT:-1}" = "2" ]; then
-              DEV_STATUS="⚠️ Skipped"
-            else
-              DEV_STATUS="❌ Failed"
-            fi
-          else
-            DEV_STATUS="⚠️ Not configured"
-          fi
-          
-          if [ -n "$BACKEND_URL_PROD" ]; then
-            if [ "${PROD_EXIT:-1}" = "0" ]; then
-              PROD_STATUS="✅ Registered"
-            elif [ "${PROD_EXIT:-1}" = "2" ]; then
-              PROD_STATUS="⚠️ Skipped"
-            else
-              PROD_STATUS="❌ Failed"
-            fi
-          else
-            PROD_STATUS="⚠️ Not configured"
-          fi
-          
           cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 🤖 Android Build & Deploy Summary
           
@@ -563,10 +370,12 @@ jobs:
           
           ### ✅ Artifacts Built
           
-          #### Release APK
+          #### Release APK (Production)
           - **SHA256**: \`${{ steps.apk_metadata.outputs.SHA256 }}\`
           - **Size**: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes
           - **Signature**: Verified ✅
+          - **Backend**: Registered ✅
+          - **Dashboard**: [${{ secrets.NEXMDM_BACKEND_URL }}/apk-management](${{ secrets.NEXMDM_BACKEND_URL }}/apk-management)
           - **Available**: GitHub Artifacts (90 days)
           
           #### Debug APK (Development Only)
@@ -575,32 +384,6 @@ jobs:
           
           #### Release AAB (Google Play)
           - **Available**: GitHub Artifacts (90 days)
-          
-          ### 🚀 Backend Deployment Status
-          
-          #### Development Backend
-          - **Status**: $DEV_STATUS
-          EOF
-          
-          if [ -n "$BACKEND_URL_DEV" ]; then
-            cat >> $GITHUB_STEP_SUMMARY << EOF
-          - **Dashboard**: [$BACKEND_URL_DEV/apk-management]($BACKEND_URL_DEV/apk-management)
-          EOF
-          fi
-          
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          
-          #### Production Backend
-          - **Status**: $PROD_STATUS
-          EOF
-          
-          if [ -n "$BACKEND_URL_PROD" ]; then
-            cat >> $GITHUB_STEP_SUMMARY << EOF
-          - **Dashboard**: [$BACKEND_URL_PROD/apk-management]($BACKEND_URL_PROD/apk-management)
-          EOF
-          fi
-          
-          cat >> $GITHUB_STEP_SUMMARY << EOF
           
           ### 🔐 Security
           - All APKs signed with production keystore
