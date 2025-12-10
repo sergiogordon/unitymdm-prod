@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Upload, X, FileIcon } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -26,6 +26,30 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
   const [versionCode, setVersionCode] = useState("")
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [adminKey, setAdminKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchAdminKey()
+    }
+  }, [isOpen])
+
+  const fetchAdminKey = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      const response = await fetch('/api/proxy/admin/config/admin-key', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAdminKey(data.admin_key)
+      }
+    } catch (error) {
+      console.error('Failed to fetch admin key:', error)
+    }
+  }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -68,7 +92,7 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
 
   const uploadChunkWithRetry = async (
     chunk: Blob,
-    uploadId: string,
+    apkId: number,
     chunkIndex: number,
     totalChunks: number,
     retries = 3
@@ -77,16 +101,14 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
       try {
         const formData = new FormData()
         formData.append('file', chunk)
-        formData.append('upload_id', uploadId)
+        formData.append('apk_id', apkId.toString())
         formData.append('chunk_index', chunkIndex.toString())
         formData.append('total_chunks', totalChunks.toString())
-        formData.append('filename', file!.name)
 
-        const token = localStorage.getItem('auth_token')
         const response = await fetch('/v1/apk/upload-chunk', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            'X-Admin-Key': adminKey!,
           },
           body: formData,
         })
@@ -95,10 +117,14 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
           return true
         }
 
+        const errorData = await response.json().catch(() => ({}))
+        console.error(`Chunk ${chunkIndex} upload failed:`, errorData)
+
         if (attempt < retries - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
         }
       } catch (error) {
+        console.error(`Chunk ${chunkIndex} upload error:`, error)
         if (attempt < retries - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
         }
@@ -113,19 +139,49 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
       return
     }
 
+    if (!adminKey) {
+      toast.error('Admin key not available. Please refresh the page.')
+      return
+    }
+
     setIsUploading(true)
     setUploadProgress(0)
 
-    const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
 
     try {
+      const initFormData = new FormData()
+      initFormData.append('version_name', versionName)
+      initFormData.append('version_code', versionCode)
+      initFormData.append('package_name', packageName)
+      initFormData.append('build_type', 'release')
+      initFormData.append('total_chunks', totalChunks.toString())
+      initFormData.append('file_size', file.size.toString())
+
+      const initResponse = await fetch('/v1/apk/upload-init', {
+        method: 'POST',
+        headers: {
+          'X-Admin-Key': adminKey,
+        },
+        body: initFormData,
+      })
+
+      if (!initResponse.ok) {
+        const error = await initResponse.json()
+        toast.error(error.detail || error.error || 'Failed to initialize upload')
+        setIsUploading(false)
+        return
+      }
+
+      const initData = await initResponse.json()
+      const apkId = initData.apk_id
+
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         const start = chunkIndex * CHUNK_SIZE
         const end = Math.min(start + CHUNK_SIZE, file.size)
         const chunk = file.slice(start, end)
 
-        const success = await uploadChunkWithRetry(chunk, uploadId, chunkIndex, totalChunks)
+        const success = await uploadChunkWithRetry(chunk, apkId, chunkIndex, totalChunks)
         
         if (!success) {
           toast.error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`)
@@ -134,35 +190,32 @@ export function ApkUploadDialog({ isOpen, onClose, onUploadComplete }: ApkUpload
           return
         }
 
-        const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100)
+        const progress = Math.round(((chunkIndex + 1) / totalChunks) * 95)
         setUploadProgress(progress)
       }
 
-      const token = localStorage.getItem('auth_token')
+      setUploadProgress(98)
+
       const completeResponse = await fetch('/v1/apk/complete', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'X-Admin-Key': adminKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          upload_id: uploadId,
-          package_name: packageName,
-          version_name: versionName,
-          version_code: parseInt(versionCode),
-          filename: file.name,
+          apk_id: apkId,
           total_chunks: totalChunks,
-          build_type: 'release',
         }),
       })
 
       if (completeResponse.ok) {
+        setUploadProgress(100)
         toast.success('APK uploaded successfully')
         onUploadComplete()
         handleClose()
       } else {
         const error = await completeResponse.json()
-        toast.error(error.error || 'Failed to finalize upload')
+        toast.error(error.detail || error.error || 'Failed to finalize upload')
       }
     } catch (error) {
       console.error('Upload error:', error)
