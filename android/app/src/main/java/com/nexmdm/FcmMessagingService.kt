@@ -181,6 +181,17 @@ class FcmMessagingService : FirebaseMessagingService() {
     private fun handleRingRequest(durationSeconds: Int) {
         Log.d(TAG, "Handling ring request: duration=$durationSeconds seconds")
         
+        // Trigger immediate heartbeat to update last_seen and agent version
+        val serviceIntent = Intent(this, MonitorService::class.java).apply {
+            putExtra("trigger", "fcm_ring")
+            putExtra("immediate_heartbeat", true)
+        }
+        try {
+            startForegroundService(serviceIntent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to trigger heartbeat from ring", e)
+        }
+        
         val ringIntent = Intent(this, RingActivity::class.java).apply {
             component = ComponentName(this@FcmMessagingService, RingActivity::class.java)
             putExtra("duration", durationSeconds)
