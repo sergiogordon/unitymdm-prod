@@ -27,6 +27,9 @@ class TelemetryCollector(
     private val queueManager: QueueManager? = null,
     private val securePrefs: SecurePreferences? = null
 ) {
+    companion object {
+        private const val MAX_RECENCY_SECONDS = 86400
+    }
 
     fun getBatteryInfo(): BatteryInfo {
         val batteryStatus = context.registerReceiver(
@@ -213,13 +216,13 @@ class TelemetryCollector(
                     // Persist background state
                     securePrefs?.lastKnownForegroundState = false
                     securePrefs?.lastForegroundStateTimestamp = lastBackgroundTime
-                    secondsAgo
+                    clampRecency(secondsAgo)
                 }
                 // Had events but couldn't determine state clearly - use last foreground time
                 lastForegroundTime > 0 -> {
                     val secondsAgo = ((now - lastForegroundTime) / 1000).toInt()
                     Log.d("TelemetryCollector", "Package $packageName last in foreground $secondsAgo seconds ago")
-                    secondsAgo
+                    clampRecency(secondsAgo)
                 }
                 else -> {
                     Log.d("TelemetryCollector", "Package $packageName had $eventCount events but no clear foreground state")
@@ -235,6 +238,12 @@ class TelemetryCollector(
             return null
         }
     }
+    
+    /**
+     * Clamp recency value to backend's max (86400 seconds = 24 hours).
+     * Values above this will cause heartbeat 422 rejections.
+     */
+    private fun clampRecency(value: Int): Int = value.coerceIn(0, MAX_RECENCY_SECONDS)
     
     /**
      * Fallback when no recent UsageEvents are available.
@@ -256,10 +265,11 @@ class TelemetryCollector(
                     Log.d("TelemetryCollector", "Fallback: Using persisted FOREGROUND state for $packageName (0s)")
                     0
                 } else {
-                    // Last known state was background - calculate seconds ago
+                    // Last known state was background - calculate seconds ago and clamp to max
                     val secondsAgo = ((now - lastTimestamp) / 1000).toInt()
-                    Log.d("TelemetryCollector", "Fallback: Using persisted BACKGROUND state for $packageName ($secondsAgo seconds ago)")
-                    secondsAgo
+                    val clamped = clampRecency(secondsAgo)
+                    Log.d("TelemetryCollector", "Fallback: Using persisted BACKGROUND state for $packageName ($clamped seconds ago, raw=$secondsAgo)")
+                    clamped
                 }
             }
         }
