@@ -1712,16 +1712,25 @@ async def get_setup_status(request: Request):
     status["optional"]["github_ci"]["message"] = "Configure GitHub Actions secrets for Android CI/CD" if not github_configured else "✓ Configured"
 
     # Check Object Storage (required for APK storage)
+    # Use timeout to prevent blocking if sidecar is slow/unavailable
     try:
         from object_storage import get_storage_service
-        storage = get_storage_service()
-        # Try to list objects to verify storage is accessible
+        
+        async def check_storage_with_timeout():
+            return await asyncio.wait_for(
+                asyncio.to_thread(get_storage_service),
+                timeout=3.0  # 3 second timeout for storage check
+            )
+        
         try:
-            # Just check if client is initialized - actual operations may fail if bucket doesn't exist
-            # but client initialization failure means integration isn't set up
+            storage = await check_storage_with_timeout()
             status["optional"]["object_storage"]["configured"] = True
             status["optional"]["object_storage"]["available"] = True
             status["optional"]["object_storage"]["message"] = "✓ Object Storage available"
+        except asyncio.TimeoutError:
+            status["optional"]["object_storage"]["configured"] = False
+            status["optional"]["object_storage"]["available"] = False
+            status["optional"]["object_storage"]["message"] = "Object Storage check timed out (service may be slow)"
         except Exception as e:
             status["optional"]["object_storage"]["configured"] = True
             status["optional"]["object_storage"]["available"] = False
@@ -1732,15 +1741,28 @@ async def get_setup_status(request: Request):
         status["optional"]["object_storage"]["message"] = "Object Storage integration not set up"
 
     # Check ReplitMail email service (optional but recommended)
+    # Use timeout to prevent blocking if email service initialization is slow
     repl_identity = os.getenv("REPL_IDENTITY")
     web_repl_renewal = os.getenv("WEB_REPL_RENEWAL")
     if repl_identity or web_repl_renewal:
         status["optional"]["email_service"]["configured"] = True
         try:
-            from email_service import email_service
-            # Just check if service can be initialized
-            status["optional"]["email_service"]["available"] = True
-            status["optional"]["email_service"]["message"] = "✓ ReplitMail available"
+            async def check_email_with_timeout():
+                def import_email_service():
+                    from email_service import email_service
+                    return email_service
+                return await asyncio.wait_for(
+                    asyncio.to_thread(import_email_service),
+                    timeout=3.0  # 3 second timeout
+                )
+            
+            try:
+                await check_email_with_timeout()
+                status["optional"]["email_service"]["available"] = True
+                status["optional"]["email_service"]["message"] = "✓ ReplitMail available"
+            except asyncio.TimeoutError:
+                status["optional"]["email_service"]["available"] = False
+                status["optional"]["email_service"]["message"] = "ReplitMail check timed out (service may be slow)"
         except Exception as e:
             status["optional"]["email_service"]["configured"] = True
             status["optional"]["email_service"]["available"] = False
