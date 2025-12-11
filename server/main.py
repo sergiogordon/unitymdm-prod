@@ -6286,7 +6286,32 @@ async def update_apk_installation_status(
         raise HTTPException(status_code=404, detail="Installation not found")
     
     old_status = installation.status
-    installation.status = payload.status
+    
+    # Allow late callbacks to update timed-out installations
+    # This handles the case where install succeeded but callback was delayed
+    if old_status == "timeout" and payload.status in ["installed", "completed"]:
+        structured_logger.log_event(
+            "apk.installation.update.late_success",
+            device_id=device.id,
+            device_alias=device.alias,
+            installation_id=installation.id,
+            old_status=old_status,
+            new_status=payload.status
+        )
+        # Mark as installed (normalize "completed" to "installed")
+        installation.status = "installed"
+    elif old_status == "timeout" and payload.status == "failed":
+        # Keep as timeout but record the actual error
+        structured_logger.log_event(
+            "apk.installation.update.late_failure",
+            device_id=device.id,
+            device_alias=device.alias,
+            installation_id=installation.id,
+            error=payload.error
+        )
+        installation.status = "failed"
+    else:
+        installation.status = payload.status
     
     if payload.progress is not None:
         installation.download_progress = payload.progress
