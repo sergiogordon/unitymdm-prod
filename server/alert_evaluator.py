@@ -37,36 +37,93 @@ class AlertEvaluator:
         """
         Batch load latest heartbeat for each device.
         Returns dict indexed by device_id -> DeviceHeartbeat
+        
+        Optimized: Uses time window and DISTINCT ON for faster queries.
         """
-        # Get max ts per device
-        max_ts_subquery = (
-            db.query(
-                DeviceHeartbeat.device_id,
-                func.max(DeviceHeartbeat.ts).label('max_ts')
-            )
-            .filter(DeviceHeartbeat.device_id.in_(device_ids))
-            .group_by(DeviceHeartbeat.device_id)
-            .subquery()
-        )
+        from sqlalchemy import text
         
-        # Join back to get full heartbeat records
-        latest_heartbeats = (
-            db.query(DeviceHeartbeat)
-            .join(
-                max_ts_subquery,
-                and_(
-                    DeviceHeartbeat.device_id == max_ts_subquery.c.device_id,
-                    DeviceHeartbeat.ts == max_ts_subquery.c.max_ts
+        if not device_ids:
+            return {}
+        
+        # Use time window to limit data scanned - only look at last 2 hours
+        time_window = datetime.now(timezone.utc) - timedelta(hours=2)
+        
+        try:
+            # Use PostgreSQL DISTINCT ON for efficient "latest per group" query
+            device_id_list = ",".join(f"'{did}'" for did in device_ids)
+            
+            query = text(f"""
+                SELECT DISTINCT ON (device_id)
+                    hb_id, device_id, ts, battery_pct, plugged, network_type,
+                    unity_running, unity_pkg_version
+                FROM device_heartbeats
+                WHERE device_id IN ({device_id_list})
+                AND ts > :time_window
+                ORDER BY device_id, ts DESC
+            """)
+            
+            rows = db.execute(query, {"time_window": time_window}).fetchall()
+            
+            result = {}
+            for row in rows:
+                hb = DeviceHeartbeat()
+                hb.hb_id = row[0]
+                hb.device_id = row[1]
+                hb.ts = row[2]
+                hb.battery_pct = row[3]
+                hb.plugged = row[4]
+                hb.network_type = row[5]
+                hb.unity_running = row[6]
+                hb.unity_pkg_version = row[7]
+                result[row[1]] = hb
+            
+            return result
+            
+        except Exception as e:
+            # Rollback the failed transaction before attempting fallback
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            
+            # Fallback to original query if DISTINCT ON fails
+            structured_logger.log_event(
+                "alert.batch_load_latest.fallback",
+                level="WARN",
+                error=str(e)
+            )
+            
+            # Fallback with time filter
+            max_ts_subquery = (
+                db.query(
+                    DeviceHeartbeat.device_id,
+                    func.max(DeviceHeartbeat.ts).label('max_ts')
                 )
+                .filter(
+                    DeviceHeartbeat.device_id.in_(device_ids),
+                    DeviceHeartbeat.ts > time_window
+                )
+                .group_by(DeviceHeartbeat.device_id)
+                .subquery()
             )
-            .all()
-        )
-        
-        result = {}
-        for hb in latest_heartbeats:
-            result[hb.device_id] = hb
-        
-        return result
+            
+            latest_heartbeats = (
+                db.query(DeviceHeartbeat)
+                .join(
+                    max_ts_subquery,
+                    and_(
+                        DeviceHeartbeat.device_id == max_ts_subquery.c.device_id,
+                        DeviceHeartbeat.ts == max_ts_subquery.c.max_ts
+                    )
+                )
+                .all()
+            )
+            
+            result = {}
+            for hb in latest_heartbeats:
+                result[hb.device_id] = hb
+            
+            return result
     
     def _batch_load_device_last_status(self, db: Session, device_ids: List[str]) -> Dict[str, DeviceLastStatus]:
         """
@@ -87,30 +144,98 @@ class AlertEvaluator:
         """
         Batch load last N heartbeats per device for consecutive checks.
         Returns dict indexed by device_id -> List[DeviceHeartbeat] (ordered by ts desc)
+        
+        Optimized: Uses time window filter to avoid loading ancient heartbeats.
         """
-        # Get all heartbeats for these devices, ordered by device_id and ts desc
-        all_heartbeats = (
-            db.query(DeviceHeartbeat)
-            .filter(DeviceHeartbeat.device_id.in_(device_ids))
-            .order_by(DeviceHeartbeat.device_id, DeviceHeartbeat.ts.desc())
-            .all()
-        )
+        from sqlalchemy import text
         
-        # Group by device_id and take first N per device
-        result = defaultdict(list)
-        current_device = None
-        count = 0
+        if not device_ids:
+            return {}
         
-        for hb in all_heartbeats:
-            if hb.device_id != current_device:
-                current_device = hb.device_id
-                count = 0
+        # Use a time window to limit data - only look at heartbeats from last 2 hours
+        # This dramatically reduces the data scanned while still covering any realistic offline scenario
+        time_window = datetime.now(timezone.utc) - timedelta(hours=2)
+        
+        # Use window function to efficiently get top N per device
+        # This is much faster than loading all heartbeats and filtering in Python
+        try:
+            # Build the query using raw SQL with window function for efficiency
+            device_id_list = ",".join(f"'{did}'" for did in device_ids)
             
-            if count < limit:
-                result[hb.device_id].append(hb)
-                count += 1
-        
-        return dict(result)
+            query = text(f"""
+                WITH ranked AS (
+                    SELECT 
+                        hb_id, device_id, ts, battery_pct, plugged, network_type,
+                        unity_running, unity_pkg_version,
+                        ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY ts DESC) as rn
+                    FROM device_heartbeats
+                    WHERE device_id IN ({device_id_list})
+                    AND ts > :time_window
+                )
+                SELECT hb_id, device_id, ts, battery_pct, plugged, network_type,
+                       unity_running, unity_pkg_version, rn
+                FROM ranked WHERE rn <= :limit
+                ORDER BY device_id, ts DESC
+            """)
+            
+            rows = db.execute(query, {"time_window": time_window, "limit": limit}).fetchall()
+            
+            # Convert to DeviceHeartbeat objects grouped by device_id
+            result = defaultdict(list)
+            for row in rows:
+                hb = DeviceHeartbeat()
+                hb.hb_id = row[0]
+                hb.device_id = row[1]
+                hb.ts = row[2]
+                hb.battery_pct = row[3]
+                hb.plugged = row[4]
+                hb.network_type = row[5]
+                hb.unity_running = row[6]
+                hb.unity_pkg_version = row[7]
+                result[row[1]].append(hb)
+            
+            return dict(result)
+            
+        except Exception as e:
+            # Rollback the failed transaction before attempting fallback
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            
+            # Fallback to simpler query if window function fails
+            structured_logger.log_event(
+                "alert.batch_load.fallback",
+                level="WARN",
+                error=str(e)
+            )
+            
+            # Fallback: Use time-filtered simple query
+            all_heartbeats = (
+                db.query(DeviceHeartbeat)
+                .filter(
+                    DeviceHeartbeat.device_id.in_(device_ids),
+                    DeviceHeartbeat.ts > time_window
+                )
+                .order_by(DeviceHeartbeat.device_id, DeviceHeartbeat.ts.desc())
+                .all()
+            )
+            
+            # Group by device_id and take first N per device
+            result = defaultdict(list)
+            current_device = None
+            count = 0
+            
+            for hb in all_heartbeats:
+                if hb.device_id != current_device:
+                    current_device = hb.device_id
+                    count = 0
+                
+                if count < limit:
+                    result[hb.device_id].append(hb)
+                    count += 1
+            
+            return dict(result)
     
     def _get_latest_heartbeat(self, db: Session, device_id: str) -> Optional[DeviceHeartbeat]:
         return db.query(DeviceHeartbeat).filter(
