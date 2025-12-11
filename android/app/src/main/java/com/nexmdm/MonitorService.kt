@@ -85,7 +85,7 @@ class MonitorService : Service(), AuthFailureListener {
         }
         networkMonitor.start()
 
-        telemetry = TelemetryCollector(this, powerMonitor, networkMonitor, queueManager)
+        telemetry = TelemetryCollector(this, powerMonitor, networkMonitor, queueManager, prefs)
         speedtestDetector = SpeedtestDetector(this)
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
 

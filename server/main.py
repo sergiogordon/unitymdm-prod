@@ -2591,19 +2591,33 @@ async def heartbeat(
             )
         else:
             # App installed but foreground data not available
-            # If app is installed but we have no foreground data, assume it's down (not running)
-            # This matches auto-relaunch logic which treats missing foreground data as "down"
-            service_up = False
-            structured_logger.log_event(
-                "monitoring.evaluate.no_foreground_data",
-                level="WARN",
-                device_id=device.id,
-                alias=device.alias,
-                monitored_package=monitoring_settings["package"],
-                reason="foreground_data_unavailable",
-                service_up=False,
-                source=monitoring_settings["source"]
-            )
+            # Fallback to unity_process_running if available (handles long-running sessions >24h)
+            if payload.unity_process_running is True:
+                # Process is confirmed running - treat as service up
+                service_up = True
+                structured_logger.log_event(
+                    "monitoring.evaluate.process_running_fallback",
+                    device_id=device.id,
+                    alias=device.alias,
+                    monitored_package=monitoring_settings["package"],
+                    reason="foreground_data_unavailable_but_process_running",
+                    service_up=True,
+                    source=monitoring_settings["source"]
+                )
+            else:
+                # No foreground data and process not confirmed running - assume down
+                service_up = False
+                structured_logger.log_event(
+                    "monitoring.evaluate.no_foreground_data",
+                    level="WARN",
+                    device_id=device.id,
+                    alias=device.alias,
+                    monitored_package=monitoring_settings["package"],
+                    reason="foreground_data_unavailable",
+                    unity_process_running=payload.unity_process_running,
+                    service_up=False,
+                    source=monitoring_settings["source"]
+                )
 
     # PERF: Update DeviceLastStatus with service monitoring data using UPDATE...RETURNING
     # This avoids a separate SELECT query by returning prev_service_up in the same statement

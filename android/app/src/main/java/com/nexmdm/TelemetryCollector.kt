@@ -2,6 +2,7 @@ package com.nexmdm
 
 import android.Manifest
 import android.app.ActivityManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -23,7 +24,8 @@ class TelemetryCollector(
     private val context: Context,
     private val powerMonitor: PowerManagementMonitor? = null,
     private val networkMonitor: NetworkMonitor? = null,
-    private val queueManager: QueueManager? = null
+    private val queueManager: QueueManager? = null,
+    private val securePrefs: SecurePreferences? = null
 ) {
 
     fun getBatteryInfo(): BatteryInfo {
@@ -119,6 +121,16 @@ class TelemetryCollector(
         return queueManager?.getQueueDepth() ?: 0
     }
     
+    /**
+     * Get how recently the monitored app was in the foreground using UsageEvents API.
+     * This provides real-time foreground detection, unlike queryUsageStats which only
+     * updates after a session ends.
+     * 
+     * Returns:
+     * - 0 if the app is currently in foreground (last event was ACTIVITY_RESUMED)
+     * - Seconds since last foreground if app is in background
+     * - null if no data available or permission not granted
+     */
     fun getMonitoredForegroundRecency(packageName: String): Int? {
         if (packageName.isEmpty()) {
             return null
@@ -126,39 +138,135 @@ class TelemetryCollector(
         
         try {
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
-                ?: return null
+                ?: run {
+                    Log.w("TelemetryCollector", "UsageStatsManager not available")
+                    return null
+                }
             
             val now = System.currentTimeMillis()
-            val oneHourAgo = now - (60 * 60 * 1000)
+            // Query last 24 hours to handle long-running foreground sessions
+            // Unity/kiosk apps may stay in foreground for hours without new events
+            val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000)
             
-            val stats = usageStatsManager.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                oneHourAgo,
-                now
-            )
+            // Use queryEvents for real-time event data instead of aggregated stats
+            val usageEvents = usageStatsManager.queryEvents(twentyFourHoursAgo, now)
             
-            if (stats.isNullOrEmpty()) {
-                Log.w("TelemetryCollector", "UsageStats not available - PACKAGE_USAGE_STATS permission may not be granted")
+            if (usageEvents == null) {
+                Log.w("TelemetryCollector", "UsageEvents query returned null - permission may not be granted")
                 return null
             }
             
-            val packageStats = stats.find { it.packageName == packageName }
+            // Track active (resumed) activities by class name to handle multi-activity apps correctly
+            // Key: activity class name, Value: true if currently resumed
+            val activeActivities = mutableSetOf<String>()
+            var lastBackgroundTime: Long = 0  // When ALL activities went to background
+            var lastForegroundTime: Long = 0  // When ANY activity came to foreground
+            var eventCount = 0
             
-            return if (packageStats != null && packageStats.lastTimeUsed > 0) {
-                val secondsAgo = ((now - packageStats.lastTimeUsed) / 1000).toInt()
-                Log.d("TelemetryCollector", "Package $packageName last used $secondsAgo seconds ago")
-                secondsAgo
-            } else {
-                Log.d("TelemetryCollector", "Package $packageName not found in usage stats")
-                null
+            val event = UsageEvents.Event()
+            while (usageEvents.hasNextEvent()) {
+                usageEvents.getNextEvent(event)
+                
+                if (event.packageName == packageName) {
+                    eventCount++
+                    val activityClass = event.className ?: "unknown"
+                    
+                    when (event.eventType) {
+                        UsageEvents.Event.ACTIVITY_RESUMED -> {
+                            // Activity moved to foreground
+                            activeActivities.add(activityClass)
+                            lastForegroundTime = event.timeStamp
+                        }
+                        UsageEvents.Event.ACTIVITY_PAUSED,
+                        UsageEvents.Event.ACTIVITY_STOPPED -> {
+                            // Activity moved to background/stopped
+                            activeActivities.remove(activityClass)
+                            // Only update background time if NO activities are now active
+                            if (activeActivities.isEmpty()) {
+                                lastBackgroundTime = event.timeStamp
+                            }
+                        }
+                    }
+                }
             }
+            
+            // If no events found for this package, fall back to aggregated stats
+            if (eventCount == 0) {
+                Log.d("TelemetryCollector", "No events found for $packageName in last 24 hours, trying aggregated stats")
+                return getMonitoredForegroundRecencyFallback(packageName)
+            }
+            
+            // Determine current state based on whether any activities are still active
+            val result = when {
+                // App has at least one activity in foreground
+                activeActivities.isNotEmpty() -> {
+                    Log.d("TelemetryCollector", "Package $packageName is CURRENTLY IN FOREGROUND (0s) - ${activeActivities.size} active activities: $activeActivities")
+                    // Persist foreground state for long-running sessions
+                    securePrefs?.lastKnownForegroundState = true
+                    securePrefs?.lastForegroundStateTimestamp = now
+                    0
+                }
+                // All activities are in background - calculate how long ago
+                lastBackgroundTime > 0 -> {
+                    val secondsAgo = ((now - lastBackgroundTime) / 1000).toInt()
+                    Log.d("TelemetryCollector", "Package $packageName went to background $secondsAgo seconds ago")
+                    // Persist background state
+                    securePrefs?.lastKnownForegroundState = false
+                    securePrefs?.lastForegroundStateTimestamp = lastBackgroundTime
+                    secondsAgo
+                }
+                // Had events but couldn't determine state clearly - use last foreground time
+                lastForegroundTime > 0 -> {
+                    val secondsAgo = ((now - lastForegroundTime) / 1000).toInt()
+                    Log.d("TelemetryCollector", "Package $packageName last in foreground $secondsAgo seconds ago")
+                    secondsAgo
+                }
+                else -> {
+                    Log.d("TelemetryCollector", "Package $packageName had $eventCount events but no clear foreground state")
+                    null
+                }
+            }
+            return result
         } catch (e: SecurityException) {
             Log.e("TelemetryCollector", "SecurityException: PACKAGE_USAGE_STATS permission not granted", e)
             return null
         } catch (e: Exception) {
-            Log.e("TelemetryCollector", "Error getting monitored foreground recency", e)
+            Log.e("TelemetryCollector", "Error getting monitored foreground recency via events", e)
             return null
         }
+    }
+    
+    /**
+     * Fallback when no recent UsageEvents are available.
+     * Uses persisted foreground state from previous observations, or returns null
+     * to trigger backend's process-running fallback.
+     */
+    private fun getMonitoredForegroundRecencyFallback(packageName: String): Int? {
+        // Check persisted state first - handles long-running sessions (>24 hours)
+        val lastState = securePrefs?.lastKnownForegroundState
+        val lastTimestamp = securePrefs?.lastForegroundStateTimestamp ?: 0
+        
+        if (lastTimestamp > 0 && lastState != null) {
+            val now = System.currentTimeMillis()
+            // Only trust persisted state if it's recent (within 7 days)
+            val sevenDaysMs = 7 * 24 * 60 * 60 * 1000L
+            if (now - lastTimestamp < sevenDaysMs) {
+                return if (lastState) {
+                    // Last known state was foreground - return 0
+                    Log.d("TelemetryCollector", "Fallback: Using persisted FOREGROUND state for $packageName (0s)")
+                    0
+                } else {
+                    // Last known state was background - calculate seconds ago
+                    val secondsAgo = ((now - lastTimestamp) / 1000).toInt()
+                    Log.d("TelemetryCollector", "Fallback: Using persisted BACKGROUND state for $packageName ($secondsAgo seconds ago)")
+                    secondsAgo
+                }
+            }
+        }
+        
+        // No valid persisted state - return null to trigger backend's process-running fallback
+        Log.d("TelemetryCollector", "Fallback: No persisted state for $packageName, returning null to trigger process-running fallback")
+        return null
     }
     
     fun isProcessRunning(packageName: String): Boolean? {

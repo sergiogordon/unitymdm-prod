@@ -96,6 +96,17 @@ class SecurePreferences(context: Context) {
             prefs.edit().putLong("heartbeat_jitter_offset_ms", value).commit()
         }
     
+    // Persistent foreground state tracking for long-running sessions
+    // This allows accurate monitoring even when UsageEvents window expires
+    
+    var lastKnownForegroundState: Boolean
+        get() = prefs.getBoolean("last_known_foreground_state", false)
+        set(value) = prefs.edit().putBoolean("last_known_foreground_state", value).apply()
+    
+    var lastForegroundStateTimestamp: Long
+        get() = prefs.getLong("last_foreground_state_timestamp", 0)
+        set(value) = prefs.edit().putLong("last_foreground_state_timestamp", value).apply()
+    
     fun clearAllCredentials() {
         Log.d(TAG, "clearAllCredentials: clearing all stored data")
         prefs.edit().clear().commit()
