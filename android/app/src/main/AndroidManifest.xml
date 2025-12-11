@@ -70,7 +70,7 @@
 
         <activity
             android:name=".AppLauncherActivity"
-            android:exported="false"
+            android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:launchMode="singleTop"
             android:showWhenLocked="true"
