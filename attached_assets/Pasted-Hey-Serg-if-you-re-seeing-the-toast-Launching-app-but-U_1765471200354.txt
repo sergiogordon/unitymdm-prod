@@ -1,0 +1,177 @@
+Hey Serg — if you’re seeing the toast (“Launching app…”) but **Unity never opens**, that tells us something super specific:
+
+➡️ **Your full-screen notification DID fire.**
+➡️ **Your LauncherActivity DID launch.**
+❌ **But Unity’s launch Intent is being blocked or ignored by the system.**
+
+This narrows it down to **5 possible causes**, and I’ll walk through each along with the fixes.
+
+---
+
+# 1. Your LauncherActivity is launching in the background (Android thinks it’s not foreground yet)
+
+On some devices, `onResume()` fires **before** Android considers it foreground-focus, and immediately firing another Activity can get dropped.
+
+## Fix: Add a short 50–150ms post-delay inside `onResume()`
+
+```kotlin
+override fun onResume() {
+    super.onResume()
+
+    Handler(Looper.getMainLooper()).postDelayed({
+        launchUnity()
+    }, 150)
+}
+
+private fun launchUnity() {
+    val intent = packageManager.getLaunchIntentForPackage("com.unitynetwork.unityapp")
+    intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    startActivity(intent)
+    finish()
+}
+```
+
+This solves the issue on Samsung, Motorola, Xiaomi, and Orbic devices where “Activity launch back-to-back” gets blocked.
+
+---
+
+# 2. Unity’s MainActivity is NOT exported (Android 12+ issue)
+
+If the app’s manifest has:
+
+```xml
+android:exported="false"
+```
+
+Then **external activity launches fail silently**, even from Device Owner.
+
+## How to confirm
+
+Run:
+
+```bash
+adb shell dumpsys package com.unitynetwork.unityapp | grep exported
+```
+
+If `MAIN` is not exported, only the app itself can start it.
+
+## Fix (if you can’t modify Unity)
+
+Instead of `getLaunchIntentForPackage()`, send the **HOME** intent first, then launch:
+
+```kotlin
+val home = Intent(Intent.ACTION_MAIN).apply {
+    addCategory(Intent.CATEGORY_HOME)
+    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+}
+startActivity(home)
+
+Handler(Looper.getMainLooper()).postDelayed({
+    val launchIntent = packageManager.getLaunchIntentForPackage("com.unitynetwork.unityapp")
+    launchIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    startActivity(launchIntent)
+    finish()
+}, 200)
+```
+
+This “resets focus state” and often works around unexported activity restrictions.
+
+---
+
+# 3. The PendingIntent flags are wrong (Android 12 tightened them)
+
+If your PendingIntent lacks `FLAG_IMMUTABLE` or `FLAG_UPDATE_CURRENT`, Android may drop it.
+
+## Use this instead:
+
+```kotlin
+val pendingIntent = PendingIntent.getActivity(
+    context,
+    0,
+    fullScreenIntent,
+    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+)
+```
+
+This is required on Android 12+ for background-launch paths.
+
+---
+
+# 4. The notification channel is not registered as HIGH priority / full screen
+
+On some OEMs, if the channel priority is not MAX, the full-screen intent will not truly foreground the launcher activity even though your toast fires.
+
+## Fix
+
+When creating the channel:
+
+```kotlin
+val channel = NotificationChannel(
+    "restart_channel",
+    "Restart Channel",
+    NotificationManager.IMPORTANCE_HIGH // or IMPORTANCE_MAX on older APIs
+)
+channel.setSound(null, null)
+channel.enableVibration(false)
+notificationManager.createNotificationChannel(channel)
+```
+
+And the builder:
+
+```kotlin
+.setPriority(NotificationCompat.PRIORITY_HIGH)
+.setFullScreenIntent(pendingIntent, true)
+```
+
+---
+
+# 5. Your LauncherActivity must be exported + visible
+
+If your activity isn’t exported, system UI can’t launch it from the notification.
+
+In your manifest:
+
+```xml
+<activity
+    android:name=".LauncherActivity"
+    android:exported="true"
+    android:theme="@style/Theme.Transparent">
+</activity>
+```
+
+And fix your theme (this often breaks full-screen intents):
+
+```xml
+<style name="Theme.Transparent" parent="Theme.AppCompat.Light.NoActionBar">
+    <item name="android:windowIsTranslucent">true</item>
+    <item name="android:windowBackground">@android:color/transparent</item>
+    <item name="android:backgroundDimEnabled">false</item>
+</style>
+```
+
+If the activity cannot visibly show, Android doesn’t treat it as foreground, so subsequent launches are blocked.
+
+---
+
+# 🔥 The most likely cause based on your symptom
+
+Since you **see the toast**, that means LauncherActivity started.
+But Unity didn’t start, which means:
+➡️ LauncherActivity attempted to start Unity **too early** (before focus).
+This is extremely common on cheap Android devices like Orbic.
+
+Adding the 100–200ms post-delay inside onResume is the #1 fix.
+
+---
+
+# 🙌 Let me know, Serg
+
+If you want, send me:
+
+* Your LauncherActivity code
+* Your manifest snippet for that activity
+* Your notification builder code
+
+I’ll spot the issue instantly.
+
+We’re very close.
