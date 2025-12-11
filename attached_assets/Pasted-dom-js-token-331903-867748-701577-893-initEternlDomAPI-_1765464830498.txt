@@ -1,0 +1,33 @@
+dom.js?token=331903-867748-701577:893 initEternlDomAPI: domId 472263-120161-263416 false
+initEternlDomAPI @ dom.js?token=331903-867748-701577:893
+dom.js?token=331903-867748-701577:894 initEternlDomAPI: href https://unitymdm.replit.app/
+initEternlDomAPI @ dom.js?token=331903-867748-701577:894
+script.js:1  Failed to load resource: the server responded with a status of 404 ()
+layout-97c3299f3a9fe094.js:1 [Vercel Web Analytics] Failed to load script from /_vercel/insights/script.js. Be sure to enable Web Analytics for your project and deploy again. See https://vercel.com/docs/analytics/quickstart for more information.
+129-81904d31a46796e5.js:1 WebSocket connection to 'wss://unitymdm.replit.app/api/proxy/ws/admin?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoxLCJ1c2VybmFtZSI6ImFkbWluIiwiZXhwIjoxNzY2MDE4MDQzLCJpYXQiOjE3NjU0MTMyNDN9.yULmbFyPEAwZ5e4E3d9mMZ77j90ZYkAKQND8jP2WpG4' failed: 
+l @ 129-81904d31a46796e5.js:1
+129-81904d31a46796e5.js:1 ⚡ WebSocket error: EventisTrusted: truebubbles: falsecancelBubble: falsecancelable: falsecomposed: falsecurrentTarget: WebSocket {url: 'wss://unitymdm.replit.app/api/proxy/ws/admin?token…yNDN9.yULmbFyPEAwZ5e4E3d9mMZ77j90ZYkAKQND8jP2WpG4', readyState: 3, bufferedAmount: 0, onopen: ƒ, onerror: ƒ, …}defaultPrevented: falseeventPhase: 0returnValue: truesrcElement: WebSocket {url: 'wss://unitymdm.replit.app/api/proxy/ws/admin?token…yNDN9.yULmbFyPEAwZ5e4E3d9mMZ77j90ZYkAKQND8jP2WpG4', readyState: 3, bufferedAmount: 0, onopen: ƒ, onerror: ƒ, …}target: WebSocket {url: 'wss://unitymdm.replit.app/api/proxy/ws/admin?token…yNDN9.yULmbFyPEAwZ5e4E3d9mMZ77j90ZYkAKQND8jP2WpG4', readyState: 3, bufferedAmount: 0, onopen: ƒ, onerror: ƒ, …}timeStamp: 653.8999999761581type: "error"[[Prototype]]: Event
+u.onerror @ 129-81904d31a46796e5.js:1
+(index):1 Uncaught (in promise) Error: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received
+devices:1  Failed to load resource: the server responded with a status of 504 ()
+129-81904d31a46796e5.js:1 📡 Error fetching devices: Error: Failed to fetch devices: 504 
+    at c (129-81904d31a46796e5.js:1:3935)
+    at async page-7ba13c8415d8e00c.js:1:10749
+c @ 129-81904d31a46796e5.js:1
+129-81904d31a46796e5.js:1 📡 Error message: Failed to fetch devices: 504 
+c @ 129-81904d31a46796e5.js:1
+129-81904d31a46796e5.js:1 📡 Error stack: Error: Failed to fetch devices: 504 
+    at c (https://unitymdm.replit.app/_next/static/chunks/129-81904d31a46796e5.js:1:3935)
+    at async https://unitymdm.replit.app/_next/static/chunks/app/page-7ba13c8415d8e00c.js:1:10749
+c @ 129-81904d31a46796e5.js:1
+page-7ba13c8415d8e00c.js:1 Error loading devices: Error: Failed to fetch devices: 504 
+    at c (129-81904d31a46796e5.js:1:3935)
+    at async page-7ba13c8415d8e00c.js:1:10749
+(anonymous) @ page-7ba13c8415d8e00c.js:1
+metrics:1  Failed to load resource: the server responded with a status of 504 ()
+129-81904d31a46796e5.js:1 📊 Error fetching device stats: Error: Failed to fetch stats: 504
+    at s (129-81904d31a46796e5.js:1:3047)
+s @ 129-81904d31a46796e5.js:1
+page-7ba13c8415d8e00c.js:1 Failed to fetch stats: Error: Failed to fetch stats: 504
+    at s (129-81904d31a46796e5.js:1:3047)
+(anonymous) @ page-7ba13c8415d8e00c.js:1
