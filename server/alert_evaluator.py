@@ -45,8 +45,8 @@ class AlertEvaluator:
         if not device_ids:
             return {}
         
-        # Use time window to limit data scanned - only look at last 2 hours
-        time_window = datetime.now(timezone.utc) - timedelta(hours=2)
+        # Use time window to limit data scanned - only look at last 30 minutes
+        time_window = datetime.now(timezone.utc) - timedelta(minutes=30)
         
         try:
             # Use PostgreSQL DISTINCT ON for efficient "latest per group" query
@@ -152,9 +152,9 @@ class AlertEvaluator:
         if not device_ids:
             return {}
         
-        # Use a time window to limit data - only look at heartbeats from last 2 hours
-        # This dramatically reduces the data scanned while still covering any realistic offline scenario
-        time_window = datetime.now(timezone.utc) - timedelta(hours=2)
+        # Use a time window to limit data - only look at heartbeats from last 30 minutes
+        # This focuses on most recent data and gets updated info on new heartbeats
+        time_window = datetime.now(timezone.utc) - timedelta(minutes=30)
         
         # Use window function to efficiently get top N per device
         # This is much faster than loading all heartbeats and filtering in Python
