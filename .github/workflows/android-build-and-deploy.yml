@@ -250,43 +250,29 @@ jobs:
             echo "⚠️  Backend returned HTTP $HEALTH_CODE (may still be functional)"
           fi
       
-      - name: Upload APK to NexMDM backend
+      - name: Upload APK to Development Environment
         env:
           BACKEND_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
           ADMIN_KEY: ${{ secrets.NEXMDM_ADMIN_KEY }}
         run: |
-          # Verify secrets are set
-          if [ -z "$BACKEND_URL" ]; then
-            echo "❌ ERROR: NEXMDM_BACKEND_URL secret is not set!"
-            exit 1
-          fi
-          
-          if [ -z "$ADMIN_KEY" ]; then
-            echo "❌ ERROR: NEXMDM_ADMIN_KEY secret is not set!"
-            exit 1
+          if [ -z "$BACKEND_URL" ] || [ -z "$ADMIN_KEY" ]; then
+            echo "⚠️  Skipping DEV upload: NEXMDM_BACKEND_URL or NEXMDM_ADMIN_KEY not set"
+            exit 0
           fi
           
           BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
           APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
           
           echo "================================================"
-          echo "🚀 Uploading RELEASE APK to NexMDM backend"
+          echo "🚀 Uploading RELEASE APK to DEV environment"
           echo "================================================"
           echo "Build ID: $BUILD_ID"
           echo "Backend URL: $BACKEND_URL"
           echo "Version: ${{ steps.version.outputs.version_name }} (code: ${{ steps.version.outputs.version_code }})"
           echo "File size: $(stat -c%s "$APK_PATH") bytes"
-          echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
           echo "================================================"
           
-          echo "📤 Uploading via Next.js proxy..."
-          echo "📍 Upload URL: $BACKEND_URL/api/apk/upload"
-          
-          # Upload through Next.js API route which proxies to backend /admin/apk/upload
-          # This creates the APK record and stores the file in one request
-          # NOTE: We capture HTTP code to a separate file to avoid issues with HTTP 100 Continue
-          # The -s flag silences progress, but we log verbose to a separate file for debugging
-          curl -L --post301 --max-time 300 -v -X POST "$BACKEND_URL/api/apk/upload" \
+          curl -L --post301 --max-time 300 -s -X POST "$BACKEND_URL/api/apk/upload" \
             -H "X-Admin: $ADMIN_KEY" \
             -H "Expect:" \
             -F "file=@$APK_PATH" \
@@ -295,42 +281,97 @@ jobs:
             -F "version_name=${{ steps.version.outputs.version_name }}" \
             -F "build_type=release" \
             -F "package_name=com.nexmdm" \
+            -w "\n%{http_code}" \
+            -o /tmp/dev_upload_response.txt \
+            > /tmp/dev_http_code.txt
+          
+          HTTP_CODE=$(tail -1 /tmp/dev_http_code.txt 2>/dev/null | tr -d '[:space:]')
+          UPLOAD_RESPONSE=$(cat /tmp/dev_upload_response.txt 2>/dev/null || echo "No response")
+          
+          echo "📥 DEV Upload response: HTTP $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ SUCCESS: APK uploaded to DEV environment"
+          else
+            echo "⚠️  DEV upload failed (HTTP $HTTP_CODE) - continuing to PROD"
+            echo "Response: $UPLOAD_RESPONSE"
+          fi
+
+      - name: Upload APK to Production Environment
+        env:
+          PROD_URL: ${{ secrets.NEXMDM_PROD_URL }}
+          PROD_ADMIN_KEY: ${{ secrets.NEXMDM_PROD_ADMIN_KEY }}
+        run: |
+          if [ -z "$PROD_URL" ]; then
+            echo "❌ ERROR: NEXMDM_PROD_URL secret is not set!"
+            echo "Add NEXMDM_PROD_URL to your GitHub secrets (e.g., https://unitymdm.replit.app)"
+            exit 1
+          fi
+          
+          if [ -z "$PROD_ADMIN_KEY" ]; then
+            echo "❌ ERROR: NEXMDM_PROD_ADMIN_KEY secret is not set!"
+            echo "Add NEXMDM_PROD_ADMIN_KEY to your GitHub secrets"
+            exit 1
+          fi
+          
+          BUILD_ID="gh_${{ github.run_id }}_${{ github.run_number }}"
+          APK_PATH="android/${{ env.RELEASE_APK_PATH }}"
+          
+          echo "================================================"
+          echo "🚀 Uploading RELEASE APK to PRODUCTION environment"
+          echo "================================================"
+          echo "Build ID: $BUILD_ID"
+          echo "Production URL: $PROD_URL"
+          echo "Version: ${{ steps.version.outputs.version_name }} (code: ${{ steps.version.outputs.version_code }})"
+          echo "File size: $(stat -c%s "$APK_PATH") bytes"
+          echo "SHA256: ${{ steps.apk_metadata.outputs.SHA256 }}"
+          echo "================================================"
+          
+          echo "📤 Uploading to PRODUCTION via Next.js proxy..."
+          echo "📍 Upload URL: $PROD_URL/api/apk/upload"
+          
+          curl -L --post301 --max-time 300 -v -X POST "$PROD_URL/api/apk/upload" \
+            -H "X-Admin: $PROD_ADMIN_KEY" \
+            -H "Expect:" \
+            -F "file=@$APK_PATH" \
+            -F "build_id=$BUILD_ID" \
+            -F "version_code=${{ steps.version.outputs.version_code }}" \
+            -F "version_name=${{ steps.version.outputs.version_name }}" \
+            -F "build_type=release" \
+            -F "package_name=com.nexmdm" \
             -w "%{http_code}" \
-            -o /tmp/upload_response.txt \
-            2>/tmp/upload_verbose.txt \
-            > /tmp/http_code.txt
+            -o /tmp/prod_upload_response.txt \
+            2>/tmp/prod_upload_verbose.txt \
+            > /tmp/prod_http_code.txt
           
-          # Read HTTP code from file (avoids issues with stdout/stderr mixing)
-          HTTP_CODE=$(cat /tmp/http_code.txt 2>/dev/null | tr -d '[:space:]')
-          UPLOAD_RESPONSE=$(cat /tmp/upload_response.txt 2>/dev/null || echo "No response")
+          HTTP_CODE=$(cat /tmp/prod_http_code.txt 2>/dev/null | tr -d '[:space:]')
+          UPLOAD_RESPONSE=$(cat /tmp/prod_upload_response.txt 2>/dev/null || echo "No response")
           
-          # Show verbose output for debugging
-          if [ -f /tmp/upload_verbose.txt ]; then
+          if [ -f /tmp/prod_upload_verbose.txt ]; then
             echo ""
             echo "📋 Verbose curl output (last 50 lines):"
-            tail -n 50 /tmp/upload_verbose.txt
+            tail -n 50 /tmp/prod_upload_verbose.txt
           fi
           
           echo ""
-          echo "📥 Upload response:"
+          echo "📥 PRODUCTION Upload response:"
           echo "HTTP Status: $HTTP_CODE"
           echo "Response: $UPLOAD_RESPONSE"
           
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
             echo ""
-            echo "✅ SUCCESS: Release APK registered and uploaded to backend!"
-            echo "View build at: $BACKEND_URL/apk-management"
+            echo "✅ SUCCESS: Release APK uploaded to PRODUCTION!"
+            echo "View build at: $PROD_URL/apk-management"
           else
             echo ""
-            echo "❌ FAILED: APK upload returned HTTP $HTTP_CODE"
+            echo "❌ FAILED: PRODUCTION APK upload returned HTTP $HTTP_CODE"
             echo "Response: $UPLOAD_RESPONSE"
             echo ""
             echo "Troubleshooting:"
-            echo "1. Check that both Backend and Frontend workflows are running in Replit"
-            echo "2. Verify NEXMDM_BACKEND_URL is correct: $BACKEND_URL"
-            echo "3. Verify NEXMDM_ADMIN_KEY matches backend ADMIN_KEY"
-            echo "4. Check backend logs in Replit console"
-            echo "5. Try accessing $BACKEND_URL/api/proxy/healthz manually"
+            echo "1. Verify NEXMDM_PROD_URL is correct: $PROD_URL"
+            echo "2. Verify NEXMDM_PROD_ADMIN_KEY matches the production ADMIN_KEY"
+            echo "3. Check production backend logs"
+            echo "4. Try accessing $PROD_URL/api/proxy/healthz manually"
             exit 1
           fi
       
@@ -357,7 +398,13 @@ jobs:
           retention-days: 30
 
       - name: Generate build summary
+        env:
+          PROD_URL: ${{ secrets.NEXMDM_PROD_URL }}
+          DEV_URL: ${{ secrets.NEXMDM_BACKEND_URL }}
         run: |
+          # Use production URL for dashboard link (always set), fallback to dev if prod somehow empty
+          DASHBOARD_URL="${PROD_URL:-$DEV_URL}"
+          
           cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 🤖 Android Build & Deploy Summary
           
@@ -368,14 +415,21 @@ jobs:
           - **Build Time**: ${{ steps.version.outputs.build_time }}
           - **Workflow Run**: #${{ github.run_number }}
           
-          ### ✅ Artifacts Built
+          ### ✅ Deployment Status
           
-          #### Release APK (Production)
+          #### Production Environment
+          - **URL**: ${PROD_URL}
+          - **Dashboard**: [${PROD_URL}/apk-management](${PROD_URL}/apk-management)
+          - **Status**: Deployed ✅
+          
+          #### Development Environment
+          - **URL**: ${DEV_URL:-Not configured}
+          - **Status**: ${DEV_URL:+Deployed ✅}${DEV_URL:-Skipped (secrets not set)}
+          
+          ### 📦 Release APK Details
           - **SHA256**: \`${{ steps.apk_metadata.outputs.SHA256 }}\`
           - **Size**: ${{ steps.apk_metadata.outputs.FILE_SIZE }} bytes
           - **Signature**: Verified ✅
-          - **Backend**: Registered ✅
-          - **Dashboard**: [${{ secrets.NEXMDM_BACKEND_URL }}/apk-management](${{ secrets.NEXMDM_BACKEND_URL }}/apk-management)
           - **Available**: GitHub Artifacts (90 days)
           
           #### Debug APK (Development Only)
@@ -388,7 +442,7 @@ jobs:
           ### 🔐 Security
           - All APKs signed with production keystore
           - Signatures verified with apksigner
-          - Release APK registered in APK Management system for fleet deployment
+          - Release APK deployed to production for fleet deployment
           
           ### 📥 Download
           - [Debug APK (30 days retention)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
