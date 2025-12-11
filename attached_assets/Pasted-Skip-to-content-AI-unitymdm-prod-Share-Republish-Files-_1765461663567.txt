@@ -1,0 +1,525 @@
+Skip to content
+
+
+AI
+
+
+
+unitymdm-prod
+
+
+
+
+Share
+
+Republish
+
+
+Files
+
+
+
+Commands
+Search
+Packager files
+Config files
+
+
+
+/
+
+
+
+
+main
+
+
+Remote Updates
+origin/main•upstream
+last fetched 9 hours ago
+
+Fetch
+1 commit to push
+
+Sync with Remote
+
+Pull
+
+Push
+Commit
+There are no changes to commit.
+
+~/workspace
+: 
+bash
+
+
+
+Enable "Accessible Terminal" in Workspace Settings to use a screen reader with the shell.
+
+
+Unified
+
+Split
+android/app/src/main/java/com/nexmdm/MonitorService.kt
+⦚ 215 unchanged lines ⦚
+        val apkInstaller = ApkInstaller(applicationContext)
+        val reliabilityFlags = telemetry.getReliabilityFlags()
+        val queueDepth = telemetry.getQueueDepth()
+        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(prefs.monitoredPackage)
+        
+        val appVersionsMap = mutableMapOf<String, AppVersion>()
+        appVersionsMap[prefs.speedtestPackage] = AppVersion(
+⦚ 291 unchanged lines ⦚
+⦚ 215 unchanged lines ⦚
+        val apkInstaller = ApkInstaller(applicationContext)
+        val reliabilityFlags = telemetry.getReliabilityFlags()
+        val queueDepth = telemetry.getQueueDepth()
+        
+        // Get monitored foreground recency for the configured package
+        val monitoredPackage = prefs.monitoredPackage
+        val monitoredForegroundRecency = telemetry.getMonitoredForegroundRecency(monitoredPackage)
+        
+        Log.d(TAG, "Monitored package: $monitoredPackage, foreground_recent_s: $monitoredForegroundRecency")
+        
+        val appVersionsMap = mutableMapOf<String, AppVersion>()
+        appVersionsMap[prefs.speedtestPackage] = AppVersion(
+⦚ 291 unchanged lines ⦚
+Docs
+
+Link Account Secrets
+
+New Secret
+Secrets are accessible to anyone who has access to this App. To restrict secret access, you must update App invite permissions. For more information, visit our documentation.
+
+
+SESSION_SECRET
+
+••••••••
+
+
+
+PGDATABASE
+
+••••••••
+
+
+
+PGHOST
+
+••••••••
+
+
+
+PGPORT
+
+••••••••
+
+
+
+PGUSER
+
+••••••••
+
+
+
+PGPASSWORD
+
+••••••••
+
+
+
+FIREBASE_SERVICE_ACCOUNT_JSON
+
+••••••••
+
+
+
+ANDROID_KEYSTORE_BASE64
+
+••••••••
+
+
+
+ADMIN_KEY
+
+••••••••
+
+
+
+HMAC_SECRET
+
+••••••••
+
+
+
+JWT_SECRET
+
+••••••••
+
+
+
+DATABASE_URL
+
+••••••••
+
+
+
+DISCORD_WEBHOOK_URL
+
+••••••••
+
+
+
+Edit as JSON
+
+Edit as .env
+
+All Databases
+
+Refresh
+Databases
+Development Database
+73.91MB / 10GB
+Production Database
+82.32MB / 100GB
+Billing Period
+Renews monthly, Dec 11
+Hours of Compute Used
+140.55 hours
+
+cd server && uvicorn main:app --host 0.0.0.0 --port 8000 --reload --limit-max-requests 1000000
+
+Ask Agent…
+15m
+ • 
+15 minutes ago
+
+
+cd frontend && npm run dev -- -p 5000 -H 0.0.0.0
+
+Ask Agent…
+15m
+ • 
+15 minutes ago
+
+
+Overview
+
+Logs
+
+Analytics
+
+Resources
+
+Domains
+
+Manage
+Search
+
+
+Errors only
+
+Date
+Time
+Deployment
+Source
+Log
+2025-12-11 08:00:27.15
+936635fd
+User
+NETWORK_ERR: 19,
+2025-12-11 08:00:40.02
+936635fd
+User
+INVALID_CHARACTER_ERR: 5,
+2025-12-11 08:00:40.02
+936635fd
+User
+NOT_FOUND_ERR: 8,
+2025-12-11 08:00:40.02
+936635fd
+User
+DATA_CLONE_ERR: 25
+2025-12-11 08:00:40.02
+936635fd
+User
+INVALID_MODIFICATION_ERR: 13,
+2025-12-11 08:00:40.02
+936635fd
+User
+at async w (.next/server/app/v1/heartbeat/route.js:1:1486)
+2025-12-11 08:00:40.02
+936635fd
+User
+NO_MODIFICATION_ALLOWED_ERR: 7,
+2025-12-11 08:00:40.23
+936635fd
+User
+Error proxying heartbeat: Error [AbortError]: This operation was aborted
+2025-12-11 08:00:40.23
+936635fd
+User
+INUSE_ATTRIBUTE_ERR: 10,
+2025-12-11 08:00:40.23
+936635fd
+User
+code: 20,
+2025-12-11 08:00:40.23
+936635fd
+User
+TYPE_MISMATCH_ERR: 17,
+2025-12-11 08:00:40.23
+936635fd
+User
+NAMESPACE_ERR: 14,
+2025-12-11 08:00:40.23
+936635fd
+User
+NO_MODIFICATION_ALLOWED_ERR: 7,
+2025-12-11 08:00:40.23
+936635fd
+User
+INVALID_STATE_ERR: 11,
+2025-12-11 08:00:40.23
+936635fd
+User
+at async w (.next/server/app/v1/heartbeat/route.js:1:1486)
+2025-12-11 08:00:40.23
+936635fd
+User
+DOMSTRING_SIZE_ERR: 2,
+2025-12-11 08:00:40.23
+936635fd
+User
+INDEX_SIZE_ERR: 1,
+2025-12-11 08:00:40.23
+936635fd
+User
+WRONG_DOCUMENT_ERR: 4,
+2025-12-11 08:00:40.23
+936635fd
+User
+NOT_FOUND_ERR: 8,
+2025-12-11 08:00:40.23
+936635fd
+User
+SYNTAX_ERR: 12,
+
+2025-12-11 08:00:40.23
+936635fd
+User
+NO_DATA_ALLOWED_ERR: 6,
+2025-12-11 08:00:40.23
+936635fd
+User
+at async g (.next/server/app/v1/heartbeat/route.js:1:5545)
+2025-12-11 08:00:40.23
+936635fd
+User
+at async k (.next/server/app/v1/heartbeat/route.js:1:4542)
+2025-12-11 08:00:40.23
+936635fd
+User
+NOT_SUPPORTED_ERR: 9,
+2025-12-11 08:00:40.23
+936635fd
+User
+INVALID_CHARACTER_ERR: 5,
+2025-12-11 08:00:40.23
+936635fd
+User
+VALIDATION_ERR: 16,
+2025-12-11 08:00:40.23
+936635fd
+User
+DATA_CLONE_ERR: 25
+2025-12-11 08:00:40.23
+936635fd
+User
+}
+2025-12-11 08:00:40.23
+936635fd
+User
+INVALID_MODIFICATION_ERR: 13,
+2025-12-11 08:00:40.23
+936635fd
+User
+INVALID_NODE_TYPE_ERR: 24,
+2025-12-11 08:00:40.23
+936635fd
+User
+at async C (.next/server/app/v1/heartbeat/route.js:1:6667) {
+2025-12-11 08:00:40.23
+936635fd
+User
+HIERARCHY_REQUEST_ERR: 3,
+2025-12-11 08:00:40.69
+936635fd
+User
+{"ts": "2025-12-11T14:00:40.696507+00:00", "request_id": "d70677dc-5234-4c38-bf06-c25ff92f2907", "level": "INFO", "event": "heartbeat.ingest", "device_id": "0c9684cb-c88f-4aa0-9263-dd61124bbdc2", "alias": "S25", "battery_pct": 100, "network_type": "cell", "uptime_s": 539658, "status": "received"}
+2025-12-11 08:00:40.69
+936635fd
+User
+{"ts": "2025-12-11T14:00:40.695695+00:00", "request_id": "d70677dc-5234-4c38-bf06-c25ff92f2907", "level": "INFO", "event": "auth.device_token.success", "device_id": "0c9684cb-c88f-4aa0-9263-dd61124bbdc2", "token_id_prefix": "ff9467f1", "lookup_method": "token_id", "latency_ms": 617.5282001495361}
+2025-12-11 08:00:40.85
+936635fd
+User
+at async w (.next/server/app/v1/heartbeat/route.js:1:1486)
+
+Collapse
+
+Wrap
+
+Colors
+
+Live
+
+Published your App
+
+
+
+Show previous events
+Based on my investigation, I've identified the issue:
+
+The Problem:
+Your APKs exist in the development database (I can see APK ID 137 with storage_url = apks/1.0.252-52638d7_252.apk), but when users access unitymdm.replit.app (your production deployment), the production database is separate and likely doesn't have these APK records.
+
+In Replit, the development and production databases are completely separate. When you upload APKs during development, they go to:
+
+The development database (apk_versions table)
+The development object storage
+But production has its own database and storage that need to be populated separately.
+
+The Solution:
+You'll need to re-upload your APKs directly to production. There are a few approaches:
+
+Re-upload via your admin interface pointing to the production endpoint
+Database sync - Export APK records from dev and import to production (though file data still needs to be in production object storage)
+Add an admin tool to migrate APKs between environments
+Would you like me to:
+
+Create an admin tool/endpoint to help you re-upload APKs to production?
+Add a migration script that syncs APK records and files to production?
+Provide guidance on manually uploading via your existing admin interface?
+Created task list
+Worked for 2 minutes
+Build a migration script that exports apk recods and files to prod.
+Modify CI/CD so that my GIT hub actions deploys to both my DEV environment and my prod environment : https://unitymdm.replit.app/
+13 hours ago
+
+2 messages & 9 actions
+Let me check your current CI/CD setup and understand how deployments work.
+Start building
+13 hours ago
+Checkpoint made
+13 hours ago
+•
+Free
+Transitioned from Plan to Build mode
+
+Rollback here
+
+Changes
+
+13 messages & 19 actions
+Looking at this task, I need to: 1. Create a migration script to export APK records and files from dev to production 2. Modify the GitHub Actions workflow to deploy to both dev and prod Let me start by creating the migration script and updating the CI/CD workflow.
+Checkpoint made
+12 hours ago
+Saved progress at the end of the loop
+
+Rollback here
+
+Changes
+
+Preview
+Worked for 6 minutes
+Want users to get these changes? Republish this App.
+Production database settings
+
+Configure myself
+
+Republish
+I see this: ~/workspace$ python scripts/migrate_apks_to_prod.py --prod-url https://unitymdm.replit.app --prod-admin-key ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y= --dry-run
+python: can't open file '/home/runner/workspace/scripts/migrate_apks_to_prod.py': [Errno 2] No such file or directory
+
+9 hours ago
+
+1 message & 1 action
+The script is in the `server/` directory. Run it from there: ```bash cd server python scripts/migrate_apks_to_prod.py --prod-url https://unitymdm.replit.app --prod-admin-key ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y= --dry-run ``` Or run it directly from the workspace root with the full path: ```bash python server/scripts/migrate_apks_to_prod.py --prod-url https://unitymdm.replit.app --prod-admin-key ldWh9geFGp2QbdRQQWvzGzwI56hb2FD4GdC48CKjT1Y= --dry-run ``` This will show you which APKs would be migrated without actually uploading them. Once you verify the dry run looks good, run it without `--dry-run` to execute the migration.
+Is there a reason the "sign in" takes more than 30secs sometimes? Also my admin user is not signing in. The password should be: admin123 but its not being accepted - not sure if its cause the delay thats having or something else
+
+9 hours ago
+
+4 messages & 9 actions
+Let me check the logs to see what's happening with the sign-in.
+yes implement both of those please
+
+9 hours ago
+
+7 messages & 22 actions
+I'll implement both fixes now. Let me start by: 1. Hashing "admin123" and updating the database 2. Finding and optimizing the alert scheduler Let me work in parallel - reading the alert scheduler code while preparing the password update:
+Continue building
+
+9 hours ago
+
+16 messages & 39 actions
+Now let me find the actual bottleneck in alert_evaluator:
+Checkpoint made
+9 hours ago
+Saved progress at the end of the loop
+
+Rollback here
+
+Changes
+
+Preview
+Worked for 8 minutes
+Change it to the last 30min for the window filter. I dont need past 2hrs. Im more concerned with most recent data and can get updated info on new heartbeats
+
+9 hours ago
+
+Show 7 more
+
+Restarted Backend
+
+Verified alert time window adjustment
+Done! I've updated the time window filter from 2 hours to 30 minutes in both alert evaluation functions. The backend has been restarted and will now focus on the most recent heartbeat data within the last 30 minutes, giving you more current information while maintaining the fast query performance.
+
+Checkpoint made
+9 hours ago
+Update alert filter to focus on recent data
+
+Rollback here
+
+Changes
+
+Preview
+Worked for 26 seconds
+Checkpoint made
+9 hours ago
+•
+Free
+•
+Publish
+Published your App
+
+Rollback here
+
+Changes
+
+View preview
+Worked for 4 seconds
+
+Scroll to latest
+My frontend is working, but still showing: Checking configuration...
+
+in my prod environment. 
+
+Build
+
+Build
+
+
+
+
