@@ -500,6 +500,9 @@ class FcmMessagingService : FirebaseMessagingService() {
                             Log.i(TAG, "APK installed successfully: $packageName")
                             reportInstallStatus(installationId, "completed", 100, null)
                             
+                            // Clear pending installation ID since we've reported success
+                            prefs.pendingInstallationId = -1
+                            
                             // Auto-launch the installed app after successful installation
                             if (packageName.isNotEmpty()) {
                                 launchInstalledApp(packageName)
@@ -507,6 +510,9 @@ class FcmMessagingService : FirebaseMessagingService() {
                         } else {
                             Log.e(TAG, "APK installation failed: $installError")
                             reportInstallStatus(installationId, "failed", 100, installError)
+                            
+                            // Clear pending installation ID since we've reported failure
+                            prefs.pendingInstallationId = -1
                         }
                     }
                 } else {

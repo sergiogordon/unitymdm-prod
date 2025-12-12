@@ -72,14 +72,16 @@ class ApkInstaller(private val context: Context) {
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE
             )
 
+            Log.d(TAG, "Registering callback for sessionId: $sessionId")
             ApkInstallReceiver.setCallback(sessionId) { success, error ->
+                Log.d(TAG, "Callback invoked for sessionId: $sessionId - success: $success, error: $error")
                 callback(success, error)
             }
 
             session.commit(pendingIntent.intentSender)
-            session.close()
-
             Log.i(TAG, "APK installation session committed: $sessionId")
+            session.close()
+            Log.d(TAG, "Session closed for sessionId: $sessionId")
         } catch (e: IOException) {
             Log.e(TAG, "PackageInstaller session failed", e)
             callback(false, "Session error: ${e.message}")
